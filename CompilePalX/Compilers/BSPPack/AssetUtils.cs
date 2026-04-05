@@ -566,11 +566,12 @@ namespace CompilePalX.Compilers.BSPPack
                 var statements = line.Split(";").Where(s => !string.IsNullOrWhiteSpace(s));
                 foreach (var statement in statements)
                 {
-                    var cleanStatement = statement;
+                    // ignore all leading/trailing whitespace
+                    var cleanStatement = statement.TrimStart().TrimEnd();
 
                     // ignore comments, except for packing hints
-                    if (commentRegex.IsMatch(statement)) {
-                        cleanStatement = commentRegex.Replace(statement, "");
+                    if (commentRegex.IsMatch(cleanStatement)) {
+                        cleanStatement = commentRegex.Replace(cleanStatement, "");
 
                         if (!vscriptHints.Any(func => cleanStatement.Contains(func))) {
                             continue;
