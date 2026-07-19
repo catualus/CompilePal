@@ -412,13 +412,19 @@ namespace CompilePalX.Compilers.BSPPack
 
             ModelList = [];
             // getting information on the gamelump
+            const int PROP_STATIC_ID = 1936749168; // prps as int32
+            const int DETAIL_PROP_ID = 1685090928; // prpd as int32
             int propStaticId = 0;
+            int detailPropId = 0;
             bsp.Seek(offsets[35].Key, SeekOrigin.Begin);
             KeyValuePair<int, int>[] GameLumpOffsets = new KeyValuePair<int, int>[reader.ReadInt32()]; // offset/length
             for (int i = 0; i < GameLumpOffsets.Length; i++)
             {
-                if (reader.ReadInt32() == 1936749168)
+                int lumpID = reader.ReadInt32();
+                if (lumpID  == PROP_STATIC_ID)
                     propStaticId = i;
+                else if (lumpID == DETAIL_PROP_ID)
+                    detailPropId = i;
                 bsp.Seek(4, SeekOrigin.Current); //skip flags and version
                 GameLumpOffsets[i] = new KeyValuePair<int, int>(reader.ReadInt32(), reader.ReadInt32());
             }
@@ -448,30 +454,44 @@ namespace CompilePalX.Compilers.BSPPack
 
             int propCount = reader.ReadInt32();
 
-            //dont bother if there's no props, avoid a dividebyzero exception.
-            if (propCount <= 0)
-                return;
-
-            long propOffset = bsp.Position;
-            int byteLength = GameLumpOffsets[propStaticId].Key + GameLumpOffsets[propStaticId].Value - (int)propOffset;
-            int propLength = byteLength / propCount;
-
-            modelSkinList = new List<int>[modelCount]; // stores the ids of used skins
-
-            for (int i = 0; i < modelCount; i++)
-                modelSkinList[i] = [];
-
-            for (int i = 0; i < propCount; i++)
+            // dont bother if there's no props, avoid a dividebyzero exception.
+            if (propCount > 0)
             {
-                bsp.Seek(i * propLength + propOffset + 24, SeekOrigin.Begin); // 24 skips origin and angles
-                int modelId = reader.ReadUInt16();
-                bsp.Seek(6, SeekOrigin.Current);
-                int skin = reader.ReadInt32();
+                long propOffset = bsp.Position;
+                int byteLength = GameLumpOffsets[propStaticId].Key + GameLumpOffsets[propStaticId].Value - (int)propOffset;
+                int propLength = byteLength / propCount;
 
-                if (modelSkinList[modelId].IndexOf(skin) == -1)
-                    modelSkinList[modelId].Add(skin);
+                modelSkinList = new List<int>[modelCount]; // stores the ids of used skins
+
+                for (int i = 0; i < modelCount; i++)
+                    modelSkinList[i] = [];
+
+                for (int i = 0; i < propCount; i++)
+                {
+                    bsp.Seek(i * propLength + propOffset + 24, SeekOrigin.Begin); // 24 skips origin and angles
+                    int modelId = reader.ReadUInt16();
+                    bsp.Seek(6, SeekOrigin.Current);
+                    int skin = reader.ReadInt32();
+
+                    if (modelSkinList[modelId].IndexOf(skin) == -1)
+                        modelSkinList[modelId].Add(skin);
+                }
+            }
+            else
+            {
+                // initialize modelSkinList so that we dont get exceptions if theres detail props and we try to access the model skin list
+                modelSkinList = [];
             }
 
+            // read model names from detail props in the game lump
+            bsp.Seek(GameLumpOffsets[detailPropId].Key, SeekOrigin.Begin);
+            int detailCount = reader.ReadInt32();
+            for (int i = 0; i < detailCount; i++)
+            {
+                string model = Encoding.ASCII.GetString(reader.ReadBytes(128)).Trim('\0');
+                if (model.Length != 0)
+                    ModelList.Add(model);
+            }
         }
 
         public void buildEntModelList()

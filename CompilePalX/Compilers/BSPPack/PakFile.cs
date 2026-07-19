@@ -242,7 +242,8 @@ namespace CompilePalX.Compilers.BSPPack
             foreach (string model in bsp.EntModelList)
                 AddModel(model);
             for (int i = 0; i < bsp.ModelList.Count; i++)
-                AddModel(bsp.ModelList[i], bsp.modelSkinList[i]);
+                // detail props dont have skins and will have an index outside of the range of modelSkinList
+                AddModel(bsp.ModelList[i], bsp.modelSkinList.ElementAtOrDefault(i));
             foreach (string vmt in bsp.TextureList)
                 AddTexture(vmt);
             foreach (string vmt in bsp.EntTextureList)
