@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using MahApps.Metro.Controls.Dialogs;
 
 namespace CompilePalX
 {
@@ -75,6 +74,11 @@ namespace CompilePalX
         private void Launch(GameConfiguration config)
         {
             GameConfigurationManager.GameConfiguration = config;
+
+            // compiler and executable paths just changed, so cached verdicts no longer apply
+            ToolsPlusPlusDetector.Invalidate();
+            GameExeResolver.Invalidate();
+
             Instance = null;
 
 			// if main window already exists update title
@@ -152,19 +156,10 @@ namespace CompilePalX
         {
             var configuration = (GameConfiguration)((MenuItem)sender).DataContext;
 
-            var dialogSettings = new MetroDialogSettings()
-            {
-                AffirmativeButtonText = "Delete",
-                NegativeButtonText = "Cancel",
-                AnimateHide = false,
-                AnimateShow = false,
-                DefaultButtonFocus = MessageDialogResult.Affirmative,
-            };
+            bool confirmed = await CompilePalX.Theming.AppDialog.ConfirmAsync("Delete Game",
+                $"Are you sure you want to delete {configuration.Name}?", affirmativeText: "Delete");
 
-            var result = await this.ShowMessageAsync($"Delete Game", $"Are you sure you want to delete {configuration.Name}?",
-                MessageDialogStyle.AffirmativeAndNegative, dialogSettings);
-
-            if (result != MessageDialogResult.Affirmative)
+            if (!confirmed)
                 return;
 
             GameConfigurationManager.GameConfigurations.Remove(configuration);

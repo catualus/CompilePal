@@ -47,6 +47,12 @@ public partial class GameConfigurationWindow
         }
 
         GameConfigurationManager.SaveGameConfigurations();
+
+        // compiler/executable paths may have just changed; drop cached tools++/launcher resolutions so
+        // they're recomputed against the saved config instead of silently reusing stale ones
+        ToolsPlusPlusDetector.Invalidate();
+        GameExeResolver.Invalidate();
+
         LaunchWindow.Instance?.RefreshGameConfigurationList();
         Close();
     }

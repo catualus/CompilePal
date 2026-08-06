@@ -28,19 +28,22 @@ namespace CompilePalX
             text = text.Replace("$mapCopyLocation$", FormatValue(Path.Combine(GameConfiguration.MapFolder, Path.ChangeExtension(Path.GetFileName(mapFile), "bsp")), quote));
 
             text = text.Replace("$game$", FormatValue(GameConfiguration.GameFolder, quote));
-            text = text.Replace("$gameEXE$", FormatValue(GameConfiguration.GameEXE, quote));
+            // game configs often name a launcher that no longer exists (Garry's Mod hl2.exe -> gmod.exe)
+            text = text.Replace("$gameEXE$", FormatValue(GameExeResolver.Resolve(GameConfiguration.GameEXE), quote));
             text = text.Replace("$binFolder$", FormatValue(GameConfiguration.BinFolder, quote));
             text = text.Replace("$mapFolder$", FormatValue(GameConfiguration.MapFolder, quote));
             text = text.Replace("$gameName$", FormatValue(GameConfiguration.Name, quote));
             text = text.Replace("$sdkFolder$", FormatValue(GameConfiguration.SDKMapFolder, quote));
 
 
-            text = text.Replace("$vbsp$", FormatValue(GameConfiguration.VBSP, quote));
-            text = text.Replace("$vvis$", FormatValue(GameConfiguration.VVIS, quote));
-            text = text.Replace("$vrad$", FormatValue(GameConfiguration.VRAD, quote));
+            // resolve through the tools++ detector so a Hammer++ build sitting in bin/win64 is used in
+            // preference to a stock binary the game configuration happens to point at
+            text = text.Replace("$vbsp$", FormatValue(ToolsPlusPlusDetector.ResolveBinary("VBSP", GameConfiguration.VBSP) ?? GameConfiguration.VBSP, quote));
+            text = text.Replace("$vvis$", FormatValue(ToolsPlusPlusDetector.ResolveBinary("VVIS", GameConfiguration.VVIS) ?? GameConfiguration.VVIS, quote));
+            text = text.Replace("$vrad$", FormatValue(ToolsPlusPlusDetector.ResolveBinary("VRAD", GameConfiguration.VRAD) ?? GameConfiguration.VRAD, quote));
 
 
-            text = text.Replace("$bspZip$", FormatValue(GameConfiguration.BSPZip, quote));
+            text = text.Replace("$bspZip$", FormatValue(ToolsPlusPlusDetector.ResolveBinary("BSPZIP", GameConfiguration.BSPZip) ?? GameConfiguration.BSPZip, quote));
             text = text.Replace("$vbspInfo$", FormatValue(GameConfiguration.VBSPInfo, quote));
 
 
