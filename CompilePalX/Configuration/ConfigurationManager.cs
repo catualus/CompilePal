@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -10,6 +12,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Documents;
+using System.Windows.Threading;
 using CompilePalX.Compilers;
 using CompilePalX.Compilers.BSPPack;
 using CompilePalX.Compilers.UtilityProcess;
@@ -50,6 +53,12 @@ namespace CompilePalX
             Order = order;
         }
     }
+    /// <remarks>
+    /// WARNING: Preset is used as the key of <see cref="CompileProcess.PresetDictionary"/> while
+    /// <see cref="GetHashCode"/> derives from the mutable Name/Map/MapRegex. Mutating any of those on a
+    /// preset that is already a key orphans its entry. Rename via
+    /// <see cref="ConfigurationManager.EditPreset"/>, which rebuilds the dictionaries from disk.
+    /// </remarks>
     public class Preset : IEquatable<Preset>, ICloneable
     {
         public required string Name { get; set; }
@@ -78,7 +87,19 @@ namespace CompilePalX
         }
         public object Clone()
         {
-            return this.MemberwiseClone();
+            var clone = (Preset)this.MemberwiseClone();
+            // MemberwiseClone is shallow: without this the clone shares the original's parameter lists,
+            // so editing one preset silently rewrites the other.
+            clone.Processes = CopyProcesses();
+            return clone;
+        }
+
+        /// <summary>
+        /// Deep copies the process -> parameter map so two presets never share parameter list instances.
+        /// </summary>
+        public Dictionary<string, List<PresetProcessParameter>> CopyProcesses()
+        {
+            return Processes.ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
         }
 
         /// <summary>
@@ -105,7 +126,161 @@ namespace CompilePalX
         private static readonly string PresetsFolder = "./Presets";
         private static readonly string PluginFolder = "./Plugins";
         private static readonly string SettingsFile = "./Settings.json";
-        
+
+        #region Autosave
+
+        // Presets used to be written only from MainWindow's Closing handler, so anything short of a clean
+        // shutdown (crash, force kill, Environment.Exit) discarded every edit made that session. Edits are
+        // now tracked and flushed shortly after they happen.
+        private static readonly HashSet<Preset> DirtyPresets = [];
+        private static DispatcherTimer? autosaveTimer;
+        private static bool processesDirty;
+
+        /// <summary>
+        /// Marks a preset as having unsaved changes and (re)starts the debounce timer.
+        /// Safe to call on every keystroke.
+        /// </summary>
+        public static void MarkDirty(Preset? preset)
+        {
+            if (preset is null)
+                return;
+
+            lock (DirtyPresets)
+            {
+                DirtyPresets.Add(preset);
+            }
+
+            ScheduleFlush();
+        }
+
+        /// <summary>Marks compile process metadata (step order, DoRun, ...) as needing a write.</summary>
+        public static void MarkProcessesDirty()
+        {
+            processesDirty = true;
+            ScheduleFlush();
+        }
+
+        private static void ScheduleFlush()
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher is null)
+            {
+                // no UI thread (unit tests, headless): write through immediately
+                Flush();
+                return;
+            }
+
+            if (!dispatcher.CheckAccess())
+            {
+                dispatcher.BeginInvoke(ScheduleFlush);
+                return;
+            }
+
+            autosaveTimer ??= CreateAutosaveTimer(dispatcher);
+
+            // restart the countdown so a burst of edits results in a single write
+            autosaveTimer.Stop();
+            autosaveTimer.Start();
+        }
+
+        private static DispatcherTimer CreateAutosaveTimer(Dispatcher dispatcher)
+        {
+            var timer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(Math.Max(50, Settings.AutosaveDelayMilliseconds)),
+            };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                Flush();
+            };
+            return timer;
+        }
+
+        /// <summary>
+        /// Writes every pending change to disk immediately. Called by the debounce timer, before a compile
+        /// starts, on shutdown, and from the crash handler.
+        /// </summary>
+        public static void Flush()
+        {
+            Preset[] pending;
+            lock (DirtyPresets)
+            {
+                pending = DirtyPresets.ToArray();
+                DirtyPresets.Clear();
+            }
+
+            foreach (var preset in pending)
+            {
+                try
+                {
+                    SavePreset(preset);
+                }
+                catch (Exception ex)
+                {
+                    CompilePalLogger.LogLineDebug($"Failed to autosave preset \"{preset.Name}\": {ex}");
+                }
+            }
+
+            if (processesDirty)
+            {
+                processesDirty = false;
+                try
+                {
+                    SaveProcesses();
+                }
+                catch (Exception ex)
+                {
+                    CompilePalLogger.LogLineDebug($"Failed to autosave process metadata: {ex}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Watches a preset's parameter list so any add, remove, or in-place edit schedules a save.
+        /// </summary>
+        public static void TrackForAutosave(Preset preset, ObservableCollection<ConfigItem> parameters)
+        {
+            foreach (var item in parameters)
+                Subscribe(item);
+
+            parameters.CollectionChanged += (_, args) =>
+            {
+                foreach (var item in args.OldItems?.OfType<ConfigItem>() ?? [])
+                    item.PropertyChanged -= OnItemChanged;
+
+                foreach (var item in args.NewItems?.OfType<ConfigItem>() ?? [])
+                    Subscribe(item);
+
+                MarkDirty(preset);
+            };
+
+            void Subscribe(ConfigItem item)
+            {
+                item.PropertyChanged -= OnItemChanged;
+                item.PropertyChanged += OnItemChanged;
+            }
+
+            void OnItemChanged(object? sender, PropertyChangedEventArgs args) => MarkDirty(preset);
+        }
+
+        /// <summary>
+        /// Serialises to a temporary file then swaps it into place, so an interrupted write can never
+        /// leave a half-written meta.json behind.
+        /// </summary>
+        private static void WriteFileAtomic(string path, string contents)
+        {
+            string? directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            string tempPath = path + ".tmp";
+            File.WriteAllText(tempPath, contents);
+            File.Move(tempPath, path, overwrite: true);
+        }
+
+        #endregion
+
 
         public static void AssembleParameters()
         {
@@ -114,6 +289,7 @@ namespace CompilePalX
             CompileProcesses.Add(new BSPPack());
             CompileProcesses.Add(new CubemapProcess());
             CompileProcesses.Add(new NavProcess());
+            CompileProcesses.Add(new NavPalProcess());
             CompileProcesses.Add(new ShutdownProcess());
             CompileProcesses.Add(new UtilityProcess());
 			CompileProcesses.Add(new CustomProcess());
@@ -289,9 +465,20 @@ namespace CompilePalX
                 }
 
                 CompilePalLogger.LogLine($"Added preset {preset.Name} {(preset.Map != null ? $"for map {preset.Map} " : "")}for processes {string.Join(", ", CompileProcesses)}");
-                CurrentPreset = preset;
                 KnownPresets.Add(preset);
+
+                // watch every parameter list belonging to this preset so edits schedule a save
+                foreach (var process in CompileProcesses)
+                {
+                    if (process.PresetDictionary.TryGetValue(preset, out var parameters))
+                        TrackForAutosave(preset, parameters);
+                }
             }
+
+            // Restore the preset that was selected last session. Previously CurrentPreset was assigned
+            // inside the loop above, so it always ended up as whichever preset happened to load last.
+            CurrentPreset = KnownPresets.FirstOrDefault(p => p.Name == Settings.LastPreset)
+                            ?? KnownPresets.FirstOrDefault();
         }
 
         public static void LoadSettings()
@@ -322,22 +509,31 @@ namespace CompilePalX
 
         public static void SavePreset(Preset preset)
         {
+            // Rebuild from scratch rather than only refreshing processes still present in the dictionary.
+            // Updating in place left entries for processes the user had removed, so deleted steps and
+            // parameters came back on the next launch.
+            var rebuilt = new Dictionary<string, List<PresetProcessParameter>>();
             foreach (var compileProcess in CompileProcesses)
             {
-                // update preset processes/parameters incase they have been updated
-                if (compileProcess.PresetDictionary.ContainsKey(preset))
-                {
-                    // convert ConfigItems to PresetParameters                        
-                    preset.Processes[compileProcess.Name] = compileProcess.PresetDictionary[preset].Select(config => new PresetProcessParameter(config)).ToList();
-                }
+                if (compileProcess.PresetDictionary.TryGetValue(preset, out var parameters))
+                    rebuilt[compileProcess.Name] = parameters.Select(config => new PresetProcessParameter(config)).ToList();
             }
+
+            // keep entries for processes that failed to load this session so their config is not destroyed
+            foreach (var (processName, parameters) in preset.Processes)
+            {
+                if (!rebuilt.ContainsKey(processName) && CompileProcesses.All(p => p.Name != processName))
+                    rebuilt[processName] = parameters;
+            }
+
+            preset.Processes = rebuilt;
 
             // save preset metadata
             string presetFolder = GetPresetFolder(preset);
             string metadataPath = Path.Combine(presetFolder, "meta.json");
             string jsonSaveText = JsonConvert.SerializeObject(preset, Formatting.Indented);
 
-            File.WriteAllText(metadataPath, jsonSaveText);
+            WriteFileAtomic(metadataPath, jsonSaveText);
         }
 
         public static void SaveProcesses()
@@ -345,13 +541,13 @@ namespace CompilePalX
             foreach (var process in CompileProcesses)
             {
                 string jsonMetadata = Path.Combine(process.ParameterFolder, process.Metadata.Name, "meta.json");
-                File.WriteAllText(jsonMetadata, JsonConvert.SerializeObject(process.Metadata, Formatting.Indented));
+                WriteFileAtomic(jsonMetadata, JsonConvert.SerializeObject(process.Metadata, Formatting.Indented));
             }
         }
 
         public static void SaveSettings(Settings settings)
         {
-            File.WriteAllText(SettingsFile, JsonConvert.SerializeObject(settings, Formatting.Indented));
+            WriteFileAtomic(SettingsFile, JsonConvert.SerializeObject(settings, Formatting.Indented));
             Settings = settings;
             ErrorFinder.Init(true);
         }
@@ -392,7 +588,8 @@ namespace CompilePalX
             // if cloned preset is map specific, append map to name
             string oldFolder = GetPresetFolder(CurrentPreset);
 
-            preset.Processes = CurrentPreset.Processes;
+            // deep copy: sharing the dictionary made edits to the clone rewrite the source preset
+            preset.Processes = CurrentPreset.CopyProcesses();
 
             if (!Directory.Exists(newFolder))
             {
@@ -412,7 +609,7 @@ namespace CompilePalX
             }
 
             // copy processes
-            preset.Processes = CurrentPreset.Processes;
+            preset.Processes = CurrentPreset.CopyProcesses();
 
             // TODO: this can be improved, deleting and recreating isn't really neccessary now that all preset info is consolidated into one file
             // "Edit" preset by deleting the current preset and adding a new preset, then make it the currently selected preset
@@ -467,6 +664,8 @@ namespace CompilePalX
                 ConfigItem[] items = JsonConvert.DeserializeObject<ConfigItem[]>(File.ReadAllText(jsonParameters));
                 foreach (var configItem in items)
                 {
+                    // lets IsCompatible resolve which compiler binary to test for tools++ support
+                    configItem.OwningProcess = processName;
                     list.Add(configItem);
                 }
 
@@ -479,6 +678,7 @@ namespace CompilePalX
                         CanHaveValue = true,
                         CanBeUsedMoreThanOnce = true,
                         Description = "Passes value as a command line argument",
+                        OwningProcess = processName,
                     });
                 }
             }
