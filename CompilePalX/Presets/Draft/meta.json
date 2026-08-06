@@ -1,0 +1,33 @@
+{
+  "Name": "Draft",
+  "Map": null,
+  "Processes": {
+    "VBSP": [
+      {
+        "Name": "No Detail"
+      }
+    ],
+    "VVIS": [
+      {
+        "Name": "Fast"
+      },
+      {
+        "Name": "No Sort"
+      }
+    ],
+    "VRAD": [
+      {
+        "Name": "Fast"
+      },
+      {
+        "Name": "No Extra"
+      },
+      {
+        "Name": "Bounces",
+        "Value": "2"
+      }
+    ],
+    "COPY": [],
+    "GAME": []
+  }
+}

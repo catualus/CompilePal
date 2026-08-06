@@ -1,0 +1,61 @@
+{
+  "Name": "Publish - Best (tools++)",
+  "Map": null,
+  "Processes": {
+    "VBSP": [
+      {
+        "Name": "Cull Verts"
+      }
+    ],
+    "VVIS": [],
+    "VRAD": [
+      {
+        "Name": "Final"
+      },
+      {
+        "Name": "HDR"
+      },
+      {
+        "Name": "Static Prop Lighting Final"
+      },
+      {
+        "Name": "Static Prop Polys"
+      },
+      {
+        "Name": "Static Prop Bounce",
+        "Value": "3"
+      },
+      {
+        "Name": "Static Prop Sample Scale",
+        "Value": "4"
+      },
+      {
+        "Name": "Texture Shadows"
+      },
+      {
+        "Name": "Extra Sky",
+        "Value": "16"
+      },
+      {
+        "Name": "Ambient Occlusion"
+      },
+      {
+        "Name": "AO Radius",
+        "Value": "32"
+      },
+      {
+        "Name": "World Texture Shadows"
+      },
+      {
+        "Name": "Translucent Shadows"
+      },
+      {
+        "Name": "Prop Ambient"
+      }
+    ],
+    "COPY": [],
+    "NAVPAL": [],
+    "PACK": [],
+    "CUBEMAPS": []
+  }
+}

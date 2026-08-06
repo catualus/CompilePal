@@ -1,5 +1,5 @@
-﻿{
-  "Name": "Publish - Both",
+{
+  "Name": "Good",
   "Map": null,
   "Processes": {
     "VBSP": [],
@@ -9,18 +9,19 @@
         "Name": "Final"
       },
       {
+        "Name": "HDR"
+      },
+      {
         "Name": "Static Prop Lighting"
       },
       {
         "Name": "Static Prop Polys"
       },
       {
-        "Name": "Both"
+        "Name": "Texture Shadows"
       }
     ],
     "COPY": [],
-    "NAVPAL": [],
-    "PACK": [],
-    "CUBEMAPS": []
+    "GAME": []
   }
 }

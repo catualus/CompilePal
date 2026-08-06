@@ -1,0 +1,35 @@
+{
+  "Name": "Best",
+  "Map": null,
+  "Processes": {
+    "VBSP": [],
+    "VVIS": [],
+    "VRAD": [
+      {
+        "Name": "Final"
+      },
+      {
+        "Name": "HDR"
+      },
+      {
+        "Name": "Static Prop Lighting Final"
+      },
+      {
+        "Name": "Static Prop Polys"
+      },
+      {
+        "Name": "Static Prop Bounce",
+        "Value": "3"
+      },
+      {
+        "Name": "Texture Shadows"
+      },
+      {
+        "Name": "Extra Sky",
+        "Value": "16"
+      }
+    ],
+    "COPY": [],
+    "GAME": []
+  }
+}
