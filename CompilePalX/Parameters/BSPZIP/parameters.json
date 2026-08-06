@@ -38,5 +38,26 @@
       240, // cs:s
       669270 // momentum mod
     ]
+  },
+
+  // ---------------------------------------------------------------------------------------------
+  // Hammer++ compile tools (tools++) by ficool2 - https://ficool2.github.io/HammerPlusPlus-Website/tools.html
+  // Hidden unless the configured bspzip.exe is detected as BSPZIP++ (see ToolsPlusPlusDetector).
+  // ---------------------------------------------------------------------------------------------
+  {
+    "Name": "Threads",
+    "Parameter": " -threads",
+    "Description": "Number of threads used for LZMA compression. Higher values repack large maps faster.",
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Verbose",
+    "Parameter": " -verbose",
+    "Description": "Prints detailed information about each file as it is packed.",
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
   }
 ]

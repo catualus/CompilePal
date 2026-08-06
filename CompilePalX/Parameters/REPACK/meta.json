@@ -7,13 +7,13 @@
   "Description": "BSPzip.exe's BSP Compression.",
   "Warning": "",
   "PresetDefault": false,
-  "BasisString": " -game $game$ -repack -compress $mapCopyLocation$",
+  "Arguments": " -game $game$ -repack",
+  "BasisString": " $mapCopyLocation$",
   "SupportsBSP": true,
-  "CompatibleGames": [
-    440, // tf2
-    240, // cs:s
-    669270 // momentum mod
-  ],
+  // No CompatibleGames gate: the old TF2/CS:S/Momentum whitelist dated from when Garry's Mod shipped a
+  // pre-2015 bspzip without -repack. Current GMod bspzip (both bin/ and bin/win64/) documents
+  // "-repack [ -compress ]", and installing bspzip++ covers any branch that still lacks it.
+  // A game whose bspzip genuinely lacks -repack will fail with a non-zero exit code, which is checked.
   "CheckExitCode": true,
   "WorkingDirectory": "$binFolder$"
 }

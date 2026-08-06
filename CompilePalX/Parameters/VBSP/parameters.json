@@ -93,6 +93,7 @@
     "Description": "Run process with a normal process priority (be default below normal). Will prevent process from getting run on an efficiency core for certain CPUs",
     "Value": null,
     "CanHaveValue": false,
+    "IncompatibleWithToolsPlusPlus": true,
     "Warning": "Using above normal process priority can cause other applications to become slow/unresponsive"
   },
   {
@@ -277,6 +278,297 @@
     "Warning": "",
     "CompatibleGames": [
       4000 // gmod
+    ]
+  },
+
+  // ---------------------------------------------------------------------------------------------
+  // Hammer++ compile tools (tools++) by ficool2 - https://ficool2.github.io/HammerPlusPlus-Website/tools.html
+  // These are rejected or ignored by the stock Source SDK VBSP, so they are hidden unless the
+  // configured vbsp.exe is detected as VBSP++ (see ToolsPlusPlusDetector).
+  // ---------------------------------------------------------------------------------------------
+  {
+    "Name": "Cull Verts",
+    "Parameter": " -cullverts",
+    "Description": "Reduces vertex count even when the vertex limit has not been exceeded.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Leak Test",
+    "Parameter": " -noleaktest",
+    "Description": "Disables leak testing. tools++ enables leak testing by default, this turns it back off.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Leaks will not be reported",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Block Size",
+    "Parameter": " -blocksize",
+    "Description": "Size of the blocks visibility is computed in. Default 1024.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Bevel",
+    "Parameter": " -nobevel",
+    "Description": "Disables generation of extra brushsides for angled geometry.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Name Fixup",
+    "Parameter": " -nonamefixup",
+    "Description": "Disables prefixing of entity names inside func_instance.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Warn Missing Instances",
+    "Parameter": " -warnMissingInstances",
+    "Description": "Warns about missing instance VMFs instead of aborting the compile.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Missing Material",
+    "Parameter": " -missingmaterial",
+    "Description": "Replaces missing brush materials with the named material instead of failing.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Force Material",
+    "Parameter": " -forcematerial",
+    "Description": "Replaces every brush material with the named material. Useful for greybox lighting tests.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Overrides all brush texturing",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Entity First",
+    "Parameter": " -entfirst",
+    "Description": "Forces the given entity classname to be sorted first in the entity lump.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Brushes",
+    "Parameter": " -maxbrushes",
+    "Description": "Raises the brush limit above the engine default.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Exceeding engine limits can produce a map the game cannot load",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Brush Sides",
+    "Parameter": " -maxbrushsides",
+    "Description": "Raises the brushside limit above the engine default.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Exceeding engine limits can produce a map the game cannot load",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Dispinfo",
+    "Parameter": " -maxdispinfo",
+    "Description": "Raises the displacement limit above the engine default.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Exceeding engine limits can produce a map the game cannot load",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Texinfo",
+    "Parameter": " -maxtexinfo",
+    "Description": "Raises the texinfo limit above the engine default.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Exceeding engine limits can produce a map the game cannot load",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Lightmap Dimension",
+    "Parameter": " -maxlightmapdim",
+    "Description": "Maximum lightmap dimension allowed on a single face.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Default Luxel Size",
+    "Parameter": " -defaultluxelsize",
+    "Description": "Default luxel size applied to faces that do not specify one.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Luxel Scale",
+    "Parameter": " -maxluxelscale",
+    "Description": "Clamps the maximum luxel scale, preventing extremely coarse lightmaps.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No HDR Cubemap",
+    "Parameter": " -nohdrcubemap",
+    "Description": "Excludes HDR cubemaps from the BSP, reducing file size.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No LDR Cubemap",
+    "Parameter": " -noldrcubemap",
+    "Description": "Excludes LDR cubemaps from the BSP, reducing file size.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Default Cubemap",
+    "Parameter": " -nodefaultcubemap",
+    "Description": "Excludes both HDR and LDR default cubemaps from the BSP.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Bump",
+    "Parameter": " -nobump",
+    "Description": "Disables bumpmapped lightmaps, shrinking the lightmap data considerably.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Bumpmapped materials will lose their directional lighting",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Static Prop Format",
+    "Parameter": " -staticpropformat",
+    "Description": "Forces a specific static prop lump version (v6 to v14). Use when a game expects a particular format.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Simple Ladders",
+    "Parameter": " -simpleladders",
+    "Description": "Compiles ladders in the func_simpleladder format.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true,
+    "CompatibleGames": [
+      550 // l4d2
+    ]
+  },
+  {
+    "Name": "Report Search Paths",
+    "Parameter": " -report_search_paths",
+    "Description": "Prints the content search paths VBSP is using. Useful for diagnosing missing assets.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Show Ineligible Vertex Lit Props",
+    "Parameter": " -showineligiblevertexlitprops",
+    "Description": "Lists props that were excluded from the vertex lighting optimisation.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Ineligible Vertex Lit Props",
+    "Parameter": " -noineligiblevertexlitprops",
+    "Description": "Disables the vertex lighting optimisation for props entirely.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "BSP Format: Singleplayer",
+    "Parameter": " -singleplayer",
+    "Description": "Compiles the BSP in the HL2 / SDK 2013 singleplayer format.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Only set this if the target game needs a non default BSP format",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "BSP Format: Left 4 Dead 2",
+    "Parameter": " -l4d2",
+    "Description": "Compiles the BSP in the Left 4 Dead 2 format.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Only set this if the target game needs a non default BSP format",
+    "RequiresToolsPlusPlus": true,
+    "CompatibleGames": [
+      550 // l4d2
+    ]
+  },
+  {
+    "Name": "BSP Format: Portal 2",
+    "Parameter": " -portal2",
+    "Description": "Compiles the BSP in the Portal 2 format.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Only set this if the target game needs a non default BSP format",
+    "RequiresToolsPlusPlus": true,
+    "CompatibleGames": [
+      620 // portal 2
+    ]
+  },
+  {
+    "Name": "BSP Format: Alien Swarm",
+    "Parameter": " -asw",
+    "Description": "Compiles the BSP in the Alien Swarm format.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Only set this if the target game needs a non default BSP format",
+    "RequiresToolsPlusPlus": true,
+    "CompatibleGames": [
+      630 // alien swarm
+    ]
+  },
+  {
+    "Name": "BSP Format: CS:GO",
+    "Parameter": " -csgo",
+    "Description": "Compiles the BSP in the Counter-Strike: Global Offensive format.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Only set this if the target game needs a non default BSP format",
+    "RequiresToolsPlusPlus": true,
+    "CompatibleGames": [
+      730 // csgo
     ]
   }
 ]

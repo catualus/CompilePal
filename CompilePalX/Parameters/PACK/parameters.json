@@ -92,6 +92,13 @@
     "CanBeUsedMoreThanOnce": true
   },
   {
+    "Name": "Exclude Base Game Content",
+    "Parameter": " -excludegamecontent",
+    "Description": "Skip packing files the game already ships, to keep the map's file size down. Only turn this on if you're sure your players have those games installed too.",
+    "Warning": "Players without the mounted games (e.g. no CS:S) may see missing textures.",
+    "CanHaveValue": false
+  },
+  {
     "Name": "Exclude VPK Files",
     "Parameter": " -excludevpk",
     "Description": "Exclude files from packing that are already in the specified VPK",

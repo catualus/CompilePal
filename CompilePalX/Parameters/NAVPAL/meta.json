@@ -1,0 +1,12 @@
+{
+  "Name": "NAVPAL",
+  "Path": "builtin",
+  "Order": 8.5,
+  "DoRun": false,
+  "ReadOutput": true,
+  "Description": "Adds ladders, movement connections and visibility data to the nav mesh, without needing to launch the game.",
+  "Warning": "Requires an existing .nav beside the BSP - run the NAV step first, or generate one in game.",
+  "PresetDefault": false,
+  "BasisString": "",
+  "SupportsBSP": true
+}

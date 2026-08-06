@@ -1,1 +1,33 @@
-[]
+[
+  {
+    "Name": "Compress",
+    "Parameter": " -compress",
+    "Description": "Repack using the compressed (LZMA) BSP format. Without this, repacking an already compressed BSP will decompress it instead.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Some tools and older engine branches cannot read compressed BSPs"
+  },
+
+  // ---------------------------------------------------------------------------------------------
+  // Hammer++ compile tools (tools++) by ficool2 - https://ficool2.github.io/HammerPlusPlus-Website/tools.html
+  // Hidden unless the bspzip actually being run is detected as BSPZIP++ (see ToolsPlusPlusDetector).
+  // ---------------------------------------------------------------------------------------------
+  {
+    "Name": "Threads",
+    "Parameter": " -threads",
+    "Description": "Number of threads used for LZMA compression. Substantially faster on large maps.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Verbose",
+    "Parameter": " -verbose",
+    "Description": "Prints detailed information about each file as it is repacked.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  }
+]

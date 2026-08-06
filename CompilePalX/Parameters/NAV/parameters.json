@@ -10,10 +10,48 @@
   {
     "Name": "Text Mode",
     "Parameter": " -textmode",
-    "Description": "Runs the game client in text mode only.",
+    "Description": "Runs the game client in text mode only. Removes rendering cost per frame, which is pure overhead during generation.",
     "Value": null,
     "CanHaveValue": false,
     "Warning": ""
+  },
+  {
+    "Name": "Fast - No Visibility Data",
+    "Parameter": " +nav_max_view_distance 1",
+    "Description": "Skips visibility data, which is normally the slowest part of nav generation. The walkable mesh itself is unaffected - only hiding and sniper spot data is left out.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Bots will not have hiding spot or sniper spot data"
+  },
+  {
+    "Name": "Visibility Range",
+    "Parameter": " +nav_max_view_distance",
+    "Description": "Limits how far the visibility computation looks, instead of skipping it entirely. Lower values compile faster but bots lose some long-range awareness. Ignored if 'Fast - No Visibility Data' is also on.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": ""
+  },
+  {
+    "Name": "No Addons",
+    "Parameter": " -noaddons",
+    "Description": "Disables Workshop addons during generation. They don't affect the result, just slow it down.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "CompatibleGames": [
+      4000 // gmod
+    ]
+  },
+  {
+    "Name": "No Workshop Download",
+    "Parameter": " -noworkshop",
+    "Description": "Skips Workshop content mounting entirely, cutting startup time before generation begins.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "CompatibleGames": [
+      4000 // gmod
+    ]
   },
   {
     "Name": "No Sound",

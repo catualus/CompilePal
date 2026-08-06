@@ -1,0 +1,47 @@
+[
+  {
+    "Name": "Generate missing areas (experimental)",
+    "Parameter": "-generateareas",
+    "Description": "Finds walkable ground the nav mesh is missing - rooftops, lift platforms, and other spots the game's own generator skipped - and adds it. If there's no .nav file yet, this builds one from scratch instead.",
+    "Warning": "Experimental. Adds areas that have not been verified in game; review the result before shipping it."
+  },
+  {
+    "Name": "Start from scratch",
+    "Parameter": "-scratch",
+    "Description": "Throws away the existing nav mesh and builds a new one, instead of just filling in the missing parts. Only works together with \"Generate missing areas\".",
+    "Warning": "Destructive. Deletes every area, ladder and hand placement already in the .nav beside the BSP. Back it up first if you want to keep it."
+  },
+  {
+    "Name": "Skip ladders",
+    "Parameter": "-noladders",
+    "Description": "Skip building nav ladders. Bots generally can't use them anyway outside Left 4 Dead, so this rarely changes anything."
+  },
+  {
+    "Name": "Skip movement",
+    "Parameter": "-nomovement",
+    "Description": "Don't mark stairs or add step, jump, drop and lift connections."
+  },
+  {
+    "Name": "Skip visibility",
+    "Parameter": "-novisibility",
+    "Description": "Skip working out which areas can see each other. This is the slowest step - skipping it leaves bots less aware of good hiding or ambush spots."
+  },
+  {
+    "Name": "Max view distance",
+    "Parameter": "-maxviewdistance",
+    "CanHaveValue": true,
+    "Value": "6000",
+    "Description": "How far apart two areas can be and still count as able to see each other. Lower values compile faster but bots lose some long-range awareness."
+  },
+  {
+    "Name": "Do not compress visibility",
+    "Parameter": "-nocompress",
+    "Description": "Store the full visibility data instead of compressing it. Roughly doubles the file size; mainly useful for debugging."
+  },
+  {
+    "Name": "Thread limit",
+    "Parameter": "-threads",
+    "CanHaveValue": true,
+    "Description": "Limit how many CPU cores NavPal uses. Leave blank to use all of them - useful if you want to keep using your computer for other things during a long compile."
+  }
+]

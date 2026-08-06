@@ -61,6 +61,7 @@
     "Description": "Run process with a normal process priority (be default below normal). Will prevent process from getting run on an efficiency core for certain CPUs",
     "Value": null,
     "CanHaveValue": false,
+    "IncompatibleWithToolsPlusPlus": true,
     "Warning": "Using above normal process priority can cause other applications to become slow/unresponsive"
   },
   {

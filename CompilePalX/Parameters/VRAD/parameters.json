@@ -99,6 +99,7 @@
   {
     "Name": "Static Prop Lighting Final",
     "Parameter": " -StaticPropLightingFinal",
+    "IncompatibleWithToolsPlusPlus": true,
     "Description": "Generate per-vertex prop_static lighting (uses higher/final quality processing)",
     "Value": null,
     "CanHaveValue": false,
@@ -110,6 +111,7 @@
   {
     "Name": "Static Prop Lighting Old",
     "Parameter": " -StaticPropLightingOld",
+    "IncompatibleWithToolsPlusPlus": true,
     "Description": "Generate per-vertex prop_static lighting using the old algorithm",
     "Value": null,
     "CanHaveValue": false,
@@ -121,9 +123,10 @@
   {
     "Name": "Static Prop Bounce",
     "Parameter": " -StaticPropBounce",
+    "SupportedByToolsPlusPlus": true,
     "Description": "Enable static props to bounce light.",
     "Value": null,
-    "CanHaveValue": true,
+    "CanHaveValue": false,
     "Warning": "",
     "CompatibleGames": [
       730 // csgo
@@ -132,6 +135,7 @@
   {
     "Name": "Static Prop Sample Scale",
     "Parameter": " -StaticPropSampleScale",
+    "SupportedByToolsPlusPlus": true,
     "Description": "Controls quality of static prop lighting (16 = slow, high quality, 4 = default and 0.25 = fast, low quality).",
     "Value": null,
     "CanHaveValue": true,
@@ -175,6 +179,7 @@
   {
     "Name": "AO Scale",
     "Parameter": " -aoscale",
+    "SupportedByToolsPlusPlus": true,
     "Description": "Scales the amount of baked AO",
     "Value": null,
     "CanHaveValue": true,
@@ -205,6 +210,7 @@
     "Description": "Run process with a normal process priority (be default below normal). Will prevent process from getting run on an efficiency core for certain CPUs",
     "Value": null,
     "CanHaveValue": false,
+    "IncompatibleWithToolsPlusPlus": true,
     "Warning": "Using above normal process priority can cause other applications to become slow/unresponsive"
   },
   {
@@ -218,6 +224,7 @@
   {
     "Name": "Dump Prop Lightmaps",
     "Parameter": " -dumppropmaps",
+    "SupportedByToolsPlusPlus": true,
     "Description": "Dump TGA versions of the lightmaps generated for prop_static models.",
     "Value": null,
     "CanHaveValue": false,
@@ -249,5 +256,245 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": ""
+  },
+
+  // ---------------------------------------------------------------------------------------------
+  // Hammer++ compile tools (tools++) by ficool2 - https://ficool2.github.io/HammerPlusPlus-Website/tools.html
+  // These are rejected or ignored by the stock Source SDK VRAD, so they are hidden unless the
+  // configured vrad.exe is detected as VRAD++ (see ToolsPlusPlusDetector).
+  // ---------------------------------------------------------------------------------------------
+  {
+    "Name": "Ambient Occlusion",
+    "Parameter": " -ambientocclusion",
+    "Description": "Bakes ambient occlusion into lighting. Adds contact shadowing in corners and where props meet the world.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "AO Radius",
+    "Parameter": " -aoradius",
+    "Description": "Radius of the ambient occlusion effect in units. Default 32.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "AO Prop Samples",
+    "Parameter": " -aopropsamples",
+    "Description": "Number of ambient occlusion samples taken per static prop vertex. Higher is smoother and slower.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "AO Face Samples",
+    "Parameter": " -aofacesamples",
+    "Description": "Number of ambient occlusion samples taken per world face luxel. Higher is smoother and slower.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "AO Debug",
+    "Parameter": " -aodebug",
+    "Description": "Renders only the ambient occlusion term, for checking AO settings in isolation.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Debug output only, do not use for a final compile",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Extra Soft",
+    "Parameter": " -extrasoft",
+    "Description": "Multiplier on soft light samples, for softer shadow edges.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Reflectivity Scale",
+    "Parameter": " -reflectivityscale",
+    "Description": "Scales the reflectivity of all materials, controlling how much light bounces off surfaces.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "World Texture Shadows",
+    "Parameter": " -worldtextureshadows",
+    "Description": "Casts correct shadows from alphatest textures on world brushes, not just on props.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Translucent Shadows",
+    "Parameter": " -translucentshadows",
+    "Description": "Allows translucent textures to cast shadows tinted by their transparency.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Force Texture Shadows",
+    "Parameter": " -forcetextureshadows",
+    "Description": "Forces texture based shadows on every static prop, without needing them listed in a lights file.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Can be very slow on maps with many props",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Prop Ambient",
+    "Parameter": " -propambient",
+    "Description": "Lets static props occlude and shade the ambient cubes used by dynamic models.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Light Cull",
+    "Parameter": " -nolightcull",
+    "Description": "Disables the optimisation that discards lights below an intensity threshold.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Min Light Cull Intensity",
+    "Parameter": " -minlightcullintensity",
+    "Description": "Intensity below which a light is culled. Default 0.01. Lower keeps more faint lights.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Min Styled Light Cull Intensity",
+    "Parameter": " -minstyledlightcullintensity",
+    "Description": "Cull threshold for named/styled (toggleable) lights. Default 1.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Patch Lightmap Size",
+    "Parameter": " -patchlightmapsize",
+    "Description": "Minimum lightmap size used when subdividing faces into patches. Default 16.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Chop Texlights",
+    "Parameter": " -choptexlights",
+    "Description": "Allows faces emitting light via texlights to be subdivided, improving their light distribution.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Fast Radial",
+    "Parameter": " -fastradial",
+    "Description": "Uses a faster, slightly less accurate radiosity gathering pass.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Large Disp Sample Radius",
+    "Parameter": " -LargeDispSampleRadius",
+    "Description": "Increases the sample radius on displacements, fixing black splotches on large displacement maps.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Disp Sample Factor",
+    "Parameter": " -dispsamplefactor",
+    "Description": "Multiplier on the direct lighting radius used for displacements. Default 1.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Disp Patch Sample Factor",
+    "Parameter": " -disppatchsamplefactor",
+    "Description": "Multiplier on the bounced lighting radius used for displacements. Default 1.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Displacement Lighting Old",
+    "Parameter": " -DisplacementLightingOld",
+    "Description": "Reverts to the legacy displacement lighting calculation, for matching older compiles.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Static Prop Indirect Mode",
+    "Parameter": " -StaticPropIndirectMode",
+    "Description": "Restores the old static prop vertex lighting behaviour for indirect light.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Indirect Only",
+    "Parameter": " -indirectonly",
+    "Description": "Bakes only indirect (bounced) light, omitting direct light. Useful for debugging bounce.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Debug output only, do not use for a final compile",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Prop Debug",
+    "Parameter": " -propdebug",
+    "Description": "Reports which static props are taking the longest to light, for tracking down slow compiles.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Pair Edges",
+    "Parameter": " -nopairedges",
+    "Description": "Disables lightmap edge pairing between faces on the same entity.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Pair Geometric Edges",
+    "Parameter": " -nopairgeometricedges",
+    "Description": "Disables lightmap edge pairing between geometrically adjacent faces.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
   }
 ]

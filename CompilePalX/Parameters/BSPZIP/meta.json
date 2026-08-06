@@ -11,8 +11,8 @@
   "BasisString": " $mapCopyLocation$",
   "CheckExitCode": false,
   "SupportsBSP": true,
-  "IncompatibleGames": [
-    4000 // gmod. Certain distributions dont have bspzip.exe
-  ],
+  // The old gmod (4000) exclusion assumed the distribution had no usable bspzip.exe. Current Garry's Mod
+  // ships bspzip in both bin/ and bin/win64/, and bspzip++ can be installed for branches that do not.
+  // Compile Pal reports a clear error if the binary is genuinely missing.
   "WorkingDirectory": "$binFolder$"
 }
