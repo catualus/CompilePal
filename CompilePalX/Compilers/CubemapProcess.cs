@@ -71,6 +71,7 @@ namespace CompilePalX.Compilers
 
                 FetchHDRLevels();
 
+                string gameExe = GameExeResolver.Resolve(context.Configuration.GameEXE);
                 string mapname = System.IO.Path.GetFileName(context.CopyLocation).Replace(".bsp", "");
 
                 string args =
@@ -85,18 +86,18 @@ namespace CompilePalX.Compilers
 
                     if (cancellationToken.IsCancellationRequested) return;
                     CompilePalLogger.LogLine("Compiling LDR cubemaps...");
-                    RunCubemaps(context.Configuration.GameEXE, args.Replace("%HDRevel%", "+mat_hdr_level 0"), cancellationToken);
+                    RunCubemaps(gameExe, args.Replace("%HDRevel%", "+mat_hdr_level 0"), cancellationToken);
 
                     if (cancellationToken.IsCancellationRequested) return;
                     CompilePalLogger.LogLine("Compiling HDR cubemaps...");
-                    RunCubemaps(context.Configuration.GameEXE, args.Replace("%HDRevel%", "+mat_hdr_level 2"), cancellationToken);
+                    RunCubemaps(gameExe, args.Replace("%HDRevel%", "+mat_hdr_level 2"), cancellationToken);
                 }
                 else
                 {
                     if (cancellationToken.IsCancellationRequested) return;
                     CompilePalLogger.LogLine("Map requires one set of cubemaps");
                     CompilePalLogger.LogLine("Compiling cubemaps...");
-                    RunCubemaps(context.Configuration.GameEXE, args.Replace("%HDRevel%", ""), cancellationToken);
+                    RunCubemaps(gameExe, args.Replace("%HDRevel%", ""), cancellationToken);
                 }
                 if (cancellationToken.IsCancellationRequested) return;
                 CompilePalLogger.LogLine("Cubemaps compiled");
@@ -115,20 +116,43 @@ namespace CompilePalX.Compilers
 
         public void RunCubemaps(string gameEXE, string args, CancellationToken cancellationToken)
         {
-            var startInfo = new ProcessStartInfo(gameEXE, args)
+            // Record the BSP's state up front. Building cubemaps rewrites the BSP, so comparing before
+            // and after is what tells us the work actually happened - the old code just called
+            // WaitForExit, which returns instantly when Steam re-spawns the game as another process,
+            // making the step claim success having built nothing (upstream issues #256, #262).
+            var before = SnapshotBsp();
+
+            // GameLauncher finds the re-spawned process so we wait on the game rather than the launcher
+            Process = GameLauncher.Launch(gameEXE, args, cancellationToken);
+
+            if (Process is null)
+                return;
+
+            GameLauncher.WaitForExit(Process, cancellationToken);
+
+            if (cancellationToken.IsCancellationRequested)
+                return;
+
+            var after = SnapshotBsp();
+            if (before is not null && after is not null && before == after)
             {
-                UseShellExecute = false,
-                CreateNoWindow = false,
-            };
+                CompilePalLogger.LogLineCompileError($"The game closed without modifying {Path.GetFileName(bspFile)}, so no cubemaps were built. Check that the map loads and that Steam is running.",
+                    new Error("Cubemaps were not built - BSP unchanged after the game exited", ErrorSeverity.Error));
+            }
+        }
 
-
-            Process = new Process { StartInfo = startInfo };
-            Process.Start();
-            Process.WaitForExit();
-
-            if (Process.ExitCode != 0)
+        /// <summary>Size and last-write time of the BSP, used to confirm cubemaps were actually written.</summary>
+        private (long Length, DateTime LastWrite)? SnapshotBsp()
+        {
+            try
             {
-                CompilePalLogger.LogLineCompileError($"Game exited with non-zero exit code ({Process.ExitCode}) while building cubemaps", new Error($"Cubemap step exited with non-zero exit code", ErrorSeverity.Warning));
+                var info = new FileInfo(bspFile);
+                return info.Exists ? (info.Length, info.LastWriteTimeUtc) : null;
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Could not inspect {bspFile}: {ex.Message}");
+                return null;
             }
         }
 

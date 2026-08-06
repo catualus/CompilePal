@@ -64,6 +64,7 @@ namespace CompilePalX.Compilers.BSPPack
             bool exclude = Regex.IsMatch(GetParameterString(), @"-exclude\b"); // ensures it doesnt match -excludedir
             bool excludeDir = GetParameterString().Contains("-excludedir");
             bool excludevpk = GetParameterString().Contains("-excludevpk");
+            bool excludeGameContent = GetParameterString().Contains("-excludegamecontent");
             bool packvpk = GetParameterString().Contains("-vpk");
             bool includefilelist = GetParameterString().Contains("-includefilelist");
             bool addSourceDirectory = GetParameterString().Contains("-sourcedirectory");
@@ -81,7 +82,8 @@ namespace CompilePalX.Compilers.BSPPack
             try
             {
                 CompilePalLogger.LogLine("\nCompilePal - Automated Packaging", 900);
-                bspZip = context.Configuration.BSPZip;
+                // prefer a tools++ bspzip when one is installed alongside the configured stock binary
+                bspZip = ToolsPlusPlusDetector.ResolveBinary("BSPZIP", context.Configuration.BSPZip) ?? context.Configuration.BSPZip;
                 vpk = context.Configuration.VPK;
                 gameFolder = context.Configuration.GameFolder;
                 bspPath = context.CopyLocation;
@@ -187,6 +189,8 @@ namespace CompilePalX.Compilers.BSPPack
                     }
                 }
 
+                var vpkPaths = new List<string>();
+
                 // exclude files that are in the specified vpk.
                 if (excludevpk)
                 {
@@ -195,15 +199,29 @@ namespace CompilePalX.Compilers.BSPPack
                         if (parameter.Contains("excludevpk"))
                         {
                             var vpkPath = parameter.Replace("\"", "").Replace("excludevpk ", "").TrimEnd(' ');
-
-                            string[] vpkFileList = GetVPKFileList(vpkPath);
-
-                            foreach (string file in vpkFileList)
-                            {
-                                excludedVpkFiles.Add(file.ToLower());
-                            }
+                            vpkPaths.Add(vpkPath);
                         }
                     }
+                }
+
+                // Exclude everything the game itself provides. Separate from -excludevpk because naming
+                // each VPK by hand needs you to know all of them - nine on a stock Garry's Mod install.
+                if (excludeGameContent)
+                {
+                    var gameVpks = FindGameVpks(gameFolder);
+                    CompilePalLogger.LogLine($"Excluding base game content ({gameVpks.Count} VPKs).");
+                    vpkPaths.AddRange(gameVpks);
+                }
+
+                foreach (var vpkPath in vpkPaths)
+                {
+                    string[] vpkFileList = GetVPKFileList(vpkPath);
+
+                    foreach (string file in vpkFileList)
+                        excludedVpkFiles.Add(file.ToLower());
+
+                    if (verbose)
+                        CompilePalLogger.LogLine($"  {Path.GetFileName(vpkPath)}: {vpkFileList.Length:N0} files");
                 }
 
                 CompilePalLogger.LogLine("Finding sources of game content...");
@@ -618,6 +636,55 @@ namespace CompilePalX.Compilers.BSPPack
             p.WaitForExit();
         }
 
+        /// <summary>
+        /// Every VPK the game mounts as content: those beside the game folder and those in the sibling
+        /// engine folders a Source install keeps shared content in.
+        ///
+        /// Only the directory VPK of a set is returned. A multi-part VPK stores its tree once in
+        /// <c>name_dir.vpk</c> and its data in numbered archives, so listing the numbered parts would
+        /// find nothing and listing both would double the work.
+        /// </summary>
+        static List<string> FindGameVpks(string gameFolder)
+        {
+            var found = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var roots = new List<string> { gameFolder };
+
+            var parent = Directory.GetParent(gameFolder)?.FullName;
+            if (parent != null)
+            {
+                foreach (var sibling in new[] { "sourceengine", "platform" })
+                {
+                    string path = Path.Combine(parent, sibling);
+                    if (Directory.Exists(path))
+                        roots.Add(path);
+                }
+            }
+
+            foreach (var root in roots)
+            {
+                foreach (var vpk in Directory.EnumerateFiles(root, "*.vpk", SearchOption.TopDirectoryOnly))
+                {
+                    string name = Path.GetFileNameWithoutExtension(vpk);
+
+                    // skip the numbered data archives that accompany a _dir.vpk
+                    if (Regex.IsMatch(name, @"_\d{3}$"))
+                        continue;
+
+                    // and skip a bare name when its _dir counterpart exists, so a set is listed once
+                    if (!name.EndsWith("_dir", StringComparison.OrdinalIgnoreCase) &&
+                        File.Exists(Path.Combine(root, name + "_dir.vpk")))
+                        continue;
+
+                    if (seen.Add(vpk))
+                        found.Add(vpk);
+                }
+            }
+
+            return found;
+        }
+
         static string[] GetVPKFileList(string VPKPath)
 		{
             string arguments = $"l \"{VPKPath}\"";
@@ -766,6 +833,45 @@ namespace CompilePalX.Compilers.BSPPack
                     }
                 }
 
+
+                // Garry's Mod mounts extra games through cfg/mount.cfg rather than mounts.kv, so their
+                // content has to be added to the search paths or assets from mounted games go unpacked.
+                // Adapted from Brassx/CompilePal @ 1e982d2.
+                string mountCfgPath = Path.Combine(gamePath, "cfg", "mount.cfg");
+                if (File.Exists(mountCfgPath))
+                {
+                    try
+                    {
+                        using var mountCfgFile = File.OpenRead(mountCfgPath);
+                        var mountCfg = KVSerializer.Deserialize(mountCfgFile);
+
+                        foreach (var mountEntry in mountCfg.Children)
+                        {
+                            var value = mountEntry.Value?.ToString()?.Trim('"', ' ', '\t');
+                            if (string.IsNullOrEmpty(value))
+                                continue;
+
+                            string fullPath = value;
+                            if (!Path.IsPathRooted(fullPath))
+                                fullPath = Path.GetFullPath(Path.Combine(gamePath, fullPath));
+
+                            if (Directory.Exists(fullPath))
+                            {
+                                sourceDirectories.Add(fullPath);
+                                if (verbose)
+                                    CompilePalLogger.LogLine($"Found mount.cfg search path: {fullPath}");
+                            }
+                            else
+                            {
+                                CompilePalLogger.LogCompileError($"mount.cfg path does not exist: {fullPath}\n", new Error($"mount.cfg path does not exist: {fullPath}", ErrorSeverity.Caution));
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        CompilePalLogger.LogCompileError($"Failed to read mount.cfg: {ex.Message}\n", new Error($"Failed to read mount.cfg: {ex.Message}", ErrorSeverity.Caution));
+                    }
+                }
 
                 //find Chaos engine game mount paths
                 var mountedDirectories = GetMountedGamesSourceDirectories(gameInfo, Path.Combine(gamePath, "cfg", "mounts.kv"));

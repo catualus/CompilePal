@@ -132,6 +132,36 @@ namespace CompilePalX
         {
 
         }
+
+        /// <summary>
+        /// Where in the overall compile the running step starts, and how much of it the step accounts
+        /// for. Set by <c>CompilingManager</c> before each step so a step that knows its own progress
+        /// can report it without having to work out the arithmetic - or duplicate the definition of a
+        /// step's share, which only has one correct answer.
+        /// </summary>
+        private static double stepBase;
+        private static double stepShare;
+
+        internal static void BeginStepProgress(double start, double share)
+        {
+            stepBase = start;
+            stepShare = share;
+        }
+
+        /// <summary>
+        /// Reports progress from inside a step, as a fraction of that step.
+        ///
+        /// Held just below 1 on purpose: <see cref="ProgressManager.SetProgress"/> treats reaching 1 as
+        /// the compile finishing and plays the completion sound, which the last step of a compile would
+        /// otherwise trigger while it was still working.
+        /// </summary>
+        protected static void ReportStepProgress(double fraction)
+        {
+            if (stepShare <= 0)
+                return;
+
+            ProgressManager.SetProgress(Math.Min(stepBase + stepShare * Math.Clamp(fraction, 0, 1), 0.999));
+        }
         public virtual void Cancel()
         {
             if (Process is null || Process.Id == 0 || Process.HasExited)
@@ -153,6 +183,21 @@ namespace CompilePalX
             if (ConfigurationManager.CurrentPreset != null)
                 foreach (var parameter in PresetDictionary[ConfigurationManager.CurrentPreset])
                 {
+                    // A preset can outlive the game it was built for, and the parameter adder is the
+                    // only thing that was consulting IsCompatible - so a preset saved against one game
+                    // handed every one of its arguments to whatever compiler ran next. That is how a
+                    // Garry's Mod compile ended up passing -StaticPropLightingFinal and
+                    // -StaticPropBounce, both marked CS:GO-only, and having ficool2's VRAD reject them.
+                    if (!parameter.IsCompatible)
+                    {
+                        CompilePalLogger.LogLineColor(
+                            $"Skipping '{parameter.Name}' ({parameter.Parameter.Trim()}): not supported by " +
+                            $"{GameConfigurationManager.GameConfiguration?.Name ?? "this game"}" +
+                            (parameter.RequiresToolsPlusPlus ? " with the configured (non-tools++) compiler." : "."),
+                            Error.GetSeverityBrush(1));
+                        continue;
+                    }
+
                     parameters += parameter.Parameter;
 
                     if (parameter.CanHaveValue && !string.IsNullOrEmpty(parameter.Value))
