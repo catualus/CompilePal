@@ -30,8 +30,18 @@ namespace CompilePalX
             CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
             CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 
+            // last-chance save; MainWindow's Closing handler calls Environment.Exit, and this still runs
+            AppDomain.CurrentDomain.ProcessExit += (s, err) =>
+            {
+                try { ConfigurationManager.Flush(); } catch { /* nothing useful to do while exiting */ }
+            };
+
             // set working directory
             Directory.SetCurrentDirectory(Path.GetDirectoryName(AppContext.BaseDirectory));
+
+            // settings hold the theme choice, so load them before any window is shown
+            ConfigurationManager.LoadSettings();
+            Theming.ThemeBridge.Initialize();
 
             // store path in registry
             RegistryManager.Write("Path", AppContext.BaseDirectory);

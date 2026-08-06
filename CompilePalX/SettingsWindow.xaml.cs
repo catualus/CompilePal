@@ -30,6 +30,13 @@ namespace CompilePalX
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
             ConfigurationManager.SaveSettings((Settings) this.DataContext);
+
+            // the tools++ override may have changed, so cached verdicts are no longer valid
+            ToolsPlusPlusDetector.Invalidate();
+
+            // appearance applies immediately rather than needing a restart
+            Theming.ThemeBridge.Apply(ConfigurationManager.Settings.Theme);
+
             Close();
         }
 

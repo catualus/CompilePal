@@ -1,24 +1,40 @@
-﻿<controls:MetroWindow x:Class="CompilePalX.PresetDialog"
+<ui:FluentWindow x:Class="CompilePalX.PresetDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:controls="http://metro.mahapps.com/winfx/xaml/controls"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
-        Height="170" Width="320" MaxHeight="280" MinHeight="280" MaxWidth="320" MinWidth="320"
-                      IconEdgeMode="Aliased" Icon="CompilePalIcon.ico" ShowIconOnTitleBar="False" 
+        SizeToContent="Height" Width="320" MaxWidth="320" MinWidth="320" Icon="CompilePalIcon.ico"
+        ExtendsContentIntoTitleBar="True" WindowBackdropType="Mica"
+        MinHeight="0"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
         Title="Input">
-    <controls:MetroWindow.WindowButtonCommands>
-        <controls:WindowButtonCommands LightCloseButtonStyle="{StaticResource LightButtonStyle}" LightMinButtonStyle="{StaticResource LightButtonStyle}" LightMaxButtonStyle="{StaticResource LightButtonStyle}"/>
-    </controls:MetroWindow.WindowButtonCommands>
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="40"/>
+            <RowDefinition Height="Auto"/>
+            <!-- Auto, not star: a star row has no natural height, so SizeToContent measures it as
+                 nothing and the window comes out shorter than its own content. -->
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <!-- A FluentWindow draws no caption buttons of its own; without this the dialog
+             cannot be closed or dragged at all. -->
+        <ui:TitleBar Grid.Row="0" Title="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" ShowMaximize="False" ShowMinimize="False">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="CompilePalIcon.ico" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+    <!-- Rows size to their content so the window can too; a fixed height here would have to be
+         re-guessed every time the title bar or the fields change, which is how the buttons ended up
+         clipped off the bottom in the first place. -->
+    <Grid Grid.Row="1">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <StackPanel Margin="20,10,20,0" VerticalAlignment="Top">
             <Label Padding="0, 5 5, 5" Content="Preset Name" IsTabStop="False"/>
-            <TextBox Name="InputTextBox" Height="24" Text="{Binding Path=Name, Mode=TwoWay}"/>
+            <TextBox Name="InputTextBox" Text="{Binding Path=Name, Mode=TwoWay}"/>
             <StackPanel Orientation="Horizontal" Margin="0, 10, 0, 0">
-                <CheckBox Name="IsMapSpecificCheckbox" controls:CheckBoxHelper.CheckBackgroundFillUncheckedDisabled="{StaticResource CompilePal.Brushes.CheckboxDisabled}"/>
+                <CheckBox Name="IsMapSpecificCheckbox"/>
                 <Label Content="Map Filter" IsTabStop="False" Margin="-5, 0, -5, 0"/>
             </StackPanel>
             <StackPanel>
@@ -28,7 +44,7 @@
                 <StackPanel Orientation="Horizontal" Margin="0, 5, 5, 5">
                     <Label Padding="0, 5 -5, 5" Content="Match" IsTabStop="False"/>
                     <Grid Background="Transparent" Margin="2, 2, 0, 0" Height="12" ToolTip="Preset will only appear for maps that match the regex">
-                        <iconPacks:PackIconMaterial Height="12" Kind="HelpCircleOutline"  VerticalAlignment="Center" Foreground="{StaticResource CompilePal.Brushes.Link}" IsTabStop="False">
+                        <iconPacks:PackIconMaterial Height="12" Kind="HelpCircleOutline"  VerticalAlignment="Center" Foreground="{DynamicResource CompilePal.Brushes.Link}" IsTabStop="False">
                             <iconPacks:PackIconMaterial.Style>
                                 <Style TargetType="iconPacks:PackIconMaterial">
                                     <Style.Triggers>
@@ -46,23 +62,29 @@
                     <Style TargetType="{x:Type StackPanel}">
                         <Setter Property="Visibility" Value="Visible"/>
                         <Style.Triggers>
+                            <!-- Collapsed rather than Hidden: Hidden still reserves the fields' full
+                                 height, leaving a block of dead space under the checkbox. With the
+                                 window sizing to its content, collapsing lets it shrink to fit. -->
                             <DataTrigger Binding="{Binding Path=IsChecked, ElementName=IsMapSpecificCheckbox}" Value="False">
-                                <Setter Property="Visibility" Value="Hidden"/>
+                                <Setter Property="Visibility" Value="Collapsed"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </StackPanel.Style>
             </StackPanel>
         </StackPanel>
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" Margin="20,16,20,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="40*"/>
                 <ColumnDefinition Width="25*"/>
                 <ColumnDefinition Width="25*"/>
             </Grid.ColumnDefinitions>
-            <Button Name="OKButton" Grid.Column ="1" Width="80" Height="24" Click="OKButton_OnClick" IsEnabled="{Binding ElementName=InputTextBox, Path=Text.Length}">OK</Button>
-            <Button Name="CancelButton" Grid.Column ="2" Width="80" Height="24" Click="CancelButton_OnClick">Cancel</Button>
+            <!-- No fixed height: these were sized for MahApps' button padding, and WPF-UI's is taller,
+                 so 24px cut the labels in half. MinWidth keeps them aligned without pinning height. -->
+            <ui:Button Name="OKButton" Appearance="Primary" Grid.Column="1" MinWidth="80" Margin="0,0,8,0" Click="OKButton_OnClick" IsEnabled="{Binding ElementName=InputTextBox, Path=Text.Length}">OK</ui:Button>
+            <Button Name="CancelButton" Grid.Column="2" MinWidth="80" Click="CancelButton_OnClick">Cancel</Button>
         </Grid>
 
     </Grid>
-</controls:MetroWindow>
+    </Grid>
+</ui:FluentWindow>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -19,7 +19,6 @@ using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using CompilePalX.Compiling;
-using MahApps.Metro.Controls.Dialogs;
 using Microsoft.Win32;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -110,8 +109,12 @@ namespace CompilePalX
             PersistenceManager.Init();
             ErrorFinder.Init();
 
-            ConfigurationManager.AssembleParameters();
+            // settings must load first: AssembleParameters reads ToolsPlusPlusMode when building parameter
+            // lists and LastPreset when choosing the initially selected preset
             ConfigurationManager.LoadSettings();
+            ConfigurationManager.AssembleParameters();
+            ToolsPlusPlusDetector.LogDetectionResults();
+            GameExeResolver.LogResolution();
 
             ProgressManager.TitleChange += ProgressManager_TitleChange;
             ProgressManager.ProgressChange += ProgressManager_ProgressChange;
@@ -124,7 +127,13 @@ namespace CompilePalX
 
 
             CompileProcessesListBox.SelectedIndex = 0;
-            PresetConfigListBox.SelectedIndex = 0;
+
+            // restore the preset from last session, falling back to the first one
+            if (ConfigurationManager.CurrentPreset != null && ConfigurationManager.KnownPresets.Contains(ConfigurationManager.CurrentPreset))
+                PresetConfigListBox.SelectedItem = ConfigurationManager.CurrentPreset;
+            else
+                PresetConfigListBox.SelectedIndex = 0;
+
             MapListBox.SelectedIndex = 0;
 
             UpdateConfigGrid();
@@ -144,6 +153,13 @@ namespace CompilePalX
 
             HandleArgs();
 
+            if (compileOnStartup)
+            {
+                // Queued rather than called: parameters, presets and the process order are still being
+                // assembled at this point, and a compile started here would run against half of them.
+                Dispatcher.BeginInvoke(new Action(StartCompileFromCommandLine), DispatcherPriority.ApplicationIdle);
+            }
+
 
             // check to see if running on unsupported platform
             if (!OperatingSystem.IsWindowsVersionAtLeast(10))
@@ -158,9 +174,9 @@ namespace CompilePalX
             }
         }
 
-        public Task<MessageDialogResult> ShowModal(string title, string message, MessageDialogStyle style = MessageDialogStyle.Affirmative, MetroDialogSettings settings = null)
+        public Task ShowModal(string title, string message)
 		{
-			return Dispatcher.Invoke(() => this.ShowMessageAsync(title, message, style, settings));
+			return Theming.AppDialog.ShowAsync(title, message);
 		}
 
 	    private static void HandleArgs(bool ignoreWipeArg = false)
@@ -192,13 +208,15 @@ namespace CompilePalX
 
                         var argPath = commandLineArgs[i + 1];
 
-                        if (File.Exists(argPath))
-                        {
-                            if (argPath.EndsWith(".vmf") || argPath.EndsWith(".vmm") || argPath.EndsWith(".vmx"))
-                                CompilingManager.MapFiles.Add(new Map(argPath));
-                        }
+                        // Same preset choice the Add Map button makes. Without it the map carries no
+                        // preset at all, and a --compile then runs with a null CurrentPreset.
+                        if (File.Exists(argPath) && IsAddableMap(argPath))
+                            CompilingManager.MapFiles.Add(new Map(argPath, preset: PresetForMap(argPath)));
                     }
 
+                    // starts compiling as soon as the window is ready
+                    if (arg == "--compile")
+                        compileOnStartup = true;
                 }
                 catch (ArgumentOutOfRangeException)
                 {
@@ -206,6 +224,35 @@ namespace CompilePalX
                 }
             }
         }
+
+        /// <summary>
+        /// The preset a newly added map should start on: the current one when it is valid for that map,
+        /// otherwise the first that is. Map-specific presets exist precisely so a .bsp does not land on
+        /// a preset full of steps that need a .vmf.
+        /// </summary>
+        private static Preset? PresetForMap(string path)
+        {
+            if (ConfigurationManager.CurrentPreset != null && ConfigurationManager.CurrentPreset.IsValidMap(path))
+                return ConfigurationManager.CurrentPreset;
+
+            return ConfigurationManager.KnownPresets.FirstOrDefault(p => p.IsValidMap(path))
+                   ?? ConfigurationManager.KnownPresets.FirstOrDefault();
+        }
+
+        /// <summary>Map types the list accepts: sources Compile Pal can build, plus an already-built BSP.</summary>
+        private static bool IsAddableMap(string path)
+        {
+            foreach (string extension in new[] { ".vmf", ".vmm", ".vmx", ".bsp" })
+            {
+                if (path.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Set by --compile; acted on once the window has finished loading.</summary>
+        private static bool compileOnStartup;
 
         void CompilePalLogger_OnError(string errorText, Error e)
         {
@@ -496,6 +543,7 @@ namespace CompilePalX
         private void OnConfigChanged(object sender, RoutedEventArgs e)
         {
             UpdateParameterTextBox();
+            ConfigurationManager.MarkDirty(ConfigurationManager.CurrentPreset);
         }
 
         private void AddParameterButton_Click(object sender, RoutedEventArgs e)
@@ -568,11 +616,16 @@ namespace CompilePalX
                 chosenProcess.Metadata.DoRun = true;
                 if (!chosenProcess.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset))
                 {
-                    chosenProcess.PresetDictionary.Add(ConfigurationManager.CurrentPreset, []);
+                    ObservableCollection<ConfigItem> parameters = [];
+                    chosenProcess.PresetDictionary.Add(ConfigurationManager.CurrentPreset, parameters);
+                    // newly created lists aren't covered by the subscriptions set up during load
+                    ConfigurationManager.TrackForAutosave(ConfigurationManager.CurrentPreset, parameters);
                 }
+                ConfigurationManager.MarkProcessesDirty();
             }
 
             AnalyticsManager.ModifyPreset();
+            ConfigurationManager.MarkDirty(ConfigurationManager.CurrentPreset);
 
             UpdateParameterTextBox();
             UpdateProcessList();
@@ -673,19 +726,11 @@ namespace CompilePalX
                 return;
             }
 
-            var dialogSettings = new MetroDialogSettings()
-            {
-                AffirmativeButtonText = "Delete",
-                NegativeButtonText = "Cancel",
-                AnimateHide = false,
-                AnimateShow = false,
-                DefaultButtonFocus = MessageDialogResult.Affirmative,
-            };
+            bool confirmed = await Theming.AppDialog.ConfirmAsync("Delete Preset",
+                $"Are you sure you want to delete preset {selectedPreset.Name}{(selectedPreset.Map != null ? $" ({selectedPreset.Map})" : "")}?",
+                affirmativeText: "Delete");
 
-            var result = await this.ShowMessageAsync($"Delete Preset", $"Are you sure you want to delete preset {selectedPreset.Name}{(selectedPreset.Map != null ? $" ({selectedPreset.Map})" : "")}?",
-                MessageDialogStyle.AffirmativeAndNegative, dialogSettings);
-
-            if (result != MessageDialogResult.Affirmative)
+            if (!confirmed)
                 return;
 
             ConfigurationManager.RemovePreset(selectedPreset);
@@ -913,8 +958,28 @@ namespace CompilePalX
         }
 
 
+        /// <summary>
+        /// Begins a compile requested with --compile. Mirrors the button rather than reimplementing it,
+        /// so a scripted run and a clicked one take exactly the same path.
+        /// </summary>
+        private void StartCompileFromCommandLine()
+        {
+            if (CompilingManager.MapFiles.Count == 0)
+            {
+                CompilePalLogger.LogLineColor("--compile was given but no maps are queued.",
+                    Error.GetSeverityBrush(2));
+                return;
+            }
+
+            CompilePalLogger.LogLine($"Starting compile from the command line ({CompilingManager.MapFiles.Count} map(s)).");
+            CompileStartStopButton_OnClick(CompileStartStopButton, new RoutedEventArgs());
+        }
+
         private void CompileStartStopButton_OnClick(object sender, RoutedEventArgs e)
         {
+            // never compile against edits that are still sitting in the debounce window
+            ConfigurationManager.Flush();
+
             CompilingManager.ToggleCompileState();
 
             CompileStartStopButton.Content = (string)CompileStartStopButton.Content == "Compile" ? "Cancel" : "Compile";
@@ -926,16 +991,6 @@ namespace CompilePalX
         {
 			Process.Start(new ProcessStartInfo("http://www.github.com/ruarai/CompilePal/releases/latest") { UseShellExecute = true });
         }
-
-	    private void ReadOutput_OnChecked(object sender, RoutedEventArgs e)
-	    {
-		    var selectedItem = (ConfigItem) ProcessDataGrid.SelectedItem;
-
-			//Set readOuput to opposite of it's current value
-		    selectedItem.ReadOutput = !selectedItem.ReadOutput;
-
-			//UpdateParameterTextBox();
-	    }
 
 	    private void ProcessTab_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
 	    {
@@ -994,6 +1049,8 @@ namespace CompilePalX
 	    {
 			if (processModeEnabled)
 				OrderManager.UpdateOrder();
+
+			ConfigurationManager.MarkProcessesDirty();
 		}
 
 	    private void OrderGrid_OnIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -1171,6 +1228,9 @@ namespace CompilePalX
             {
                 var converter = new GridLengthConverter();
                 ConfigurationManager.Settings.MapListHeight = converter.ConvertToString(this.MapListBoxRow.Height);
+
+                // remember which preset was selected so the next launch reopens on it
+                ConfigurationManager.Settings.LastPreset = ConfigurationManager.CurrentPreset?.Name;
 
                 ConfigurationManager.SaveSettings();
             }

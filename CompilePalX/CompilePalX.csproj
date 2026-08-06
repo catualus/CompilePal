@@ -4,7 +4,7 @@
     <OutputType>WinExe</OutputType>
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
     <UseWPF>True</UseWPF>
-    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <SelfContained>True</SelfContained>
     <DebugType>embedded</DebugType>
@@ -29,15 +29,20 @@
     <None Include="..\.editorconfig" Link=".editorconfig" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Linked, not shelled out to: Compile Pal publishes self-contained and single-file, so a
+         sibling navpal.exe would need its own runtime files carried alongside it. -->
+    <ProjectReference Include="..\NavPal\NavPal.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Analytics" Version="3.8.1" />
     <PackageReference Include="Glob" Version="1.1.9" />
     <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="Microsoft.Windows.Compatibility" Version="10.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="MahApps.Metro" Version="2.4.11" />
     <PackageReference Include="MahApps.Metro.IconPacks" Version="6.2.1" />
     <PackageReference Include="ValveKeyValue" Version="0.20.0.417" />
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
   </ItemGroup>
   <ItemGroup>
     <Compile Update="Properties\Settings.Designer.cs">

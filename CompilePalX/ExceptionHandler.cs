@@ -1,11 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Shell;
 using CompilePalX.Compiling;
-using MahApps.Metro.Controls.Dialogs;
 
 namespace CompilePalX
 {
@@ -22,6 +21,13 @@ namespace CompilePalX
             if (e.InnerException != null)
                 CompilePalLogger.LogLine(e.InnerException.ToString());
 
+            // a fatal exception exits the process outright, so persist pending edits before we lose them
+            try {
+                ConfigurationManager.Flush();
+            } catch (Exception flushException) {
+                CompilePalLogger.LogLine($"Failed to save pending changes during crash handling: {flushException}");
+            }
+
             try {
                 AnalyticsManager.Error();//risky, but /interesting/
             } catch (Exception) {}
@@ -33,12 +39,7 @@ namespace CompilePalX
                 File.WriteAllText(Path.Combine("CrashLogs", crashLogName + ".txt"), e.ToString() + e.InnerException ?? "");
 				
 				ProgressManager.ErrorProgress();
-				var modalDialogSettings = new MetroDialogSettings
-				{
-					AffirmativeButtonText = "Exit",
-					ColorScheme = MetroDialogColorScheme.Theme
-				};
-				await MainWindow.Instance.ShowModal("A fatal exception has occured", e.Message, settings: modalDialogSettings);
+				await Theming.AppDialog.ShowAsync("A fatal exception has occured", e.Message, closeText: "Exit");
 
                 Environment.Exit(0);
             }
