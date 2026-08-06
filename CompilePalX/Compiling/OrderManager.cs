@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Threading;
 using CompilePalX.Compilers;
+using CompilePalX.Compiling;
 
 namespace CompilePalX.Configuration
 {
@@ -28,7 +29,14 @@ namespace CompilePalX.Configuration
 		public static void UpdateOrder()
 		{
 			if (ConfigurationManager.CurrentPreset == null)
+			{
+				// Clear rather than return. Returning leaves whatever order was built for the last
+				// preset in place, so a compile started with no preset selected silently runs a stale
+				// step list - which looks like it worked, on a configuration that no longer exists.
+				CurrentOrder.Clear();
+				MainWindow.Instance.UpdateOrderGridSource(CurrentOrder);
 				return;
+			}
 
 			//Get all default processes for config
 			var defaultProcs = new List<CompileProcess>(ConfigurationManager.CompileProcesses
@@ -62,6 +70,13 @@ namespace CompilePalX.Configuration
 					}
 				}
 			}
+
+			// Worth logging even when it works: a compile whose order came out empty otherwise looks
+			// like a successful compile that took no time, which is a confusing thing to debug.
+			CompilePalLogger.LogLineDebug(newOrder.Count == 0
+				? $"Compile order for preset '{ConfigurationManager.CurrentPreset.Name}' is EMPTY"
+				: $"Compile order for preset '{ConfigurationManager.CurrentPreset.Name}': " +
+				  string.Join(", ", newOrder.Select(c => c.Name)));
 
 			//Update order
 			CurrentOrder.Clear();

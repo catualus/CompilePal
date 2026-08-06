@@ -110,6 +110,7 @@ namespace CompilePalX
 
         public static bool IsCompiling { get; private set; }
         private static CancellationTokenSource cts;
+        private static Task compileTask = Task.CompletedTask;
 
         public static void ToggleCompileState()
         {
@@ -121,6 +122,14 @@ namespace CompilePalX
 
         public static void StartCompile()
         {
+            // Cancel used to only request cancellation and immediately report the compile as stopped,
+            // without confirming the background task actually observed it - it could still be running
+            // (nav visibility tracing has no cancellation check of its own inside a single pass). That
+            // let this run concurrently with a freshly-started compile, both writing to the same log.
+            // Now that cancellation is threaded down into every parallel pass, this should return almost
+            // immediately unless a cancel just landed - but still worth waiting for rather than assuming.
+            try { compileTask.Wait(); } catch { /* the previous run's own exception, already handled there */ }
+
             OnStart();
 
             // Tells windows to not go to sleep during compile
@@ -135,10 +144,36 @@ namespace CompilePalX
             OnClear();
 
             cts = new CancellationTokenSource();
-            Task.Run(() => CompileThreaded(cts.Token));
+            compileTask = Task.Run(() => CompileThreaded(cts.Token));
         }
 
         private static CompileProcess currentCompileProcess;
+
+        /// <summary>
+        /// Width of a step divider, in characters. Wide enough to read as a rule across the output at a
+        /// typical window size without wrapping at a narrow one.
+        /// </summary>
+        private const int DividerWidth = 64;
+
+        /// <summary>
+        /// Writes a labelled rule before a compile step.
+        ///
+        /// Steps otherwise run straight into each other: vbsp, vvis and vrad all emit dense output of
+        /// their own with no consistent header, so finding where one ended and the next began meant
+        /// recognising the tools' own banners. The step number also makes it obvious at a glance how far
+        /// through the compile the output is.
+        /// </summary>
+        private static void LogStepDivider(string name, int step, int total)
+        {
+            string label = $" {name} ({step}/{total}) ";
+            int remaining = Math.Max(0, DividerWidth - label.Length);
+            int left = remaining / 2;
+
+            CompilePalLogger.LogLine();
+            CompilePalLogger.LogLineColor(
+                new string('─', left) + label + new string('─', remaining - left),
+                Error.GetSeverityBrush(1));
+        }
 
         private static void CompileThreaded(CancellationToken cancellationToken)
         {
@@ -169,12 +204,44 @@ namespace CompilePalX
 					//Update the grid so we have the most up to date order
 	                OrderManager.UpdateOrder();
 
+	                // Say so rather than reporting a successful zero-second compile, which is what this
+	                // looked like before: no steps enabled is a configuration mistake, not a result.
+	                if (OrderManager.CurrentOrder.Count == 0)
+	                {
+		                // Name both halves of the filter. "Nothing ran" has two quite different causes -
+		                // no step ticked, or the preset not carrying the ticked steps - and they need
+		                // opposite fixes.
+		                var enabled = ConfigurationManager.CompileProcesses
+			                .Where(c => c.Metadata.DoRun).Select(c => c.Name).ToList();
+		                var inPreset = ConfigurationManager.CurrentPreset is null
+			                ? new List<string>()
+			                : ConfigurationManager.CompileProcesses
+				                .Where(c => c.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset))
+				                .Select(c => c.Name).ToList();
+
+		                CompilePalLogger.LogLineColor(
+			                $"No compile steps will run for preset '{ConfigurationManager.CurrentPreset?.Name}'.",
+			                Error.GetSeverityBrush(3));
+		                CompilePalLogger.LogLine(
+			                $"  enabled steps: {(enabled.Count == 0 ? "(none)" : string.Join(", ", enabled))}");
+		                CompilePalLogger.LogLine(
+			                $"  steps this preset knows about: {(inPreset.Count == 0 ? "(none)" : string.Join(", ", inPreset))}");
+	                }
+
                     GameConfigurationManager.BackupCurrentContext();
                     var buildContext = GameConfigurationManager.BuildContext(map);
+					int stepNumber = 0;
 					foreach (var compileProcess in OrderManager.CurrentOrder)
 					{
                         cancellationToken.ThrowIfCancellationRequested();
                         currentCompileProcess = compileProcess;
+
+                        LogStepDivider(compileProcess.Name, ++stepNumber, OrderManager.CurrentOrder.Count);
+
+                        // Hand the step its own slice of the bar, so one that can report its internal
+                        // progress does not have to sit at whatever the previous step left behind.
+                        CompileProcess.BeginStepProgress(ProgressManager.Progress, StepShare());
+
                         compileProcess.Run(buildContext, cancellationToken);
 
                         compileErrors.AddRange(currentCompileProcess.CompileErrors);
@@ -189,8 +256,7 @@ namespace CompilePalX
                             }
                         }
 
-                        ProgressManager.Progress += (1d / ConfigurationManager.CompileProcesses.Count(c => c.Metadata.DoRun &&
-                            c.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset))) / MapFiles.Count;
+                        ProgressManager.Progress += StepShare();
 
                         // log empty line to make a space inbetween compile step logs
                         CompilePalLogger.LogLine();
@@ -208,10 +274,38 @@ namespace CompilePalX
             catch (OperationCanceledException) { ProgressManager.ErrorProgress(); }
         }
 
-        private static void postCompile(List<MapErrors> errors)
+        /// <summary>
+        /// How much of the whole compile a single step accounts for.
+        ///
+        /// One definition, used both to advance the bar when a step finishes and to give a step the
+        /// slice it may report inside. Guarded against zero because a preset with no steps enabled
+        /// reaches here before the check that reports it.
+        /// </summary>
+        private static double StepShare()
         {
-            CompilePalLogger.LogLineColor(
-	            $"'{ConfigurationManager.CurrentPreset!.Name}' compile finished in {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Success"));
+            int steps = ConfigurationManager.CompileProcesses.Count(c => c.Metadata.DoRun &&
+                c.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset));
+
+            return 1d / Math.Max(1, steps) / Math.Max(1, MapFiles.Count);
+        }
+
+        private static void postCompile(List<MapErrors> errors, bool cancelled = false)
+        {
+            // Cancelling still ran this: it's the only place that resets IsCompiling/the progress bar and
+            // fires OnFinish, so the UI can leave the "compiling" state. But it must not claim success -
+            // this used to log a green "compile finished" line unconditionally, directly under "Compile
+            // forcefully ended.", telling the user a killed compile had completed normally.
+            if (cancelled)
+            {
+                CompilePalLogger.LogLineColor(
+                    $"'{ConfigurationManager.CurrentPreset!.Name}' compile cancelled after {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}. The map was not fully compiled.",
+                    (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"));
+            }
+            else
+            {
+                CompilePalLogger.LogLineColor(
+                    $"'{ConfigurationManager.CurrentPreset!.Name}' compile finished in {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Success"));
+            }
 
             if (errors != null && errors.Any())
             {
@@ -274,7 +368,7 @@ namespace CompilePalX
 
             CompilePalLogger.LogLineColor("Compile forcefully ended.", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"));
 
-            postCompile(null);
+            postCompile(null, cancelled: true);
         }
 
         public static Stopwatch GetTime()

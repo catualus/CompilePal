@@ -78,8 +78,15 @@ namespace CompilePalX
                                           {
                                               if (ready)
                                               {
-                                                  SetProgress(1);
+                                                  // Not SetProgress(1): that treats reaching 1 as a
+                                                  // successful finish, playing the completion sound and
+                                                  // showing "100%" in the title even though the compile
+                                                  // was cancelled or failed, not completed.
+                                                  taskbarInfo.ProgressValue = 1;
+                                                  ProgressChange(100);
                                                   taskbarInfo.ProgressState = TaskbarItemProgressState.Error;
+                                                  TitleChange(
+	                                                  $"{defaultTitle} {UpdateManager.CurrentVersion}X {GameConfigurationManager.GameConfiguration.Name}");
                                               }
                                           });
 
