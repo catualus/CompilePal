@@ -10,9 +10,14 @@ jobs:
   create-build:
     runs-on: windows-2022
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it.
+      # submodules: NavPal is a separate repository consumed as a submodule, and the default
+      # checkout does not fetch submodules - without this the build fails here while still
+      # succeeding on any developer machine that has NavPal checked out beside this repo.
       - uses: actions/checkout@v2
-      
+        with:
+          submodules: recursive
+
       # Setup environment variables
       - name: Set Env Variables
         run: |
