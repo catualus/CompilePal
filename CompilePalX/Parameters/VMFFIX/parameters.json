@@ -1,0 +1,42 @@
+[
+  {
+    "Name": "Dry Run",
+    "Parameter": " -dryrun",
+    "Description": "Report what would be fixed without modifying the VMF.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  },
+  {
+    "Name": "No Backup",
+    "Parameter": " -nobackup",
+    "Description": "Do not write a timestamped .vmf.bak beside the map before editing it.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "The original VMF is overwritten with no copy kept."
+  },
+  {
+    "Name": "Skip Light Falloff",
+    "Parameter": " -nolights",
+    "Description": "Leave lights whose _zero_percent_distance is nearer than their _fifty_percent_distance alone. VRAD would otherwise discard the authored value and substitute twice the fifty percent distance.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  },
+  {
+    "Name": "Skip Static Props",
+    "Parameter": " -nostaticprops",
+    "Description": "Leave prop_static entities alone even when their model lacks $staticprop. VBSP deletes those props from the compiled map.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  },
+  {
+    "Name": "Check Materials",
+    "Parameter": " -materials",
+    "Description": "Also report VMT problems: an undefined $surfaceprop, or $lightmapwaterfog used without $flowmap. Reported only, never edited, since materials are usually shared content.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Reads every material used by the map, which adds time on large maps."
+  }
+]

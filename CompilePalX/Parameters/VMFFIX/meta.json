@@ -1,0 +1,12 @@
+{
+  "Name": "VMFFIX",
+  "Path": "builtin",
+  "Order": 0.5,
+  "DoRun": false,
+  "ReadOutput": true,
+  "Description": "Repairs known-fixable problems in the VMF before VBSP reads it, such as reversed light falloff distances and prop_static entities using models that were not compiled with $staticprop. The original map is backed up first.",
+  "Warning": "Modifies the VMF. A timestamped .vmf.bak is written next to it unless backups are disabled.",
+  "PresetDefault": false,
+  "BasisString": " ",
+  "SupportsBSP": false
+}
