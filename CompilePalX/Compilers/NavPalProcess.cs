@@ -160,7 +160,7 @@ namespace CompilePalX.Compilers
                 cancellationToken.ThrowIfCancellationRequested();
 
                 if (doMovement)
-                    RunMovement(nav, vis, bsp, progress);
+                    RunConnections(nav, vis, progress);
 
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -174,7 +174,38 @@ namespace CompilePalX.Compilers
                     {
                         CompilePalLogger.LogLine(
                             $"Clipped: {trimmed.Clipped:N0} areas pulled back to geometry " +
-                            $"({trimmed.Reclaimed / 1024f:N0}k sq units out of walls)");
+                            $"({trimmed.Reclaimed / 1024f:N0}k sq units out of walls)" +
+                            (trimmed.Discarded > 0
+                                ? $", discarded {trimmed.Discarded:N0} left too narrow to walk"
+                                : ""));
+                    }
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Everything that reads an area's final shape goes after clipping, not before it.
+                // Marking stairs is the one that shows: the test probes the real floor along six lines
+                // across an area, and an area still overhanging the geometry it is about to be pulled
+                // back from sends those probes off the end of the flight, where they find no floor and
+                // veto it. Running this before the clip marked 8 areas on gm_construct against 17 after
+                // it - and 17 is what the CLI has been reporting all along, which is exactly the sort of
+                // discrepancy between the two entry points that should not exist.
+                if (doMovement)
+                    RunPostClipMovement(nav, vis, bsp, progress);
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Cover positions for bots. Cheap next to everything around it - tens of milliseconds on
+                // a full map - and the engine computes them during nav_generate, so a mesh without them
+                // is missing something the game expects to find.
+                if (generateAreas)
+                {
+                    var spots = HidingSpotFinder.Find(nav, vis);
+                    if (spots.Spots > 0)
+                    {
+                        CompilePalLogger.LogLine(
+                            $"Hiding spots: {spots.Spots:N0} across {spots.AreasWithSpots:N0} areas " +
+                            $"({spots.InCover:N0} in cover, {spots.Exposed:N0} exposed)");
                     }
                 }
 
@@ -249,11 +280,13 @@ namespace CompilePalX.Compilers
 
             if (ladders) steps.Add(new NavProgress.Step(PhaseLadders, 0.01));
             if (movement) steps.Add(new NavProgress.Step(PhaseConnections, 0.05));
-            if (movement) steps.Add(new NavProgress.Step(PhaseStairs, 0.02));
 
-            // Listed here rather than with the other area passes because that is where it now runs:
-            // clipping has to come after connections exist.
+            // Declared in the order they are actually entered, which is what the phase counter counts.
+            // Clipping runs after connections exist, and stair marking after clipping - listing stairs
+            // before it, as this did, left the bar reporting "[8/10]" then "[11/11]" as it tried to
+            // reconcile a phase arriving out of order.
             if (areas) steps.Add(new NavProgress.Step("Clipping areas to geometry", 0.02));
+            if (movement) steps.Add(new NavProgress.Step(PhaseStairs, 0.02));
             if (visibility) steps.Add(new NavProgress.Step(PhaseVisibility, 0.68));
             if (visibility && compress) steps.Add(new NavProgress.Step(PhaseCompress, 0.05));
 
@@ -319,7 +352,11 @@ namespace CompilePalX.Compilers
                 CompilePalLogger.LogLine($"         {result.Unresolved:N0} skipped - no nav area at the base");
         }
 
-        private static void RunMovement(NavFile nav, BspVisibility vis, BspFile bsp, NavProgress progress)
+        /// <summary>
+        /// The half of the movement work that has to happen before areas are clipped: building the
+        /// connection graph, and folding away the jump areas that graph identifies.
+        /// </summary>
+        private static void RunConnections(NavFile nav, BspVisibility vis, NavProgress progress)
         {
             progress.Enter(PhaseConnections);
             var links = ConnectionBuilder.Build(nav, vis, progress);
@@ -343,13 +380,19 @@ namespace CompilePalX.Compilers
                     $"{stitched.ConnectionsAdded:N0} connections bridged across them");
             }
 
-            // After connecting and after the jump areas are stitched away, matching the order in
-            // CreateNavAreasFromNodes: ConnectGeneratedAreas, MarkJumpAreas, MergeGeneratedAreas,
-            // SplitAreasUnderOverhangs, SquareUpAreas, then MarkStairAreas. Running it first, as this
-            // did, tested all 6,234 jump areas a real map generates - steep, narrow, stair-shaped
-            // fragments that exist only to be deleted - and marked a large share of them. That alone
-            // was the difference between 129 areas marked here and 25 through the CLI, which had the
-            // stitch behind it.
+        }
+
+        /// <summary>
+        /// The half that has to happen after clipping, because every one of these passes reads an area's
+        /// final shape: where its edges are, which corners are isolated, what the floor under it does.
+        ///
+        /// Ordered as in <c>CreateNavAreasFromNodes</c>: the stair marking comes after the jump areas
+        /// have been stitched away, since those are steep stair-shaped fragments that exist only to be
+        /// deleted and testing them first marks a pile of them.
+        /// </summary>
+        private static void RunPostClipMovement(NavFile nav, BspVisibility vis, BspFile bsp,
+            NavProgress progress)
+        {
             progress.Enter(PhaseStairs);
             var stairs = StairMarker.Mark(nav, vis, progress);
             CompilePalLogger.LogLine($"Stairs: {stairs.Marked:N0} marked, {stairs.Cleared:N0} cleared");
