@@ -38,6 +38,14 @@ namespace CompilePalX.Configuration
         public bool PlaySoundOnCompileCompletion { get; set; } = true;
 
         /// <summary>
+        /// Comma-separated fallback list, same syntax as a XAML FontFamily attribute. Compile tool
+        /// output (VBSP's lump report, etc.) is column-aligned with spaces, so this needs to stay a
+        /// monospace family or those columns misalign again.
+        /// </summary>
+        public string OutputFontFamily { get; set; } = "Cascadia Mono, Cascadia Code, Consolas, Courier New";
+        public double OutputFontSize { get; set; } = 13;
+
+        /// <summary>
         /// Controls whether parameters exclusive to ficool2's Hammer++ compile tools are shown.
         /// Auto inspects the configured vbsp/vvis/vrad/bspzip binaries.
         /// </summary>

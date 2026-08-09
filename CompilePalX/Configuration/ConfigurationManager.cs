@@ -287,6 +287,7 @@ namespace CompilePalX
             CompileProcesses.Clear();
 
             CompileProcesses.Add(new BSPPack());
+            CompileProcesses.Add(new VmfFixProcess());
             CompileProcesses.Add(new CubemapProcess());
             CompileProcesses.Add(new NavProcess());
             CompileProcesses.Add(new NavPalProcess());
@@ -545,11 +546,15 @@ namespace CompilePalX
             }
         }
 
+        /// <summary>Raised after a settings save so open windows can apply changes without a restart.</summary>
+        public static event Action? OnSettingsSaved;
+
         public static void SaveSettings(Settings settings)
         {
             WriteFileAtomic(SettingsFile, JsonConvert.SerializeObject(settings, Formatting.Indented));
             Settings = settings;
             ErrorFinder.Init(true);
+            OnSettingsSaved?.Invoke();
         }
         public static void SaveSettings()
         {
