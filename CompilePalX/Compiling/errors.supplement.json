@@ -1,0 +1,62 @@
+// Supplementary compile-error definitions.
+//
+// The interlopers catalogue (errors.default.txt) is the primary source, but it has not been
+// updated in many years and predates several messages the current Source tools emit - including
+// every one seen in a routine Garry's Mod compile:
+//
+//   Can't find surfaceprop ... for material ...
+//   Water: $LightMapWaterFog doesn't work without $FlowMap
+//   ... must be compiled with $staticprop! Deleted.
+//   Light at (...) has _fifty_percent_distance of A but _zero_percent_distance of B
+//
+// It also has no entry for MAX_PATCHES or for a vrad run with no vis data. Those gaps are what
+// this file fills; anything the interlopers catalogue already covers is deliberately NOT
+// duplicated here, since the first matching entry wins and duplicates would only shadow the
+// better-written original.
+//
+// Severity: 1 Info, 2 Caution, 3 Warning, 4 Error, 5 Fatal Error.
+// "Html" is the dialog body; it is wrapped in errorstyle.html on load.
+[
+  {
+    "Pattern": "must be compiled with \\$staticprop",
+    "Severity": 3,
+    "Title": "Model cannot be a static prop",
+    "Html": "<h4>Model cannot be a static prop</h4><p><strong>Description:</strong><br />The model was not compiled with <strong>$staticprop</strong>, so vbsp <em>deletes</em> the entity. Note the wording - there is no fallback, the prop simply will not exist in the compiled map.</p><p><strong>Solution:</strong><br />Change the entity to prop_dynamic_override, or recompile the model with $staticprop.</p><p><strong>Compile Pal can fix this for you:</strong> enable the <strong>VMFFIX</strong> process to convert these to prop_dynamic_override before the compile.</p>"
+  },
+  {
+    "Pattern": "has _fifty_percent_distance of .* but _zero_percent_distance of",
+    "Severity": 3,
+    "Title": "Reversed light falloff distances",
+    "Html": "<h4>Reversed light falloff distances</h4><p><strong>Description:</strong><br />Both values are points on a single falloff curve, so the 50% distance has to be the nearer of the two. When they are reversed vrad <em>discards</em> the authored zero distance and substitutes twice the fifty distance, so the map is lit differently from what was built - silently, apart from this warning.</p><p><strong>Solution:</strong><br />Swap the two values on that light entity.</p><p><strong>Compile Pal can fix this for you:</strong> enable the <strong>VMFFIX</strong> process to swap them automatically before the compile.</p>"
+  },
+  {
+    "Pattern": "Can't find surfaceprop .* for material",
+    "Severity": 2,
+    "Title": "Undefined surface property",
+    "Html": "<h4>Undefined surface property</h4><p><strong>Description:</strong><br />A material's <strong>$surfaceprop</strong> is not defined in scripts/surfaceproperties*.txt, so the default is used. Footstep sounds, impact effects and physics behaviour on that surface will be wrong.</p><p><strong>Solution:</strong><br />Edit the VMT to a surface name the game actually defines. This is common when porting materials between games - CS:GO's <em>concretegrit</em> and <em>drywall</em>, for example, do not exist in Half-Life 2 or Garry's Mod.</p><p><strong>Compile Pal can find these for you:</strong> enable <strong>Check Materials</strong> on the VMFFIX process to list every affected VMT with its path.</p>"
+  },
+  {
+    "Pattern": "\\$LightMapWaterFog doesn't work without \\$FlowMap",
+    "Severity": 2,
+    "Title": "Water fog without a flowmap",
+    "Html": "<h4>Water fog without a flowmap</h4><p><strong>Description:</strong><br />The water material sets <strong>$lightmapwaterfog</strong>, which only takes effect on flowing water. Harmless, but it repeats on every compile.</p><p><strong>Solution:</strong><br />Either add a <strong>$flowmap</strong> to the VMT or remove <strong>$lightmapwaterfog</strong> from it.</p><p><strong>Compile Pal can find these for you:</strong> enable <strong>Check Materials</strong> on the VMFFIX process.</p>"
+  },
+  {
+    "Pattern": "MAX_PATCHES",
+    "Severity": 5,
+    "Title": "Too many radiosity patches",
+    "Html": "<h4>Too many radiosity patches</h4><p><strong>Description:</strong><br />vrad subdivides every lit surface into patches to bounce light between them, and the map has produced more than it can hold. Caused by a large surface area at a fine lightmap scale rather than by any single brush.</p><p><strong>Solution:</strong><br />Raise the lightmap scale on large surfaces - especially displacements and the inside of the skybox - or reduce the lit area of the map.</p>"
+  },
+  {
+    "Pattern": "no vis information, direct lighting only",
+    "Severity": 3,
+    "Title": "Compiled without vis data",
+    "Html": "<h4>Compiled without vis data</h4><p><strong>Description:</strong><br />vrad found no visibility data, so there is no bounced light and nothing is culled at runtime. Expected during a fast or draft compile.</p><p><strong>Solution:</strong><br />If this was not intentional, VVIS was skipped or failed - check earlier in the log, most often for a leak.</p>"
+  },
+  {
+    "Pattern": "Cannot load VBSP|Cannot load VVIS|Cannot load VRAD",
+    "Severity": 5,
+    "Title": "Compiler executable not found",
+    "Html": "<h4>Compiler executable not found</h4><p><strong>Description:</strong><br />The configured path to vbsp, vvis or vrad does not point at an existing file.</p><p><strong>Solution:</strong><br />Check the Game Configuration screen, and that the game's bin folder actually contains the tools.</p>"
+  }
+]

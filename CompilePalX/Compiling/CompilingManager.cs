@@ -95,7 +95,6 @@ namespace CompilePalX
                 {
                     CompilePalLogger.LogLineColor("An error cancelled the compile.", Error.GetSeverityBrush(5));
                     CancelCompile();
-                    ProgressManager.ErrorProgress();
                 });
             }
         }
@@ -112,15 +111,15 @@ namespace CompilePalX
         private static CancellationTokenSource cts;
         private static Task compileTask = Task.CompletedTask;
 
-        public static void ToggleCompileState()
+        public static async Task ToggleCompileState()
         {
             if (IsCompiling)
                 CancelCompile();
             else
-                StartCompile();
+                await StartCompile();
         }
 
-        public static void StartCompile()
+        public static async Task StartCompile()
         {
             // Cancel used to only request cancellation and immediately report the compile as stopped,
             // without confirming the background task actually observed it - it could still be running
@@ -128,7 +127,12 @@ namespace CompilePalX
             // let this run concurrently with a freshly-started compile, both writing to the same log.
             // Now that cancellation is threaded down into every parallel pass, this should return almost
             // immediately unless a cancel just landed - but still worth waiting for rather than assuming.
-            try { compileTask.Wait(); } catch { /* the previous run's own exception, already handled there */ }
+            //
+            // Awaited rather than blocked on: this runs on the UI thread (straight off the button click),
+            // and a synchronous .Wait() here froze the window for however long the previous run's
+            // external process took to die. Awaiting yields the thread instead while still guaranteeing
+            // the two runs never overlap.
+            try { await compileTask; } catch { /* the previous run's own exception, already handled there */ }
 
             OnStart();
 
@@ -271,7 +275,10 @@ namespace CompilePalX
                 if (!cancellationToken.IsCancellationRequested)
                     MainWindow.ActiveDispatcher.Invoke(() => postCompile(mapErrors));
             }
-            catch (OperationCanceledException) { ProgressManager.ErrorProgress(); }
+            // cts.Cancel() is only ever called from CancelCompile(), which already updates the
+            // taskbar/progress state itself (and does so before this can even be reached) - reporting
+            // it again here just raced the same state onto the taskbar a second time.
+            catch (OperationCanceledException) { }
         }
 
         /// <summary>
@@ -364,7 +371,10 @@ namespace CompilePalX
             }
             IsCompiling = false;
 
-            ProgressManager.SetProgress(0);
+            // ErrorProgress(), not SetProgress(0): this is the only place that sets the taskbar's final
+            // state after a cancel, so it needs to land on that state directly - going through the empty
+            // state first just made the taskbar icon flash empty then red a moment later.
+            ProgressManager.ErrorProgress();
 
             CompilePalLogger.LogLineColor("Compile forcefully ended.", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"));
 

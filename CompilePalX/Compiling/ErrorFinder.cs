@@ -27,6 +27,12 @@ namespace CompilePalX
 
         private static string errorStyle = Path.Combine("./Compiling", "errorstyle.html");
         private static string errorCache = Path.Combine("./Compiling", "errors.txt");
+
+        // Offline fallbacks, used when the remote source is unreachable and no cache exists.
+        // errors.default.txt is a copy of the upstream interlopers catalogue in its own format;
+        // errors.supplement.json adds the messages that catalogue predates. See LoadOfflineErrorData.
+        private static string bundledErrors = Path.Combine("./Compiling", "errors.default.txt");
+        private static string supplementErrors = Path.Combine("./Compiling", "errors.supplement.json");
         public static void Init(bool refresh = false)
         {
             Thread t = new Thread(() => AsyncInit(ConfigurationManager.Settings.ErrorSourceURL, ConfigurationManager.Settings.ErrorCacheExpirationDays, refresh));
@@ -48,7 +54,8 @@ namespace CompilePalX
                     var c = new HttpClient();
                     c.DefaultRequestHeaders.ExpectContinue = true;
                     var httpResult = await c.GetAsync(errorURL);
-                    string result = await c.GetStringAsync(new Uri(errorURL));
+                    httpResult.EnsureSuccessStatusCode();
+                    string result = await httpResult.Content.ReadAsStringAsync();
 
                     httpResult.Headers.TryGetValues("Content-Type", out var contentType);
                     if (contentType != null && contentType.First() == "application/json")
@@ -63,8 +70,11 @@ namespace CompilePalX
                 }
                 catch (Exception e)
                 {
-                    // fallback to cache if download fails
-                    ExceptionHandler.LogException(e, false);
+                    // The error-data source is a best-effort convenience fetch, and failing over to a
+                    // local cache (or just running with no known-error lookups) is a fully handled,
+                    // routine outcome - the source going offline/unreachable is not a CompilePal bug,
+                    // so it stays out of the visible compile output and only goes to the debug log.
+                    CompilePalLogger.LogLineDebug($"Failed to fetch error data from {errorURL}: {e.Message}");
                     if (File.Exists((errorCache)))
                     {
                         CompilePalLogger.LogLineDebug("Loading error data from cache");
@@ -72,7 +82,12 @@ namespace CompilePalX
                     }
                     else
                     {
-                        CompilePalLogger.LogLineDebug($"Error cache not found: {errorCache}");
+                        // Without this the app silently runs with an EMPTY error list: nothing in the
+                        // compile output is recognised, explained or navigable. The remote source has
+                        // been returning 403 for every request, so relying on it alone means the
+                        // feature is simply absent on a fresh install.
+                        CompilePalLogger.LogLineDebug($"Error cache not found: {errorCache}, falling back to bundled catalogue");
+                        LoadOfflineErrorData();
                     }
                 }
             }
@@ -93,6 +108,97 @@ namespace CompilePalX
             errorList = errors;
         }
 
+        /// <summary>
+        /// Shape of an entry in errors.default.json. Deliberately not the same as <see cref="Error"/>:
+        /// the bundled file stores the explanation as plain body HTML so it stays readable and
+        /// editable, and the page style is applied here rather than being baked into the data.
+        /// </summary>
+        private class BundledError
+        {
+            public string Pattern { get; set; } = "";
+            public int Severity { get; set; } = 3;
+            public string Title { get; set; } = "";
+            public string Html { get; set; } = "";
+        }
+
+        /// <summary>
+        /// Loads the offline catalogue: the upstream interlopers data first, then the supplement.
+        ///
+        /// Order matters. <see cref="GetError"/> returns the first pattern that matches, so the
+        /// upstream entries win wherever both describe the same message, and the supplement only
+        /// answers for messages upstream never covered.
+        /// </summary>
+        static void LoadOfflineErrorData()
+        {
+            int upstream = 0;
+
+            if (File.Exists(bundledErrors))
+            {
+                try
+                {
+                    LoadTextErrorData(File.ReadAllText(bundledErrors));
+                    upstream = errorList.Count;
+                }
+                catch (Exception e)
+                {
+                    CompilePalLogger.LogLineDebug($"Failed to parse {bundledErrors}: {e.Message}");
+                }
+            }
+            else
+            {
+                CompilePalLogger.LogLineDebug($"Bundled catalogue not found: {bundledErrors}");
+            }
+
+            int added = LoadSupplementErrorData();
+
+            if (upstream + added > 0)
+                CompilePalLogger.LogLineDebug($"Loaded {upstream} upstream + {added} supplementary error definitions");
+        }
+
+        static int LoadSupplementErrorData()
+        {
+            try
+            {
+                if (!File.Exists(supplementErrors))
+                    return 0;
+
+                var entries = JsonConvert.DeserializeObject<List<BundledError>>(File.ReadAllText(supplementErrors));
+                if (entries is null)
+                    return 0;
+
+                string style = File.Exists(errorStyle) ? File.ReadAllText(errorStyle) : "%content%";
+                int added = 0;
+
+                foreach (var entry in entries)
+                {
+                    try
+                    {
+                        errorList.Add(new Error
+                        {
+                            RegexTrigger = new Regex(entry.Pattern, RegexOptions.IgnoreCase),
+                            Severity = entry.Severity,
+                            ShortDescription = entry.Title,
+                            Message = style.Replace("%content%", entry.Html),
+                            ID = errorList.Count,
+                        });
+                        added++;
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        // One malformed pattern must not cost us the rest of the catalogue.
+                        CompilePalLogger.LogLineDebug($"Skipping supplementary error '{entry.Title}': {ex.Message}");
+                    }
+                }
+
+                return added;
+            }
+            catch (Exception e)
+            {
+                CompilePalLogger.LogLineDebug($"Failed to load {supplementErrors}: {e.Message}");
+                return 0;
+            }
+        }
+
         static void LoadTextErrorData(string input)
         {
             string style = File.ReadAllText(errorStyle);
@@ -106,7 +212,10 @@ namespace CompilePalX
             {
                 Error error = new Error();
 
-                var data = lines[i].Split('|');
+                // Split into exactly two parts: the pattern itself may legitimately contain '|'
+                // as regex alternation, and a plain Split would silently truncate it at the
+                // first one - matching far less than the entry intended.
+                var data = lines[i].Split('|', 2);
 
                 error.Severity = int.Parse(data[0]);
                 error.RegexTrigger = new Regex(data[1]);
