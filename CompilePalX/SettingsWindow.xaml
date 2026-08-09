@@ -51,6 +51,14 @@
                               ToolTip="When a tools++ build of vbsp/vvis/vrad/bspzip is found next to the configured binary (usually in bin/win64 or bin/x64), run it instead - even though the Game Configuration screen still shows the path you typed there.&#x0a;Turn this off to always run exactly the binary configured in Game Configuration."/>
                     <TextBlock Text="Prefer tools++ binaries when found, even if not the one configured" Margin="6,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>
+                <!-- UpdateSourceTrigger=PropertyChanged on purpose. The default for TextBox.Text is
+                     LostFocus, so a value typed and then committed with the Save button (or Enter)
+                     without the box losing focus first never reaches the Settings object, and the
+                     save silently writes the old value back. -->
+                <TextBox Template="{StaticResource LabeledTextbox}" Text="{Binding Path=OutputFontFamily, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Tag="Output Font" Name="OutputFontFamily"
+                          ToolTip="Font used for the OUTPUT tab. Comma-separated fallback list, same as a XAML FontFamily. Keep this monospace or compiler tables (VBSP's lump report, etc.) will misalign.&#x0a;Applies as soon as you save."/>
+                <TextBox Template="{StaticResource LabeledTextbox}" Text="{Binding Path=OutputFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Tag="Output Font Size" Name="OutputFontSize"
+                          PreviewTextInput="OutputFontSize_PreviewTextInput" ToolTip="Font size for the OUTPUT tab. Applies as soon as you save."/>
             </StackPanel>
         </ScrollViewer>
         <ui:Button Grid.Row="1" Appearance="Primary" Click="SaveButton_Click">Save</ui:Button>

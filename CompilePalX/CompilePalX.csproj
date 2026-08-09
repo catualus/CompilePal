@@ -21,6 +21,8 @@
     <None Include="Plugins/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Keys/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Compiling/errorstyle.html" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Compiling/errors.default.txt" CopyToOutputDirectory="PreserveNewest" Condition="Exists('Compiling/errors.default.txt')" />
+    <None Include="Compiling/errors.supplement.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="version.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="version_prerelease.txt" CopyToOutputDirectory="PreserveNewest" />
     <AppDesigner Include="Properties\" />
@@ -28,10 +30,26 @@
   <ItemGroup>
     <None Include="..\.editorconfig" Link=".editorconfig" />
   </ItemGroup>
-  <ItemGroup>
-    <!-- Linked, not shelled out to: Compile Pal publishes self-contained and single-file, so a
-         sibling navpal.exe would need its own runtime files carried alongside it. -->
-    <ProjectReference Include="..\NavPal\NavPal.csproj" />
+  <!-- NavPal lives in its own repository now, so its project file is no longer at a fixed path
+       relative to this one. It is looked for in the two places it actually turns up: a submodule
+       under external/, which is what a fresh clone of this repo gets, and a sibling checkout beside
+       this repo, which is the usual arrangement when both are being worked on at once.
+
+       Still linked rather than shelled out to. Compile Pal publishes self-contained and single-file,
+       so a sibling navpal.exe would need its own runtime files carried alongside it. -->
+  <PropertyGroup>
+    <NavPalProject Condition="Exists('$(MSBuildThisFileDirectory)..\external\NavPal\NavPal\NavPal.csproj')">$(MSBuildThisFileDirectory)..\external\NavPal\NavPal\NavPal.csproj</NavPalProject>
+    <NavPalProject Condition="'$(NavPalProject)' == '' And Exists('$(MSBuildThisFileDirectory)..\..\NavPal\NavPal\NavPal.csproj')">$(MSBuildThisFileDirectory)..\..\NavPal\NavPal\NavPal.csproj</NavPalProject>
+  </PropertyGroup>
+
+  <!-- Without this the failure is an unresolved `using NavPal;` in NavPalProcess.cs and a wall of
+       type errors, which says nothing about the real cause. -->
+  <Target Name="EnsureNavPalPresent" BeforeTargets="ResolveProjectReferences" Condition="'$(NavPalProject)' == ''">
+    <Error Text="NavPal could not be found. It is a separate repository as of the split, and is expected either at external/NavPal (run: git submodule update --init --recursive) or checked out beside this repository." />
+  </Target>
+
+  <ItemGroup Condition="'$(NavPalProject)' != ''">
+    <ProjectReference Include="$(NavPalProject)" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Analytics" Version="3.8.1" />

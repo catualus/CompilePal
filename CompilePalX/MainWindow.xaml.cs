@@ -63,6 +63,23 @@ namespace CompilePalX
         public bool PresetFilterEnabled { get; set; } = true;
 
         private DispatcherTimer elapsedTimeDispatcherTimer;
+
+        private readonly List<Hyperlink> outputErrorLinks = [];
+        private int currentErrorIndex = -1;
+
+        private List<TextRange> outputSearchMatches = [];
+        private int currentSearchMatchIndex = -1;
+        private string? lastSearchQuery;
+
+        // Created once the XAML document exists; see the constructor.
+        private OutputSearch outputSearch = null!;
+
+        /// <summary>
+        /// The document changed, so the search index and any painted highlights are stale.
+        /// Called from every place that appends to or rewrites OutputParagraph.
+        /// </summary>
+        private void InvalidateOutputSearchIndex() => outputSearch?.Invalidate();
+
 		public static MainWindow? Instance { get; private set; }
         public ObservableCollection<Preset> Presets;
 
@@ -97,6 +114,9 @@ namespace CompilePalX
 
             ActiveDispatcher = Dispatcher;
 
+            // After InitializeComponent so the XAML-declared FlowDocument exists.
+            outputSearch = new OutputSearch(CompileOutputTextbox.Document);
+
             CompilePalLogger.OnWrite += Logger_OnWrite;
             CompilePalLogger.OnBacktrack += Logger_OnBacktrack;
             CompilePalLogger.OnErrorLog += CompilePalLogger_OnError;
@@ -112,6 +132,8 @@ namespace CompilePalX
             // settings must load first: AssembleParameters reads ToolsPlusPlusMode when building parameter
             // lists and LastPreset when choosing the initially selected preset
             ConfigurationManager.LoadSettings();
+            ApplyOutputFontSettings();
+            ConfigurationManager.OnSettingsSaved += ApplyOutputFontSettings;
             ConfigurationManager.AssembleParameters();
             ToolsPlusPlusDetector.LogDetectionResults();
             GameExeResolver.LogResolution();
@@ -270,6 +292,9 @@ namespace CompilePalX
                 {
                     errorLink.DataContext = e;
                     errorLink.Click += errorLink_Click;
+
+                    outputErrorLinks.Add(errorLink);
+                    UpdateErrorNavLabel();
                 }
 
                 var underline = new TextDecoration
@@ -282,6 +307,7 @@ namespace CompilePalX
                 errorLink.TextDecorations = new TextDecorationCollection([underline]);
 
                 OutputParagraph.Inlines.Add(errorLink);
+                InvalidateOutputSearchIndex();
                 CompileOutputTextbox.ScrollToEnd();
 
             });
@@ -312,6 +338,7 @@ namespace CompilePalX
                     textRun.FontWeight = FontWeight.FromOpenTypeWeight((int)fontWeight);
 
                 OutputParagraph.Inlines.Add(textRun);
+                InvalidateOutputSearchIndex();
 
                 // scroll to end only if already scrolled to the bottom. 1.0 is an epsilon value for double comparison
                 if (CompileOutputTextbox.VerticalOffset + CompileOutputTextbox.ViewportHeight >= CompileOutputTextbox.ExtentHeight - 1.0)
@@ -329,6 +356,8 @@ namespace CompilePalX
                 {
                     run.Text = "";
                 }
+
+                InvalidateOutputSearchIndex();
             });
         }
 
@@ -356,6 +385,7 @@ namespace CompilePalX
                 link.Inlines.Add(textRun);
 
                 OutputParagraph.Inlines.Add(link);
+                InvalidateOutputSearchIndex();
 
                 // scroll to end only if already scrolled to the bottom. 1.0 is an epsilon value for double comparison
                 if (CompileOutputTextbox.VerticalOffset + CompileOutputTextbox.ViewportHeight >= CompileOutputTextbox.ExtentHeight - 1.0)
@@ -466,6 +496,17 @@ namespace CompilePalX
             Dispatcher.Invoke(() =>
             {
                 OutputParagraph.Inlines.Clear();
+
+                outputErrorLinks.Clear();
+                currentErrorIndex = -1;
+                UpdateErrorNavLabel();
+
+                // The ranges point into a document that no longer exists, so drop them without
+                // trying to un-paint them.
+                outputSearch.Reset();
+                outputSearchMatches.Clear();
+                currentSearchMatchIndex = -1;
+                lastSearchQuery = null;
             });
 
         }
@@ -491,6 +532,8 @@ namespace CompilePalX
 
             AddMapButton.IsEnabled = false;
             RemoveMapButton.IsEnabled = false;
+
+            CompileStartStopButton.Content = "Cancel";
 
             // hide update link so elapsed time can be shown
             UpdateLabel.Visibility = Visibility.Collapsed;
@@ -975,14 +1018,15 @@ namespace CompilePalX
             CompileStartStopButton_OnClick(CompileStartStopButton, new RoutedEventArgs());
         }
 
-        private void CompileStartStopButton_OnClick(object sender, RoutedEventArgs e)
+        private async void CompileStartStopButton_OnClick(object sender, RoutedEventArgs e)
         {
             // never compile against edits that are still sitting in the debounce window
             ConfigurationManager.Flush();
 
-            CompilingManager.ToggleCompileState();
-
-            CompileStartStopButton.Content = (string)CompileStartStopButton.Content == "Compile" ? "Cancel" : "Compile";
+            // Button label is driven by CompilingManager_OnStart/OnFinish, which fire for every
+            // transition (including an error auto-cancelling the compile, which never reaches this
+            // click handler) - toggling here too raced with them and could leave the label backwards.
+            await CompilingManager.ToggleCompileState();
 
             OutputTab.Focus();
         }
@@ -1167,10 +1211,231 @@ namespace CompilePalX
             TimeElapsedLabel.Content = $"Time Elapsed: {(int) time.TotalHours:00}:{time:mm}:{time:ss}";
         }
 
+        /// <summary>
+        /// Applies the configured output font.
+        ///
+        /// The FontFamily/FontSize MUST be assigned to the FlowDocument, not only to the hosting
+        /// RichTextBox. A FlowDocument declared inline in XAML as RichTextBox.Document does not
+        /// inherit text properties from that RichTextBox - it falls back to WPF's own document
+        /// defaults, which are Georgia at 12. That is why the OUTPUT tab rendered in a proportional
+        /// serif despite the monospace family declared in XAML, and why the "Output Font Size"
+        /// setting appeared to do nothing: both were being set on a control the text did not
+        /// inherit from.
+        ///
+        /// Confirmed by querying the running app through UI Automation's TextPattern
+        /// (FontNameAttribute reported "Georgia" / size 12 while the RichTextBox was set to
+        /// Consolas / 20). Setting only the control is NOT sufficient here, despite an isolated
+        /// RichTextBox built in code appearing to inherit correctly.
+        /// </summary>
+        private void ApplyOutputFontSettings()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var settings = ConfigurationManager.Settings;
+                var document = CompileOutputTextbox.Document;
+
+                if (!string.IsNullOrWhiteSpace(settings.OutputFontFamily))
+                {
+                    FontFamily family;
+                    try
+                    {
+                        family = new FontFamily(settings.OutputFontFamily);
+                    }
+                    catch (Exception)
+                    {
+                        // The family string is user-typed and free-form, so keep a bad value from
+                        // taking down the settings save.
+                        family = new FontFamily("Consolas, Courier New");
+                    }
+
+                    CompileOutputTextbox.FontFamily = family;
+                    if (document != null)
+                        document.FontFamily = family;
+                }
+
+                if (settings.OutputFontSize > 0)
+                {
+                    CompileOutputTextbox.FontSize = settings.OutputFontSize;
+                    if (document != null)
+                        document.FontSize = settings.OutputFontSize;
+                }
+            });
+        }
+
         private void CopyButton_OnClick(object sender, RoutedEventArgs e)
         {
             Clipboard.SetText(new TextRange(CompileOutputTextbox.Document.ContentStart, CompileOutputTextbox.Document.ContentEnd).Text);
         }
+
+        private void SaveLogButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            var dialog = new SaveFileDialog
+            {
+                Filter = "Text file (*.txt)|*.txt|All files (*.*)|*.*",
+                FileName = $"CompilePal-{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.txt"
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                string text = new TextRange(CompileOutputTextbox.Document.ContentStart, CompileOutputTextbox.Document.ContentEnd).Text;
+                File.WriteAllText(dialog.FileName, text);
+            }
+        }
+
+        #region Error navigation
+
+        private void UpdateErrorNavLabel()
+        {
+            ErrorNavLabel.Content = outputErrorLinks.Count == 0
+                ? ""
+                : $"{(currentErrorIndex >= 0 ? currentErrorIndex + 1 : 0)}/{outputErrorLinks.Count}";
+        }
+
+        private void PrevErrorButton_OnClick(object sender, RoutedEventArgs e) => StepError(-1);
+        private void NextErrorButton_OnClick(object sender, RoutedEventArgs e) => StepError(1);
+
+        private void StepError(int direction)
+        {
+            if (outputErrorLinks.Count == 0)
+                return;
+
+            currentErrorIndex = currentErrorIndex < 0
+                ? (direction > 0 ? 0 : outputErrorLinks.Count - 1)
+                : (currentErrorIndex + direction + outputErrorLinks.Count) % outputErrorLinks.Count;
+
+            var link = outputErrorLinks[currentErrorIndex];
+
+            // Same reason search stopped using the selection: focus is on the nav button, so a
+            // selection renders "inactive" and is effectively invisible. Stepping through errors
+            // used to scroll with nothing to show which one you had landed on.
+            outputSearch.HighlightSingle(new TextRange(link.ContentStart, link.ContentEnd));
+            ScrollRangeIntoView(link.ContentStart);
+            UpdateErrorNavLabel();
+        }
+
+        #endregion
+
+        #region Output search
+
+        private void CompileWindow_OnPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control && MainTabControl.SelectedItem == OutputTab)
+            {
+                ShowOutputSearchBar();
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Escape && OutputSearchBar.Visibility == Visibility.Visible)
+            {
+                HideOutputSearchBar();
+                e.Handled = true;
+            }
+        }
+
+        private void ShowOutputSearchBar()
+        {
+            OutputSearchBar.Visibility = Visibility.Visible;
+            OutputSearchBox.Focus();
+            OutputSearchBox.SelectAll();
+        }
+
+        private void HideOutputSearchBar()
+        {
+            outputSearch.ClearHighlights();
+            outputSearchMatches.Clear();
+            currentSearchMatchIndex = -1;
+            lastSearchQuery = null;
+
+            OutputSearchBar.Visibility = Visibility.Collapsed;
+            CompileOutputTextbox.Focus();
+        }
+
+        private void OutputSearchCloseButton_OnClick(object sender, RoutedEventArgs e) => HideOutputSearchBar();
+
+        private void OutputSearchBox_OnTextChanged(object sender, TextChangedEventArgs e)
+        {
+            // search live as the query changes, rather than only on Enter/arrow click - otherwise the
+            // count label reflects the *previous* query's results (or a blank match list) until the
+            // user explicitly navigates, which reads as a false "no matches".
+            lastSearchQuery = null;
+            currentSearchMatchIndex = -1;
+            PerformSearch(forward: true);
+        }
+
+        private void OutputSearchBox_OnKeyDown(object sender, KeyEventArgs e)
+        {
+            switch (e.Key)
+            {
+                case Key.Enter:
+                    PerformSearch(forward: Keyboard.Modifiers != ModifierKeys.Shift);
+                    e.Handled = true;
+                    break;
+                case Key.Escape:
+                    HideOutputSearchBar();
+                    e.Handled = true;
+                    break;
+            }
+        }
+
+        private void OutputSearchNextButton_OnClick(object sender, RoutedEventArgs e) => PerformSearch(forward: true);
+        private void OutputSearchPrevButton_OnClick(object sender, RoutedEventArgs e) => PerformSearch(forward: false);
+
+        private void UpdateSearchCountLabel()
+        {
+            OutputSearchCountLabel.Content = outputSearchMatches.Count == 0
+                ? (string.IsNullOrEmpty(OutputSearchBox.Text) ? "" : "No matches")
+                : $"{currentSearchMatchIndex + 1}/{outputSearchMatches.Count}";
+        }
+
+        private void PerformSearch(bool forward)
+        {
+            string query = OutputSearchBox.Text;
+
+            if (string.IsNullOrEmpty(query))
+            {
+                outputSearch.ClearHighlights();
+                outputSearchMatches.Clear();
+                currentSearchMatchIndex = -1;
+                UpdateSearchCountLabel();
+                return;
+            }
+
+            if (query != lastSearchQuery)
+            {
+                // Drop the old highlights before re-indexing: they split runs, and the new match
+                // list has to be built against a document that is no longer fragmented by them.
+                outputSearch.ClearHighlights();
+                outputSearchMatches = outputSearch.FindAll(query);
+                lastSearchQuery = query;
+                currentSearchMatchIndex = -1;
+            }
+
+            if (outputSearchMatches.Count == 0)
+            {
+                outputSearch.ClearHighlights();
+                UpdateSearchCountLabel();
+                return;
+            }
+
+            currentSearchMatchIndex = currentSearchMatchIndex < 0
+                ? (forward ? 0 : outputSearchMatches.Count - 1)
+                : (currentSearchMatchIndex + (forward ? 1 : -1) + outputSearchMatches.Count) % outputSearchMatches.Count;
+
+            outputSearch.Highlight(outputSearchMatches, currentSearchMatchIndex);
+
+            ScrollRangeIntoView(outputSearchMatches[currentSearchMatchIndex].Start);
+            UpdateSearchCountLabel();
+        }
+
+        private void ScrollRangeIntoView(TextPointer start)
+        {
+            Rect rect = start.GetCharacterRect(LogicalDirection.Forward);
+            double target = CompileOutputTextbox.VerticalOffset + rect.Top - CompileOutputTextbox.ViewportHeight / 2;
+            CompileOutputTextbox.ScrollToVerticalOffset(Math.Max(0, target));
+        }
+
+        #endregion
         private void PresetActionButton_OnContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
             // block right click context menus

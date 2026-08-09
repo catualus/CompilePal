@@ -45,6 +45,25 @@ Get the latest features without having to wait. Experimental releases may be uns
 * [Registry Values](Guides/Registry.md)
 * [VScript Packing Hints](Guides/VScript.md)
 
+## Building
+
+Compile Pal links [NavPal](../../../NavPal), the offline navigation mesh generator behind the NavPal
+compile step, which lives in its own repository. Clone with submodules so it comes along:
+
+```bash
+git clone --recurse-submodules <this repo>
+```
+
+If you already cloned without them:
+
+```bash
+git submodule update --init --recursive
+```
+
+A checkout of NavPal sitting beside this repository is also picked up automatically, which is
+convenient when working on both at once. If neither is present the build stops with a message saying
+so rather than a wall of unresolved-type errors.
+
 ## Contributing
 
 New features or bugfixes are always welcome. Feel free to create a pull request. We also make good use of any issues [reported to us](https://github.com/ruarai/CompilePal/issues).

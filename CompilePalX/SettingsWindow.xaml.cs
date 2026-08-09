@@ -45,5 +45,11 @@ namespace CompilePalX
         {
             e.Handled = numberRegex.IsMatch(e.Text);
         }
+
+        private readonly Regex decimalRegex = new Regex("[^0-9.]+");
+        private void OutputFontSize_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            e.Handled = decimalRegex.IsMatch(e.Text);
+        }
     }
 }
