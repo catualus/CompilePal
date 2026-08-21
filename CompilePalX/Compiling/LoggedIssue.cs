@@ -44,7 +44,15 @@ namespace CompilePalX.Compiling
 
 		public string SeverityLabel => IsError ? "error" : "warning";
 
-		/// <summary>What the list shows: the catalogue's short description, falling back to the line.</summary>
+		/// <summary>
+		/// What the list shows.
+		///
+		/// Not the catalogue's title, despite the field name: ErrorFinder.GetError clones the catalogue
+		/// entry and replaces ShortDescription with the matched log line, so for a recognised error this
+		/// is that line with its control characters stripped. Errors constructed in code keep the
+		/// summary they were given, which is a real short description. Falls back to the raw text when
+		/// neither is set.
+		/// </summary>
 		public string Title =>
 			string.IsNullOrWhiteSpace(Error.ShortDescription) ? Text : Error.ShortDescription;
 	}

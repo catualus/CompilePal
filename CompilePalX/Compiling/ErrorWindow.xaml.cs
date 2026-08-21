@@ -30,7 +30,11 @@ namespace CompilePalX.Compiling
             var html = error.Message;
             var i = 0;
 
-            foreach (Group group in Regex.Match(error.ShortDescription, error.RegexTrigger.ToString()).Groups)
+            // The compiled Regex, not a fresh one built from its pattern string. Supplementary errors
+            // are created with RegexOptions.IgnoreCase, and rebuilding from ToString() drops the
+            // options - so a trigger that only matched because of them fails to match a second time
+            // here, and the [sub:N] placeholders are left in the page unsubstituted.
+            foreach (Group group in error.RegexTrigger.Match(error.ShortDescription).Groups)
             {
                 // first group is always the entire match, ignore it
                 if (i == 0)
@@ -68,6 +72,14 @@ namespace CompilePalX.Compiling
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.AreDevToolsEnabled = false;
+
+            // The page is HTML from a remote error catalogue (interlopers.net by default, and whatever
+            // URL the user has configured). It is static markup, so nothing needs to execute - and
+            // leaving script on would make a compromised or hostile catalogue entry far more than a
+            // wrong error description.
+            core.Settings.IsScriptEnabled = false;
+            core.Settings.AreDefaultScriptDialogsEnabled = false;
+            core.Settings.IsWebMessageEnabled = false;
 
             core.NewWindowRequested += (_, e) =>
             {
