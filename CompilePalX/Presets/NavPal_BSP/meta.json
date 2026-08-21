@@ -1,8 +1,0 @@
-{
-  "Name": "NavPal",
-  "Map": "BSP",
-  "MapRegex": ".*\\.bsp$",
-  "Processes": {
-    "NAVPAL": []
-  }
-}

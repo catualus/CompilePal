@@ -30,27 +30,16 @@
   <ItemGroup>
     <None Include="..\.editorconfig" Link=".editorconfig" />
   </ItemGroup>
-  <!-- NavPal lives in its own repository now, so its project file is no longer at a fixed path
-       relative to this one. It is looked for in the two places it actually turns up: a submodule
-       under external/, which is what a fresh clone of this repo gets, and a sibling checkout beside
-       this repo, which is the usual arrangement when both are being worked on at once.
+  <!-- Meshwright, the offline nav mesh generator that used to be compiled in here, is now installed
+       as an ordinary Compile Pal plugin instead: a folder under Plugins/ containing meta.json,
+       parameters.json and a self-contained meshwright.exe, which ConfigurationManager discovers on
+       its own. See https://github.com/catualus/MeshWright.
 
-       Still linked rather than shelled out to. Compile Pal publishes self-contained and single-file,
-       so a sibling navpal.exe would need its own runtime files carried alongside it. -->
-  <PropertyGroup>
-    <NavPalProject Condition="Exists('$(MSBuildThisFileDirectory)..\external\NavPal\NavPal\NavPal.csproj')">$(MSBuildThisFileDirectory)..\external\NavPal\NavPal\NavPal.csproj</NavPalProject>
-    <NavPalProject Condition="'$(NavPalProject)' == '' And Exists('$(MSBuildThisFileDirectory)..\..\NavPal\NavPal\NavPal.csproj')">$(MSBuildThisFileDirectory)..\..\NavPal\NavPal\NavPal.csproj</NavPalProject>
-  </PropertyGroup>
-
-  <!-- Without this the failure is an unresolved `using NavPal;` in NavPalProcess.cs and a wall of
-       type errors, which says nothing about the real cause. -->
-  <Target Name="EnsureNavPalPresent" BeforeTargets="ResolveProjectReferences" Condition="'$(NavPalProject)' == ''">
-    <Error Text="NavPal could not be found. It is a separate repository as of the split, and is expected either at external/NavPal (run: git submodule update --init --recursive) or checked out beside this repository." />
-  </Target>
-
-  <ItemGroup Condition="'$(NavPalProject)' != ''">
-    <ProjectReference Include="$(NavPalProject)" />
-  </ItemGroup>
+       Linking it was the wrong shape for something optional. It made a separate repository a hard
+       build dependency of this one - a clone without it did not compile at all, with an error about a
+       submodule rather than anything to do with the feature - and there was no way for a user to
+       decide whether they wanted the step. As a plugin, having it is a folder and not having it is no
+       folder, and it works against upstream Compile Pal rather than only this fork. -->
   <ItemGroup>
     <PackageReference Include="Analytics" Version="3.8.1" />
     <PackageReference Include="Glob" Version="1.1.9" />

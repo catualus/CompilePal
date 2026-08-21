@@ -1,4 +1,4 @@
-{
+﻿{
   "Name": "Publish - Best (tools++)",
   "Map": null,
   "Processes": {
@@ -54,7 +54,6 @@
       }
     ],
     "COPY": [],
-    "NAVPAL": [],
     "PACK": [],
     "CUBEMAPS": []
   }
