@@ -57,6 +57,35 @@
         <Setter Property="MinHeight" Value="0" />
     </Style>
 
+    <!-- Fluent's CheckBox reserves a ~32px tall touch target. In the map and process lists the checkbox
+         is the tallest thing on the row, so it - not the text - was setting row height: map rows came
+         out at ~63px and process rows at ~88px to hold a single line of text. This keeps the glyph at
+         its normal size and removes only the padding around it. -->
+    <Style x:Key="CompilePal.Styles.CompactCheckBox" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <!-- Secondary text on a list row: the folder a map came from, a step's argument summary. Dimmed so
+         the name stays the thing the eye lands on, and restored to the selection foreground when the
+         row is selected (a tertiary grey over the accent fill is unreadable). -->
+    <Style x:Key="CompilePal.Styles.RowSubtleText" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type ListBoxItem}}, Path=IsSelected}" Value="True">
+                <Setter Property="Opacity" Value="0.75" />
+                <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- DataGridTextColumn cells (parameter/process Description, Warning) default to single-line text
          that clips instead of growing the row, which truncated anything longer than the column's
          starting width. Columns using this should also use star sizing so they can grow with the
