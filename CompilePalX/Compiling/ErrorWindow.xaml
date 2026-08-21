@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="Compile Pal X - Interlopers Error" Icon="../CompilePalIcon.ico"
-                      Height="500" Width="800"
-                      MinHeight="500" MinWidth="800"
-                      MaxHeight="500" MaxWidth="800"
+                      Height="560" Width="820"
+                      MinHeight="320" MinWidth="420"
                       FontFamily="Segoe UI Variable Text, Segoe UI" >
     <Grid>
         <Grid.RowDefinitions>
@@ -13,15 +13,31 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
         <!-- A FluentWindow draws no caption buttons of its own; without this the dialog
-             cannot be closed or dragged at all. -->
-        <ui:TitleBar Grid.Row="0" Title="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" ShowMaximize="False" ShowMinimize="False">
+             cannot be closed or dragged at all. Maximise is offered because the error pages are
+             long: this window used to clamp MaxHeight/MaxWidth to its start size and could not be
+             resized at all. -->
+        <ui:TitleBar Grid.Row="0" Title="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" ShowMaximize="True" ShowMinimize="False">
             <ui:TitleBar.Icon>
                 <ui:ImageIcon Source="../CompilePalIcon.ico" />
             </ui:TitleBar.Icon>
         </ui:TitleBar>
     <Grid Grid.Row="1">
-        <WebBrowser Name="ErrorBrowser" Margin="0"/>
+        <!-- WebView2 (Chromium) rather than the WebBrowser control, which hosts Internet Explorer's
+             MSHTML - a deprecated engine, rendering remote HTML fetched from interlopers.net. -->
+        <wv2:WebView2 Name="ErrorBrowser" Margin="0"/>
 
+        <!-- WebView2 needs its runtime installed. It ships with Windows 11 and current Windows 10, but
+             where it is missing the error text still has to be readable, so the same HTML is rendered
+             as plain text instead of the window coming up blank. -->
+        <ScrollViewer Name="FallbackScroller" Visibility="Collapsed" Margin="16" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="This error page needs the Microsoft Edge WebView2 runtime, which is not installed. Showing the plain text instead."
+                           TextWrapping="Wrap" Margin="0,0,0,12"
+                           Foreground="{DynamicResource CompilePal.Brushes.Warning}"/>
+                <TextBox Name="FallbackText" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
+                         Background="Transparent" AutomationProperties.Name="Error description"/>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
     </Grid>
 </ui:FluentWindow>

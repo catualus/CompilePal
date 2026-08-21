@@ -1,19 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+using Microsoft.Web.WebView2.Core;
 
 namespace CompilePalX.Compiling
 {
@@ -22,16 +11,25 @@ namespace CompilePalX.Compiling
     /// </summary>
     public partial class ErrorWindow
     {
-        private bool firstLoad = true;
+        private readonly string html;
+
         public ErrorWindow(Error error)
         {
             InitializeComponent();
 
-            ErrorBrowser.Navigating += ErrorBrowser_Navigating;
+            html = BuildHtml(error);
 
-            // extract values from error message using regex and insert them into the template  
+            Loaded += async (_, _) => await ShowAsync();
+        }
+
+        /// <summary>
+        /// Fills the catalogue's HTML template with the values captured from the log line.
+        /// </summary>
+        private static string BuildHtml(Error error)
+        {
             var html = error.Message;
             var i = 0;
+
             foreach (Group group in Regex.Match(error.ShortDescription, error.RegexTrigger.ToString()).Groups)
             {
                 // first group is always the entire match, ignore it
@@ -45,35 +43,86 @@ namespace CompilePalX.Compiling
                 i++;
             }
 
+            return html;
+        }
+
+        private async System.Threading.Tasks.Task ShowAsync()
+        {
+            try
+            {
+                await ErrorBrowser.EnsureCoreWebView2Async();
+            }
+            catch (Exception e)
+            {
+                // No WebView2 runtime, or it failed to start. The error description is the whole point
+                // of the window, so fall back to showing it rather than presenting an empty frame.
+                CompilePalLogger.LogLineDebug($"WebView2 unavailable, falling back to plain text: {e.Message}");
+                ShowFallback();
+                return;
+            }
+
+            var core = ErrorBrowser.CoreWebView2;
+
+            // Nothing here should be able to navigate, run a download or open a context menu - it is a
+            // static description rendered from a template, and the only outbound links are handled below.
+            core.Settings.AreDefaultContextMenusEnabled = false;
+            core.Settings.IsStatusBarEnabled = false;
+            core.Settings.AreDevToolsEnabled = false;
+
+            core.NewWindowRequested += (_, e) =>
+            {
+                e.Handled = true;
+                OpenExternally(e.Uri);
+            };
+
+            core.NavigationStarting += (_, e) =>
+            {
+                // The first navigation is the document being set below; every later one is a link the
+                // user clicked, which belongs in their browser rather than in this window.
+                if (e.Uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                e.Cancel = true;
+                OpenExternally(e.Uri);
+            };
+
             ErrorBrowser.NavigateToString(html);
         }
 
-        void ErrorBrowser_Navigating(object sender, NavigatingCancelEventArgs e)
+        private void ShowFallback()
         {
-            if (firstLoad)
-            {
-                firstLoad = false;
-                return;
-            }
-            // cancel navigation to the clicked link in the webBrowser control
-            e.Cancel = true;
+            ErrorBrowser.Visibility = Visibility.Collapsed;
+            FallbackScroller.Visibility = Visibility.Visible;
 
-            string url = e.Uri.ToString();
+            // Crude, but the template is simple markup and this only has to be readable.
+            FallbackText.Text = Regex.Replace(html, "<[^>]+>", " ")
+                .Replace("&nbsp;", " ")
+                .Replace("&amp;", "&")
+                .Replace("&lt;", "<")
+                .Replace("&gt;", ">");
+        }
 
-            if(url.StartsWith("about:forum"))
+        private static void OpenExternally(string url)
+        {
+            // The catalogue's pages use these two placeholder schemes for its own site.
+            if (url.StartsWith("about:forum"))
                 url = url.Replace("about:forum", "http://www.interlopers.net/forum");
 
             if (url.StartsWith("about:tutorials"))
-                url = url.Replace("about:forum", "http://www.interlopers.net/tutorials");
+                url = url.Replace("about:tutorials", "http://www.interlopers.net/tutorials");
 
-            var startInfo = new ProcessStartInfo
+            if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            try
             {
-                FileName = url,
-                UseShellExecute = true
-            };
-
-            Process.Start(startInfo);
+                Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+            }
+            catch (Exception e)
+            {
+                CompilePalLogger.LogLineDebug($"Could not open {url}: {e.Message}");
+            }
         }
-
     }
 }
