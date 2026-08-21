@@ -40,25 +40,26 @@ namespace CompilePalX
     public partial class MainWindow : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler? PropertyChanged;
+
+        /// <summary>
+        /// Raises a change for the named property.
+        ///
+        /// This used to ignore <paramref name="name"/> and always announce
+        /// AddCustomParameterButtonEnabled, which happened to be harmless while that was the only bound
+        /// property - every caller passed it - but meant any second binding would silently never
+        /// update.
+        /// </summary>
         private void OnPropertyChanged(string name)
         {
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AddCustomParameterButtonEnabled)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }
 
         public static Dispatcher ActiveDispatcher;
         private ObservableCollection<CompileProcess> CompileProcessesSubList = [];
-	    private bool _processModeEnabled;
-	    private bool processModeEnabled
-        {
-            get => _processModeEnabled;
-            set {
-                if (value == _processModeEnabled)
-                    return;
 
-                _processModeEnabled = value;
-                OnPropertyChanged(nameof(AddCustomParameterButtonEnabled));
-            }
-        }
+        // processModeEnabled is gone with the two overlaid parameter grids it used to switch between.
+        // The CUSTOM step now renders its own program columns inside its own row of the stepper, so
+        // nothing global has to know which kind of step is selected.
 
         public bool PresetFilterEnabled { get; set; } = true;
 
@@ -74,14 +75,309 @@ namespace CompilePalX
         // Created once the XAML document exists; see the constructor.
         private OutputSearch outputSearch = null!;
 
+        #region Output buffering
+
+        /// <summary>
+        /// Log lines written but not yet put into the document.
+        ///
+        /// Compile tools emit output a line at a time and a verbose VRAD run emits a great many of them.
+        /// Adding each one to the live FlowDocument individually - and calling ScrollToEnd after each,
+        /// which forces the whole document to be measured - meant the UI thread spent the busiest part
+        /// of a compile re-laying out text rather than staying responsive. Runs are still created
+        /// immediately, because callers rely on getting one back (see CompilePalLogger.LogProgressive,
+        /// which blanks them again to redraw a progress line), but the document only changes on a tick.
+        /// </summary>
+        private readonly List<Inline> pendingOutputInlines = [];
+
+        /// <summary>
+        /// Priority matters here, and the default is wrong.
+        ///
+        /// DispatcherTimer defaults to <see cref="DispatcherPriority.Background"/>, which is *below* the
+        /// Normal priority of the Dispatcher.Invoke each log line arrives on. While a compile is writing
+        /// output the Normal queue never empties, so a Background tick never gets a turn: the buffer
+        /// filled and the OUTPUT tab stayed blank until the compile stopped writing, which made pressing
+        /// Cancel look like the thing that produced the log.
+        /// </summary>
+        private readonly DispatcherTimer outputFlushTimer =
+            new(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(100) };
+
+        /// <summary>
+        /// Lines to buffer before flushing regardless of the timer.
+        ///
+        /// Belt and braces for the starvation above: a verbose step can emit thousands of lines a second
+        /// and the output must appear as it happens, not whenever the dispatcher next draws breath.
+        /// Also caps how much is held back if the timer is ever delayed again.
+        /// </summary>
+        private const int MaxPendingOutputInlines = 200;
+
+        /// <summary>Adds an inline to the next flush. Must be called on the UI thread.</summary>
+        private void QueueOutput(Inline inline)
+        {
+            pendingOutputInlines.Add(inline);
+
+            if (pendingOutputInlines.Count >= MaxPendingOutputInlines)
+            {
+                FlushOutput();
+                return;
+            }
+
+            if (!outputFlushTimer.IsEnabled)
+                outputFlushTimer.Start();
+        }
+
+        /// <summary>
+        /// Puts everything written since the last flush into the document.
+        ///
+        /// Anything that reads, searches or saves the output has to call this first, or it works against
+        /// a document missing the most recent lines.
+        /// </summary>
+        private void FlushOutput()
+        {
+            if (pendingOutputInlines.Count == 0)
+            {
+                outputFlushTimer.Stop();
+                return;
+            }
+
+            // Sampled before the insert: afterwards ExtentHeight describes a document the user has not
+            // been shown yet, so "were they already at the bottom" is no longer answerable.
+            bool wasAtBottom = CompileOutputTextbox.VerticalOffset + CompileOutputTextbox.ViewportHeight
+                               >= CompileOutputTextbox.ExtentHeight - 1.0;
+
+            OutputParagraph.Inlines.AddRange(pendingOutputInlines);
+            pendingOutputInlines.Clear();
+
+            InvalidateOutputSearchIndex();
+
+            if (wasAtBottom)
+                CompileOutputTextbox.ScrollToEnd();
+        }
+
+        #endregion
+
         /// <summary>
         /// The document changed, so the search index and any painted highlights are stale.
         /// Called from every place that appends to or rewrites OutputParagraph.
         /// </summary>
         private void InvalidateOutputSearchIndex() => outputSearch?.Invalidate();
 
+        #region Compile footer
+
+        /// <summary>
+        /// The game every tool path and compatibility check depends on.
+        ///
+        /// It used to appear only as the tail of the window title ("Compile Pal 29.1X Garry's Mod"),
+        /// with the way to change it hidden behind an unlabelled hamburger glyph.
+        /// </summary>
+        public string GameName => GameConfigurationManager.GameConfiguration?.Name ?? "No game selected";
+
+        /// <summary>
+        /// "Queue", or "Queue · 2 of 5" once some maps are unticked.
+        ///
+        /// Only says "n of m" when they differ: on the common case of everything ticked, a count adds
+        /// nothing but noise.
+        /// </summary>
+        public string QueueHeading
+        {
+            get
+            {
+                int total = CompilingManager.MapFiles.Count;
+                int enabled = CompilingManager.MapFiles.Count(m => m.Compile);
+
+                if (total == 0)
+                    return "Queue";
+
+                return enabled == total ? $"Queue · {total}" : $"Queue · {enabled} of {total}";
+            }
+        }
+
+        private string compileStatusLine = "";
+        /// <summary>"Meshwright · step 3 of 5 · map 1 of 2", or empty when idle.</summary>
+        public string CompileStatusLine
+        {
+            get => compileStatusLine;
+            private set { compileStatusLine = value; OnPropertyChanged(nameof(CompileStatusLine)); }
+        }
+
+        private string compileRemainingText = "";
+        public string CompileRemainingText
+        {
+            get => compileRemainingText;
+            private set { compileRemainingText = value; OnPropertyChanged(nameof(CompileRemainingText)); }
+        }
+
+        private int liveWarningCount;
+        public int LiveWarningCount
+        {
+            get => liveWarningCount;
+            private set { liveWarningCount = value; OnPropertyChanged(nameof(LiveWarningCount)); }
+        }
+
+        private int liveErrorCount;
+        public int LiveErrorCount
+        {
+            get => liveErrorCount;
+            private set { liveErrorCount = value; OnPropertyChanged(nameof(LiveErrorCount)); }
+        }
+
+        /// <summary>Error and warning navigation, copy and save only ever act on the OUTPUT tab.</summary>
+        public Visibility OutputToolsVisibility =>
+            MainTabControl?.SelectedItem == OutputTab ? Visibility.Visible : Visibility.Collapsed;
+
+        /// <summary>
+        /// Where each step of the current map starts and ends on the bar, as fractions of the whole run.
+        /// Used to turn the overall progress figure back into "how far through the current step".
+        /// </summary>
+        private double currentStepStart;
+        private double currentStepEnd;
+
+        private List<Border> progressSegments = [];
+        private int currentSegmentIndex = -1;
+
+        /// <summary>
+        /// Lays out one segment per compile step, each as wide as that step's share of the run.
+        ///
+        /// A single bar cannot show that VVIS is most of the compile and COPY is none of it, which is
+        /// why a uniform bar sat at 40% for twenty minutes. Segment widths come from recorded durations
+        /// (see CompileTimings), so the bar advances at roughly a constant rate.
+        /// </summary>
+        private void BuildProgressSegments(IReadOnlyList<string> stepNames, IReadOnlyList<double> weights)
+        {
+            CompileProgressSegments.ColumnDefinitions.Clear();
+            CompileProgressSegments.Children.Clear();
+            progressSegments = [];
+
+            double total = weights.Sum();
+            if (total <= 0)
+                total = Math.Max(1, stepNames.Count);
+
+            for (int i = 0; i < stepNames.Count; i++)
+            {
+                double weight = i < weights.Count ? weights[i] : total / stepNames.Count;
+
+                CompileProgressSegments.ColumnDefinitions.Add(
+                    new ColumnDefinition { Width = new GridLength(Math.Max(weight, 0.0001), GridUnitType.Star) });
+
+                var segment = new Border
+                {
+                    // A hairline gap so adjoining segments read as separate steps rather than one bar.
+                    Margin = new Thickness(i == 0 ? 0 : 1, 0, 0, 0),
+                    CornerRadius = new CornerRadius(2),
+                    Background = (Brush)FindResource("ControlFillColorDefaultBrush"),
+                    ToolTip = stepNames[i],
+                };
+
+                Grid.SetColumn(segment, i);
+                CompileProgressSegments.Children.Add(segment);
+                progressSegments.Add(segment);
+            }
+
+            currentSegmentIndex = -1;
+        }
+
+        /// <summary>Paints segments: finished behind the current one, pending ahead of it.</summary>
+        private void PaintProgressSegments(int currentIndex)
+        {
+            currentSegmentIndex = currentIndex;
+
+            var done = (Brush)FindResource("CompilePal.Brushes.Success");
+            var pending = (Brush)FindResource("ControlFillColorDefaultBrush");
+
+            for (int i = 0; i < progressSegments.Count; i++)
+                progressSegments[i].Background = i < currentIndex ? done : pending;
+        }
+
+        private void CompilingManager_OnStepChanged(CompileStepInfo info)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (info.StepNumber == 1 || progressSegments.Count != info.StepNames.Count)
+                    BuildProgressSegments(info.StepNames, info.StepWeights);
+
+                PaintProgressSegments(info.StepNumber - 1);
+
+                // Cumulative weights either side of the running step, so ProgressManager's single overall
+                // figure can be turned back into a fill fraction for that step's own segment.
+                double before = info.StepWeights.Take(info.StepNumber - 1).Sum();
+                double share = info.StepNumber - 1 < info.StepWeights.Count
+                    ? info.StepWeights[info.StepNumber - 1]
+                    : 0;
+
+                // Weights are per map; earlier maps have already filled their share of the bar.
+                double mapsBefore = info.MapCount <= 1 ? 0 : (double)(info.MapNumber - 1) / info.MapCount;
+                currentStepStart = mapsBefore + before;
+                currentStepEnd = currentStepStart + share;
+
+                CompileStatusLine = info.MapCount > 1
+                    ? $"{info.StepName} · step {info.StepNumber} of {info.StepCount} · map {info.MapNumber} of {info.MapCount}"
+                    : $"{info.StepName} · step {info.StepNumber} of {info.StepCount}";
+
+                CompileRemainingText = info.Remaining is { } remaining && remaining.TotalSeconds >= 1
+                    ? $"~{FormatDuration(remaining)} left"
+                    : "";
+            });
+        }
+
+        private static string FormatDuration(TimeSpan span) =>
+            span.ToString(span.TotalHours >= 1 ? @"h\:mm\:ss" : @"m\:ss");
+
+        /// <summary>Fills the running step's own segment from the overall progress figure.</summary>
+        private void UpdateCurrentSegmentFill(double overallPercent)
+        {
+            if (currentSegmentIndex < 0 || currentSegmentIndex >= progressSegments.Count)
+                return;
+
+            double span = currentStepEnd - currentStepStart;
+            double fraction = span <= 0 ? 0 : Math.Clamp((overallPercent / 100d - currentStepStart) / span, 0, 1);
+
+            // A left-anchored gradient rather than a nested element: the segment is a couple of pixels
+            // tall and only a few wide, so an extra child to size and lay out is not worth it.
+            var accent = (Color)FindResource("SystemAccentColorSecondary");
+            var idle = ((SolidColorBrush)FindResource("ControlFillColorDefaultBrush")).Color;
+
+            progressSegments[currentSegmentIndex].Background = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = new Point(1, 0),
+                GradientStops =
+                [
+                    new GradientStop(accent, 0),
+                    new GradientStop(accent, fraction),
+                    new GradientStop(idle, fraction),
+                    new GradientStop(idle, 1),
+                ],
+            };
+        }
+
+        private void ResetCompileFooter()
+        {
+            CompileStatusLine = "";
+            CompileRemainingText = "";
+            LiveWarningCount = 0;
+            LiveErrorCount = 0;
+            currentSegmentIndex = -1;
+
+            CompileProgressSegments.ColumnDefinitions.Clear();
+            CompileProgressSegments.Children.Clear();
+            progressSegments = [];
+        }
+
+        #endregion
+
 		public static MainWindow? Instance { get; private set; }
-        public ObservableCollection<Preset> Presets;
+
+        private ICollectionView? allPresetsView;
+
+        /// <summary>
+        /// Every preset, for the per-map dropdown on a queue card.
+        ///
+        /// Its own view, not KnownPresets directly: binding ItemsSource to the collection would make the
+        /// dropdown use that collection's *default* view, which the preset panel groups by map and
+        /// filters to the selected map. A card whose preset was filtered out would then show an empty
+        /// selection and silently offer to change it.
+        /// </summary>
+        public ICollectionView AllPresets =>
+            allPresetsView ??= new CollectionViewSource { Source = ConfigurationManager.KnownPresets }.View;
 
         private int SelectedMapIndex
         {
@@ -92,17 +388,30 @@ namespace CompilePalX
         private int selectedMapIndex = 0;
 
         private bool _isCompiling = false;
-        public bool IsCompiling { get => _isCompiling; 
+        public bool IsCompiling { get => _isCompiling;
             set {
                 if (value == _isCompiling)
                     return;
 
                 _isCompiling = value;
-                OnPropertyChanged(nameof(AddCustomParameterButtonEnabled));
+                OnPropertyChanged(nameof(IsCompiling));
+                OnPropertyChanged(nameof(IsNotCompiling));
             }
         }
 
-        public bool AddCustomParameterButtonEnabled { get => !IsCompiling && !processModeEnabled && selectedProcess != null && selectedProcess.SupportsCustomParameters; }
+        /// <summary>
+        /// Everything that must not be touched while a compile is running binds its IsEnabled to this.
+        ///
+        /// This replaces two mirrored lists of eleven <c>SomeControl.IsEnabled = false/true</c>
+        /// assignments in CompilingManager_OnStart/OnFinish. Any control left out of one of them stayed
+        /// live for the whole compile, and the pair had to be kept in step by hand forever after.
+        /// </summary>
+        public bool IsNotCompiling => !IsCompiling;
+
+        // The parameter grids now bind IsNotCompiling like everything else: there is one grid per step
+        // rather than two overlaid ones, so no property has to combine compile state with which kind of
+        // step is showing. Add Custom Parameter is likewise per row, bound to that step's own
+        // SupportsCustomParameters.
 
 		public MainWindow()
         {
@@ -117,6 +426,8 @@ namespace CompilePalX
             // After InitializeComponent so the XAML-declared FlowDocument exists.
             outputSearch = new OutputSearch(CompileOutputTextbox.Document);
 
+            outputFlushTimer.Tick += (_, _) => FlushOutput();
+
             CompilePalLogger.OnWrite += Logger_OnWrite;
             CompilePalLogger.OnBacktrack += Logger_OnBacktrack;
             CompilePalLogger.OnErrorLog += CompilePalLogger_OnError;
@@ -127,6 +438,7 @@ namespace CompilePalX
 
             AnalyticsManager.Launch();
             PersistenceManager.Init();
+            CompileTimings.Init();
             ErrorFinder.Init();
 
             // settings must load first: AssembleParameters reads ToolsPlusPlusMode when building parameter
@@ -162,8 +474,22 @@ namespace CompilePalX
 
             CompilingManager.OnClear += CompilingManager_OnClear;
 
+            // The heading counts maps and how many are ticked, so it follows both the collection and
+            // each map's own Compile flag - TrulyObservableCollection raises for the latter too.
+            CompilingManager.MapFiles.CollectionChanged += (_, _) => OnPropertyChanged(nameof(QueueHeading));
+
+            // Once explicitly: PersistenceManager loads the queue by replacing the whole collection, so
+            // restoring a saved queue raises no change event at all and the heading would sit on the
+            // count it was bound with - zero.
+            OnPropertyChanged(nameof(QueueHeading));
+
             CompilingManager.OnStart += CompilingManager_OnStart;
             CompilingManager.OnFinish += CompilingManager_OnFinish;
+            CompilingManager.OnStepChanged += CompilingManager_OnStepChanged;
+
+            // Counted live so the footer can show a running total, rather than the user having to wait
+            // for the summary at the end to learn the compile has been logging errors for ten minutes.
+            CompilePalLogger.OnErrorFound += CompilePalLogger_OnErrorCounted;
 
 			RowDragHelper.RowSwitched += RowDragHelperOnRowSwitched;
 
@@ -306,9 +632,7 @@ namespace CompilePalX
 
                 errorLink.TextDecorations = new TextDecorationCollection([underline]);
 
-                OutputParagraph.Inlines.Add(errorLink);
-                InvalidateOutputSearchIndex();
-                CompileOutputTextbox.ScrollToEnd();
+                QueueOutput(errorLink);
 
             });
         }
@@ -337,12 +661,7 @@ namespace CompilePalX
                 if (fontWeight != null)
                     textRun.FontWeight = FontWeight.FromOpenTypeWeight((int)fontWeight);
 
-                OutputParagraph.Inlines.Add(textRun);
-                InvalidateOutputSearchIndex();
-
-                // scroll to end only if already scrolled to the bottom. 1.0 is an epsilon value for double comparison
-                if (CompileOutputTextbox.VerticalOffset + CompileOutputTextbox.ViewportHeight >= CompileOutputTextbox.ExtentHeight - 1.0)
-                    CompileOutputTextbox.ScrollToEnd();
+                QueueOutput(textRun);
 
                 return textRun;
             });
@@ -384,12 +703,7 @@ namespace CompilePalX
                 }
                 link.Inlines.Add(textRun);
 
-                OutputParagraph.Inlines.Add(link);
-                InvalidateOutputSearchIndex();
-
-                // scroll to end only if already scrolled to the bottom. 1.0 is an epsilon value for double comparison
-                if (CompileOutputTextbox.VerticalOffset + CompileOutputTextbox.ViewportHeight >= CompileOutputTextbox.ExtentHeight - 1.0)
-                    CompileOutputTextbox.ScrollToEnd();
+                QueueOutput(link);
 
                 return textRun;
             });
@@ -445,6 +759,14 @@ namespace CompilePalX
                         if (map == null)
                             return preset.MapRegex == null;
 
+                        // The map's own preset is always listed, even when the filter would exclude it.
+                        // Otherwise selecting that map leaves the preset picker with nothing selected,
+                        // and the "nothing selected, fall back to the first one" repair below wrote that
+                        // first preset onto the map - silently replacing the preset the map was saved
+                        // with, which is exactly what the per-map preset is meant to preserve.
+                        if (preset.Equals(map.Preset))
+                            return true;
+
                         return preset.IsValidMap(map.File);
                     };
                 }
@@ -467,9 +789,10 @@ namespace CompilePalX
         public void LoadGameConfiguration(GameConfiguration gameConfiguration)
         {
             Title = $"Compile Pal {UpdateManager.CurrentVersion}X {gameConfiguration.Name}";
+            OnPropertyChanged(nameof(GameName));
 
             PresetConfigListBox.Items.Refresh();
-            ConfigDataGrid.Items.Refresh();
+            // ConfigDataGrid is gone; every step row rebinds itself below.
             CompileProcessesListBox.Items.Refresh();
 
             // reload parameters incase new game config has a plugin folder
@@ -479,10 +802,22 @@ namespace CompilePalX
 
         void ProgressManager_ProgressChange(double progress)
         {
-            CompileProgressBar.Value = progress;
+            UpdateCurrentSegmentFill(progress);
 
             if (progress < 0 || progress >= 100)
                 CompileStartStopButton.Content = "Compile";
+        }
+
+        private void CompilePalLogger_OnErrorCounted(Error e)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Same split the queue chips use: 4 and 5 are what the log calls errors.
+                if (e.Severity >= 4)
+                    LiveErrorCount++;
+                else if (e.Severity > 0)
+                    LiveWarningCount++;
+            });
         }
 
         void ProgressManager_TitleChange(string title)
@@ -495,6 +830,11 @@ namespace CompilePalX
         {
             Dispatcher.Invoke(() =>
             {
+                // Before clearing the document, not after: anything still queued belongs to the compile
+                // that just ended and would otherwise be flushed into the new run's empty output.
+                pendingOutputInlines.Clear();
+                outputFlushTimer.Stop();
+
                 OutputParagraph.Inlines.Clear();
 
                 outputErrorLinks.Clear();
@@ -513,25 +853,12 @@ namespace CompilePalX
 
         private void CompilingManager_OnStart()
         {
+            // Every control that has to lock during a compile binds IsEnabled to IsNotCompiling (or, for
+            // parameter grids included, so setting this one
+            // property is the whole of it.
             IsCompiling = true;
 
-            ConfigDataGrid.IsEnabled = false;
-            ProcessDataGrid.IsEnabled = false;
-	        OrderGrid.IsEnabled = false;
-
-            AddParameterButton.IsEnabled = false;
-            RemoveParameterButton.IsEnabled = false;
-
-            AddProcessesButton.IsEnabled = false;
-            RemoveProcessesButton.IsEnabled = false;
-            CompileProcessesListBox.IsEnabled = false;
-
-            AddPresetButton.IsEnabled = false;
-            FilterPresetButton.IsEnabled = false;
-            PresetConfigListBox.IsEnabled = false;
-
-            AddMapButton.IsEnabled = false;
-            RemoveMapButton.IsEnabled = false;
+            ResetCompileFooter();
 
             CompileStartStopButton.Content = "Cancel";
 
@@ -548,27 +875,18 @@ namespace CompilePalX
         {
             IsCompiling = false;
 
-			//If process grid is enabled, disable config grid
-            ConfigDataGrid.IsEnabled = !processModeEnabled;
-            ProcessDataGrid.IsEnabled = processModeEnabled;
-	        OrderGrid.IsEnabled = true;
-
-            AddParameterButton.IsEnabled = true;
-            RemoveParameterButton.IsEnabled = true;
-
-            AddProcessesButton.IsEnabled = true;
-            RemoveProcessesButton.IsEnabled = true;
-            CompileProcessesListBox.IsEnabled = true;
-
-            AddPresetButton.IsEnabled = true;
-            FilterPresetButton.IsEnabled = true;
-            PresetConfigListBox.IsEnabled = true;
-
-            AddMapButton.IsEnabled = true;
-            RemoveMapButton.IsEnabled = true;
+            // The step line and time-remaining guess describe a run that is over; the error and warning
+            // totals are the result of it, so those stay up until the next compile clears them.
+            CompileStatusLine = "";
+            CompileRemainingText = "";
 
             TimeElapsedLabel.Visibility = Visibility.Collapsed;
             elapsedTimeDispatcherTimer.IsEnabled = false;
+
+            // The saved log is read straight off the document, so anything still sitting in the append
+            // buffer has to land first or the transcript loses its last fraction of a second - which is
+            // exactly where a failing compile's last words are.
+            FlushOutput();
 
             string logName = DateTime.Now.ToString("s").Replace(":", "-") + ".txt";
             string textLog = new TextRange(CompileOutputTextbox.Document.ContentStart, CompileOutputTextbox.Document.ContentEnd).Text;
@@ -583,16 +901,89 @@ namespace CompilePalX
             ProgressManager.SetProgress(1);
         }
 
+        /// <summary>Opens the preset action menu, which the kebab button owns as its context menu.</summary>
+        private void PresetMenuButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { ContextMenu: { } menu } button)
+                return;
+
+            // A context menu opened by left click needs its placement set explicitly, or it appears at
+            // the mouse rather than under the button.
+            menu.PlacementTarget = button;
+            menu.IsOpen = true;
+        }
+
+        /// <summary>
+        /// Keeps one step open at a time, and makes opening a step select it.
+        ///
+        /// Several steps expanded at once turns the list back into a wall of grids with no sense of
+        /// where you are; and selection still drives which step the preset-level actions apply to.
+        /// </summary>
+        private void StepExpander_OnExpanded(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Expander expander)
+                return;
+
+            if (expander.DataContext is CompileProcess step)
+                CompileProcessesListBox.SelectedItem = step;
+
+            foreach (var other in FindVisualChildren<Expander>(CompileProcessesListBox))
+            {
+                if (!ReferenceEquals(other, expander))
+                    other.IsExpanded = false;
+            }
+        }
+
+        /// <summary>
+        /// The step a control inside a SETUP row belongs to.
+        ///
+        /// Each step in the stepper carries its own parameter grid and its own add/remove buttons, so
+        /// "which step is this for" is answered by where the control sits, not by a separate selection.
+        /// </summary>
+        private static CompileProcess? StepFor(object sender) =>
+            (sender as FrameworkElement)?.DataContext as CompileProcess;
+
+        /// <summary>Finds the parameter grid belonging to the same step as <paramref name="origin"/>.</summary>
+        private static DataGrid? StepGridFor(object origin)
+        {
+            // Up to the row's card, then down to whichever of the two grids is the visible one - the
+            // CUSTOM step swaps in a different set of columns.
+            DependencyObject? node = origin as DependencyObject;
+            while (node != null && node is not ListBoxItem)
+                node = VisualTreeHelper.GetParent(node);
+
+            return node == null ? null : FindVisualChildren<DataGrid>(node).FirstOrDefault(g => g.IsVisible);
+        }
+
+        private static IEnumerable<T> FindVisualChildren<T>(DependencyObject parent) where T : DependencyObject
+        {
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                if (child is T typed)
+                    yield return typed;
+
+                foreach (var descendant in FindVisualChildren<T>(child))
+                    yield return descendant;
+            }
+        }
+
         private void OnConfigChanged(object sender, RoutedEventArgs e)
         {
-            UpdateParameterTextBox();
+            StepFor(sender)?.NotifyParametersChanged();
             ConfigurationManager.MarkDirty(ConfigurationManager.CurrentPreset);
         }
 
         private void AddParameterButton_Click(object sender, RoutedEventArgs e)
         {
-            if (selectedProcess != null)
+            var step = StepFor(sender) ?? selectedProcess;
+
+            if (step != null && ConfigurationManager.CurrentPreset is { } currentPreset
+                             && step.PresetDictionary.ContainsKey(currentPreset))
             {
+                var selectedProcess = step;
 				//Skip Paramater Adder for Custom Process
 	            if (selectedProcess.Name == "CUSTOM")
 	            {
@@ -619,33 +1010,42 @@ namespace CompilePalX
 
                 AnalyticsManager.ModifyPreset();
 
-                UpdateParameterTextBox();
+                step.NotifyParametersChanged();
             }
         }
 
         private void RemoveParameterButton_OnClickParameterButton_Click(object sender, RoutedEventArgs e)
         {
-	        ConfigItem selectedItem;
-	        if (processModeEnabled)
-		        selectedItem = (ConfigItem) ProcessDataGrid.SelectedItem;
-	        else
-				selectedItem = (ConfigItem) ConfigDataGrid.SelectedItem;
-            
-            if (selectedItem != null)
-                selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Remove(selectedItem);
+            var step = StepFor(sender);
+            if (step == null || ConfigurationManager.CurrentPreset is not { } currentPreset
+                             || !step.PresetDictionary.ContainsKey(currentPreset))
+                return;
 
-            UpdateParameterTextBox();
+            // The selection in this step's own grid. There is no single "the" parameter grid any more,
+            // so the row the button sits in decides which one is meant.
+            if (StepGridFor(sender)?.SelectedItem is ConfigItem selectedItem)
+                step.PresetDictionary[currentPreset].Remove(selectedItem);
+
+            step.NotifyParametersChanged();
+            ConfigurationManager.MarkDirty(currentPreset);
         }
         private void AddCustomParameterButton_Click(object sender, RoutedEventArgs e)
         {
-            if (selectedProcess != null)
+            var step = StepFor(sender);
+
+            if (step != null && ConfigurationManager.CurrentPreset is { } currentPreset
+                             && step.PresetDictionary.ContainsKey(currentPreset))
             {
+                var selectedProcess = step;
                 var customArgumentItem = selectedProcess.ParameterList.FirstOrDefault(i => i.Name == "Command Line Argument");
+                if (customArgumentItem == null)
+                    return;
+
                 selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Add((ConfigItem)customArgumentItem.Clone());
             }
             AnalyticsManager.ModifyPreset();
 
-            UpdateParameterTextBox();
+            StepFor(sender)?.NotifyParametersChanged();
         }
 
         private void AddProcessButton_Click(object sender, RoutedEventArgs e)
@@ -653,9 +1053,9 @@ namespace CompilePalX
             ProcessAdder c = new ProcessAdder();
             c.ShowDialog();
 
-            if (c.ProcessDataGrid.SelectedItem != null)
+            if (c.ChosenProcess != null)
             {
-                CompileProcess chosenProcess = (CompileProcess)c.ProcessDataGrid.SelectedItem;
+                CompileProcess chosenProcess = c.ChosenProcess;
                 chosenProcess.Metadata.DoRun = true;
                 if (!chosenProcess.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset))
                 {
@@ -670,11 +1070,8 @@ namespace CompilePalX
             AnalyticsManager.ModifyPreset();
             ConfigurationManager.MarkDirty(ConfigurationManager.CurrentPreset);
 
-            UpdateParameterTextBox();
             UpdateProcessList();
-
-			if (processModeEnabled)
-				OrderManager.UpdateOrder();
+            OrderManager.UpdateOrder();
 		}
 
         private void RemoveProcessButton_Click(object sender, RoutedEventArgs e)
@@ -817,9 +1214,7 @@ namespace CompilePalX
         {
             UpdateConfigGrid();
             UpdateProcessList();
-
-			if (processModeEnabled)
-				OrderManager.UpdateOrder();
+            OrderManager.UpdateOrder();
 
             // ignore if nothing is selected
             if (MapListBox.SelectedItem is not Map selectedMap)
@@ -831,14 +1226,21 @@ namespace CompilePalX
             }
 
             // preset is already selected. This event gets raised when we manually change selection of the preset box when the user selects a map, this prevents a bug that deselects the map
-            if (selectedMap.Preset != null && selectedMap.Preset.Equals((Preset)PresetConfigListBox.SelectedItem))
+            if (selectedMap.Preset != null && selectedMap.Preset.Equals(PresetConfigListBox.SelectedItem as Preset))
                 return;
 
             // update map's selected preset
             if (PresetConfigListBox.SelectedItem is Preset preset)
+            {
                 selectedMap.Preset = preset;
-            else
+            }
+            // A cleared selection is not a request to change the map's preset. This used to select the
+            // first preset instead, which then fell through to the assignment above and overwrote what
+            // the map was actually set to.
+            else if (selectedMap.Preset == null)
+            {
                 PresetConfigListBox.SelectedIndex = 0;
+            }
         }
         private void CompileProcessesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -854,82 +1256,26 @@ namespace CompilePalX
                 if (value == selectedProcess)
                     return;
                 _selectedProcess = value;
-                OnPropertyChanged(nameof(AddCustomParameterButtonEnabled));
             }
         }
 
+        /// <summary>
+        /// Points the editor at the selected preset and step.
+        ///
+        /// Almost all of what this did is gone. It used to swap two overlaid grids, retarget their
+        /// ItemsSource, toggle visibilities and rewrite a shared command-line box, because one parameter
+        /// panel had to serve whichever step happened to be selected. In the stepper each step renders
+        /// its own parameters from its own bindings, so the only shared state left is which preset is
+        /// being edited.
+        /// </summary>
         private void UpdateConfigGrid()
         {
-            ConfigurationManager.CurrentPreset = (Preset)PresetConfigListBox.SelectedItem;
+            ConfigurationManager.CurrentPreset = PresetConfigListBox.SelectedItem as Preset;
 
-            selectedProcess = (CompileProcess)CompileProcessesListBox.SelectedItem;
+            selectedProcess = CompileProcessesListBox.SelectedItem as CompileProcess;
 
-            if (selectedProcess != null && ConfigurationManager.CurrentPreset != null && selectedProcess.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset))
-            {
-                //Switch to the process grid for custom program screen
-                if (selectedProcess.Name == "CUSTOM")
-                {
-                    ProcessDataGrid.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(50))));
-                    processModeEnabled = true;
-
-                    ProcessDataGrid.ItemsSource = selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset];
-
-                    ConfigDataGrid.IsEnabled = false;
-                    ConfigDataGrid.Visibility = Visibility.Hidden;
-                    ParametersTextBox.Visibility = Visibility.Hidden;
-
-                    ProcessDataGrid.IsEnabled = true;
-                    ProcessDataGrid.Visibility = Visibility.Visible;
-
-                    ProcessTab.IsEnabled = true;
-                    ProcessTab.Visibility = Visibility.Visible;
-
-                    //Hide parameter buttons if ORDER is the current tab
-                    if ((string)(ProcessTab.SelectedItem as TabItem)?.Header == "ORDER")
-                    {
-                        AddParameterButton.Visibility = Visibility.Hidden;
-                        AddParameterButton.IsEnabled = false;
-
-                        RemoveParameterButton.Visibility = Visibility.Hidden;
-                        RemoveParameterButton.IsEnabled = false;
-
-                        AddCustomParameterButton.Visibility = Visibility.Hidden;
-                    }
-                }
-                else
-                {
-                    ConfigDataGrid.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(50))));
-                    processModeEnabled = false;
-
-                    ConfigDataGrid.IsEnabled = true;
-                    ConfigDataGrid.Visibility = Visibility.Visible;
-                    ParametersTextBox.Visibility = Visibility.Visible;
-
-                    ProcessDataGrid.IsEnabled = false;
-                    ProcessDataGrid.Visibility = Visibility.Hidden;
-
-                    ProcessTab.IsEnabled = false;
-                    ProcessTab.Visibility = Visibility.Hidden;
-
-                    ConfigDataGrid.ItemsSource = selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset];
-
-                    //Make buttons visible if they were disabled
-                    if (!AddParameterButton.IsEnabled)
-                    {
-                        AddParameterButton.Visibility = Visibility.Visible;
-                        AddParameterButton.IsEnabled = true;
-
-                        RemoveParameterButton.Visibility = Visibility.Visible;
-                        RemoveParameterButton.IsEnabled = true;
-
-                        AddCustomParameterButton.Visibility = Visibility.Visible;
-                    }
-
-                    UpdateParameterTextBox();
-                }
-
-
-            }
+            // The preset decides what every row resolves its parameters and summary from.
+            RefreshStepSummaries();
         }
 
         private void UpdateProcessList()
@@ -954,10 +1300,16 @@ namespace CompilePalX
                 CompileProcessesListBox.SelectedIndex = currentIndex;
         }
 
-        void UpdateParameterTextBox()
+        /// <summary>
+        /// Re-reads the argument summary and command line on every step row.
+        ///
+        /// These used to be one shared read-only textbox showing whichever step was selected; each step
+        /// now shows its own, so a change has to be announced to all of them.
+        /// </summary>
+        void RefreshStepSummaries()
         {
-            if (selectedProcess != null)
-                ParametersTextBox.Text = selectedProcess.GetParameterString();
+            foreach (var process in CompileProcessesSubList)
+                process.NotifyParametersChanged();
         }
 
         private void MetroWindow_Activated(object sender, EventArgs e)
@@ -987,17 +1339,128 @@ namespace CompilePalX
 	            dialog.ShowDialog();
             }
 
-            foreach (var file in dialog.FileNames)
+            AddMaps(dialog.FileNames);
+        }
+
+        /// <summary>
+        /// Queues maps, skipping any already in the list.
+        ///
+        /// Shared by the Add Map button and by dropping files on the window so the two agree on preset
+        /// choice and on de-duplication; queueing the same file twice only ever compiled it twice.
+        /// </summary>
+        private static void AddMaps(IEnumerable<string> paths)
+        {
+            foreach (var path in paths)
             {
-                // use current preset if it matches the map, otherwise default to first
-                CompilingManager.MapFiles.Add(new Map(file, preset: ConfigurationManager.CurrentPreset != null && ConfigurationManager.CurrentPreset.IsValidMap(file) ? ConfigurationManager.CurrentPreset : ConfigurationManager.KnownPresets.FirstOrDefault()));
+                if (CompilingManager.MapFiles.Any(m => string.Equals(m.File, path, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                CompilingManager.MapFiles.Add(new Map(path, preset: PresetForMap(path)));
             }
+        }
+
+        /// <summary>Map files being dragged over the window, ignoring anything Compile Pal cannot build.</summary>
+        private static List<string> DraggedMaps(DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+                return [];
+
+            if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths)
+                return [];
+
+            return paths.Where(p => File.Exists(p) && IsAddableMap(p)).ToList();
+        }
+
+        private void CompileWindow_OnDragOver(object sender, DragEventArgs e)
+        {
+            // Refusing the drop while compiling rather than silently ignoring it: the cursor says up
+            // front that the window will not take the file, instead of accepting it to no effect.
+            e.Effects = !IsCompiling && DraggedMaps(e).Count != 0 ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void CompileWindow_OnDrop(object sender, DragEventArgs e)
+        {
+            // CompileThreaded iterates MapFiles directly, so adding to it mid-compile would both change
+            // what still gets compiled and risk invalidating that enumeration.
+            if (IsCompiling)
+                return;
+
+            AddMaps(DraggedMaps(e));
+            e.Handled = true;
         }
 
         private void RemoveMapButton_Click(object sender, RoutedEventArgs e)
         {
             if (MapListBox.SelectedItem is Map selectedMap)
                 CompilingManager.MapFiles.Remove(selectedMap);
+        }
+
+        /// <summary>
+        /// Keeps the editor in step when a map's preset is changed from its own card.
+        ///
+        /// The binding has already written the new preset onto the map. What still has to happen is what
+        /// selecting the map in the list does: point the preset panel and the step list at it, so the
+        /// SETUP tab is editing the preset the card now says this map uses.
+        /// </summary>
+        private void MapPresetCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (sender is not ComboBox { DataContext: Map map } combo || combo.SelectedItem is not Preset preset)
+                return;
+
+            // Only for the map being edited. Changing another card's preset should not yank the panel
+            // over to it - the user is labelling the queue, not switching what they are looking at.
+            if (!ReferenceEquals(MapListBox.SelectedItem, map))
+                return;
+
+            if (ReferenceEquals(ConfigurationManager.CurrentPreset, preset))
+                return;
+
+            ConfigurationManager.CurrentPreset = preset;
+            PresetConfigListBox.SelectedItem = preset;
+            UpdateProcessList();
+            UpdateConfigGrid();
+        }
+
+        /// <summary>The map a map-list context menu item was opened on.</summary>
+        private static Map? MapFromMenuItem(object sender) => (sender as FrameworkElement)?.DataContext as Map;
+
+        private void MapOpenFolder_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (MapFromMenuItem(sender) is not { } map)
+                return;
+
+            // /select, highlights the map inside its folder rather than just opening the folder. Falls
+            // back to the folder alone when the file has since been moved or deleted.
+            if (File.Exists(map.File))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{map.File}\"") { UseShellExecute = true });
+            else if (Path.GetDirectoryName(map.File) is { Length: > 0 } directory && Directory.Exists(directory))
+                Process.Start(new ProcessStartInfo(directory) { UseShellExecute = true });
+        }
+
+        private void MapCopyPath_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (MapFromMenuItem(sender) is not { } map)
+                return;
+
+            try
+            {
+                Clipboard.SetText(map.File);
+            }
+            catch (Exception ex)
+            {
+                // Another process can hold the clipboard open, which makes SetText throw. Losing a
+                // copied path is not worth taking the window down for.
+                CompilePalLogger.LogDebug($"Could not copy map path to the clipboard: {ex.Message}");
+            }
+        }
+
+        private void MapRemove_OnClick(object sender, RoutedEventArgs e)
+        {
+            // Deliberately the right-clicked map, not the selected one - a context menu acts on what it
+            // was opened on, and right-clicking a ListBox row does not select it.
+            if (MapFromMenuItem(sender) is { } map)
+                CompilingManager.MapFiles.Remove(map);
         }
 
 
@@ -1036,37 +1499,31 @@ namespace CompilePalX
 			Process.Start(new ProcessStartInfo("http://www.github.com/ruarai/CompilePal/releases/latest") { UseShellExecute = true });
         }
 
-	    private void ProcessTab_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+	    /// <summary>
+	    /// Rebuilds the compile order when the ORDER tab is opened.
+	    ///
+	    /// The order is derived from the current preset and which steps are ticked, both of which can
+	    /// change while another tab is showing, so it is recomputed on the way in rather than kept live.
+	    /// </summary>
+	    private void MainTabControl_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
 	    {
-			if (e.Source is TabControl)
-				OrderManager.UpdateOrder();
+		    // SelectionChanged bubbles from every Selector inside the tabs (the preset and process
+		    // lists, the parameter grids), so ignore anything that did not come from this TabControl.
+		    if (!ReferenceEquals(e.Source, MainTabControl))
+			    return;
 
-			if (OrderTab.IsSelected)
-		    {
-				AddParameterButton.Visibility = Visibility.Hidden;
-				AddParameterButton.IsEnabled = false;
+		    if (MainTabControl.SelectedItem == OrderTab)
+			    OrderManager.UpdateOrder();
 
-				RemoveParameterButton.Visibility = Visibility.Hidden;
-				RemoveParameterButton.IsEnabled = false;
-
-                AddCustomParameterButton.Visibility = Visibility.Hidden;
-            }
-		    else
-		    {
-				AddParameterButton.Visibility = Visibility.Visible;
-				AddParameterButton.IsEnabled = true;
-
-				RemoveParameterButton.Visibility = Visibility.Visible;
-				RemoveParameterButton.IsEnabled = true;
-
-                AddCustomParameterButton.Visibility = Visibility.Visible;
-            }
-		}
+		    // Error navigation, copy and save only mean anything against the log, so they appear with it
+		    // instead of sitting in the footer looking available on every other tab.
+		    OnPropertyChanged(nameof(OutputToolsVisibility));
+	    }
 
         private void MapListBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // clear config datagrid so no stale data is shown
-            ConfigDataGrid.ItemsSource = null;
+            // Step rows rebind from the newly selected map's preset via UpdateConfigGrid below.
 
             // no maps selected, default to last selected index. When we update any bound item in the MapBox datasource it will deselect all items, this reselects it after it has been deselected
             if (MapListBox.SelectedItem is not Map selectedMap)
@@ -1091,16 +1548,11 @@ namespace CompilePalX
 
 	    private void DoRun_OnClick(object sender, RoutedEventArgs e)
 	    {
-			if (processModeEnabled)
-				OrderManager.UpdateOrder();
+		    // Unconditional now that ORDER is its own tab. It used to only refresh while the CUSTOM
+		    // process was selected, because that was the only time the order grid could be on screen.
+			OrderManager.UpdateOrder();
 
 			ConfigurationManager.MarkProcessesDirty();
-		}
-
-	    private void OrderGrid_OnIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
-	    {
-			if (processModeEnabled)
-				OrderManager.UpdateOrder();
 		}
 
 	    private void DataGridCell_OnEnter(object sender, MouseEventArgs e)
@@ -1153,19 +1605,29 @@ namespace CompilePalX
 		}
 
 
-		//Search through ProcDataGrid to find corresponding ConfigItem
+		/// <summary>
+		/// Finds the ConfigItem backing a custom program, so reordering can write its new position.
+		///
+		/// Reads the CUSTOM step's parameters for the current preset directly. It used to walk the
+		/// ItemsSource of the dedicated program grid, which no longer exists - and which also meant this
+		/// only worked while that grid happened to be the one on screen.
+		/// </summary>
 		private ConfigItem? GetConfigFromCustomProgram(CustomProgram program)
 	    {
-            if (ProcessDataGrid.ItemsSource is null)
-                return null;
+		    if (ConfigurationManager.CurrentPreset is not { } preset)
+			    return null;
 
-			foreach (var procSourceItem in ProcessDataGrid.ItemsSource)
-			{
-				if (program.Equals(procSourceItem))
-				{
-					return procSourceItem as ConfigItem;
-				}
-			}
+		    var customStep = ConfigurationManager.CompileProcesses
+			    .FirstOrDefault(c => c.Name == "CUSTOM" && c.PresetDictionary.ContainsKey(preset));
+
+		    if (customStep == null)
+			    return null;
+
+		    foreach (var item in customStep.PresetDictionary[preset])
+		    {
+			    if (program.Equals(item))
+				    return item;
+		    }
 
 			//Return null on failure
 		    return null;
@@ -1264,11 +1726,15 @@ namespace CompilePalX
 
         private void CopyButton_OnClick(object sender, RoutedEventArgs e)
         {
+            // Everything below reads the document rather than the buffer, so land the buffer first.
+            FlushOutput();
             Clipboard.SetText(new TextRange(CompileOutputTextbox.Document.ContentStart, CompileOutputTextbox.Document.ContentEnd).Text);
         }
 
         private void SaveLogButton_OnClick(object sender, RoutedEventArgs e)
         {
+            FlushOutput();
+
             var dialog = new SaveFileDialog
             {
                 Filter = "Text file (*.txt)|*.txt|All files (*.*)|*.*",
@@ -1296,6 +1762,9 @@ namespace CompilePalX
 
         private void StepError(int direction)
         {
+            // An error queued but not yet in the document has no valid position to scroll to.
+            FlushOutput();
+
             if (outputErrorLinks.Count == 0)
                 return;
 
@@ -1319,6 +1788,25 @@ namespace CompilePalX
 
         private void CompileWindow_OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
+            // F9 rather than Esc for cancelling. Esc is the obvious pair to "start", but it is also the
+            // key people hit to dismiss things, and using it here means one stray press throws away a
+            // compile that may be half an hour in. F9 is what Hammer binds "run map" to, so it is
+            // already the right muscle memory, and toggling on the same key makes an accidental cancel
+            // take a deliberate second press.
+            if (e.Key == Key.F9 && CompileStartStopButton.IsEnabled)
+            {
+                CompileStartStopButton_OnClick(CompileStartStopButton, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control && AddMapButton.IsEnabled)
+            {
+                AddMapButton_Click(AddMapButton, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control && MainTabControl.SelectedItem == OutputTab)
             {
                 ShowOutputSearchBar();
@@ -1390,6 +1878,9 @@ namespace CompilePalX
 
         private void PerformSearch(bool forward)
         {
+            // Search the whole log, including lines still sitting in the append buffer.
+            FlushOutput();
+
             string query = OutputSearchBox.Text;
 
             if (string.IsNullOrEmpty(query))
@@ -1473,9 +1964,12 @@ namespace CompilePalX
             // load settings on window opening
             try
             {
+                // The queue is a left rail now, so the remembered size is its width. Deliberately read
+                // from the same setting: a value saved as a row height is a plausible column width, and
+                // silently reusing it beats resetting everyone's layout for the sake of a key name.
                 var converter = new GridLengthConverter();
                 if (ConfigurationManager.Settings.MapListHeight is not null)
-                    this.MapListBoxRow.Height = (GridLength)converter.ConvertFromString(ConfigurationManager.Settings.MapListHeight);
+                    this.QueueColumn.Width = (GridLength)converter.ConvertFromString(ConfigurationManager.Settings.MapListHeight);
             }
             catch (Exception ex)
             {
@@ -1492,7 +1986,7 @@ namespace CompilePalX
             try
             {
                 var converter = new GridLengthConverter();
-                ConfigurationManager.Settings.MapListHeight = converter.ConvertToString(this.MapListBoxRow.Height);
+                ConfigurationManager.Settings.MapListHeight = converter.ConvertToString(this.QueueColumn.Width);
 
                 // remember which preset was selected so the next launch reopens on it
                 ConfigurationManager.Settings.LastPreset = ConfigurationManager.CurrentPreset?.Name;

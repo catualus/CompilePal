@@ -18,7 +18,7 @@ using Newtonsoft.Json;
 
 namespace CompilePalX
 {
-    class CompileProcess
+    class CompileProcess : INotifyPropertyChanged
     {
         public string ParameterFolder = "./Parameters";
 	    public bool Draggable = true; // set to false if we ever want to disable reordering non custom compile steps
@@ -174,6 +174,69 @@ namespace CompilePalX
         public ObservableCollection<ConfigItem> ParameterList = [];
         public bool SupportsCustomParameters { get => ParameterList.Any(i => i.Name == "Command Line Argument"); }
         public ObservableDictionary<Preset, ObservableCollection<ConfigItem>> PresetDictionary = [];
+
+        #region Stepper bindings
+
+        /// <summary>
+        /// This step's parameters under the preset being edited, or null when the preset does not carry
+        /// this step at all.
+        ///
+        /// The SETUP list gives every step its own parameter grid, expanded underneath the step it
+        /// belongs to, rather than one shared grid in a third column whose connection to the middle
+        /// column had to be inferred.
+        /// </summary>
+        public ObservableCollection<ConfigItem>? CurrentPresetParameters =>
+            ConfigurationManager.CurrentPreset is { } preset && PresetDictionary.ContainsKey(preset)
+                ? PresetDictionary[preset]
+                : null;
+
+        /// <summary>
+        /// The step's arguments on one line, for the collapsed row.
+        ///
+        /// Lets the whole preset be read at a glance without opening every step in turn - which was the
+        /// only way to answer "how does Best differ from Best (tools++)".
+        /// </summary>
+        public string ArgumentSummary
+        {
+            get
+            {
+                try
+                {
+                    string summary = GetParameterString().Trim();
+
+                    // GetParameterString leads with the program's own base arguments, which are the same
+                    // for every preset and so say nothing about this one.
+                    string baseArguments = (Metadata?.Arguments ?? "").Trim();
+                    if (baseArguments.Length != 0 && summary.StartsWith(baseArguments, StringComparison.Ordinal))
+                        summary = summary[baseArguments.Length..].Trim();
+
+                    return summary;
+                }
+                catch
+                {
+                    // Only ever decoration on a row; a step whose arguments cannot be resolved yet (no
+                    // preset selected, a parameter mid-edit) should render blank, not throw into layout.
+                    return "";
+                }
+            }
+        }
+
+        /// <summary>Whether this step has any parameters set, so the row can say "no parameters".</summary>
+        public bool HasParameters => CurrentPresetParameters is { Count: > 0 };
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        /// <summary>
+        /// Re-reads everything the SETUP row shows. Called when a parameter is added, removed or edited.
+        /// </summary>
+        public void NotifyParametersChanged()
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ArgumentSummary)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasParameters)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurrentPresetParameters)));
+        }
+
+        #endregion
 
 
         public string GetParameterString()
