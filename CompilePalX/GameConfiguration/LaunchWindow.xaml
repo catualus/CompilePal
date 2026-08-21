@@ -42,7 +42,7 @@
                         <DataGridTemplateColumn Width="auto" CanUserResize="False">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <Button Name="GameKebabButton" Height="5" Width="auto" Padding="0" Margin="0, -8, 0, -8" Visibility="Visible" Style="{DynamicResource CompilePal.Styles.KebabButton}" ContextMenuOpening="GameKebabButton_OnContextMenuOpening" Click="GameKebabButton_OnClick">
+                                    <Button Name="GameKebabButton" Height="5" Width="auto" Padding="0" Margin="0, -8, 0, -8" Visibility="Visible" Style="{DynamicResource CompilePal.Styles.KebabButton}" AutomationProperties.Name="Game actions" ContextMenuOpening="GameKebabButton_OnContextMenuOpening" Click="GameKebabButton_OnClick">
                                         <iconPacks:PackIconMaterial Kind="DotsVertical" Height="8" Width="8"/>
                                         <Button.ContextMenu>
                                             <ContextMenu Name="PresetActionMenu" Placement="Bottom">
@@ -62,8 +62,8 @@
                     </DataGrid.Columns>
                 </DataGrid>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0, -1, 0, 0" HorizontalAlignment="Right">
-                    <Button Name="RefreshButton" Margin="0, 0, 5, 0" Height="20" Width="25" Padding="-4" VerticalAlignment="Top" Click="RefreshButton_OnClick" ToolTip="Refresh Game Configurations"><iconPacks:Material Kind="Refresh" Height="13" Width="13"/></Button>
-                    <Button Name="AddButton" Height="20" Width="25" Padding="-4" VerticalAlignment="Top" Click="AddButton_OnClick" ToolTip="Add Game Configuration"><iconPacks:Material Kind="Plus" Height="13" Width="13"/></Button>
+                    <Button Name="RefreshButton" Margin="0, 0, 5, 0" Height="20" Width="25" Padding="-4" VerticalAlignment="Top" Click="RefreshButton_OnClick" ToolTip="Refresh Game Configurations" AutomationProperties.Name="Refresh Game Configurations"><iconPacks:Material Kind="Refresh" Height="13" Width="13"/></Button>
+                    <Button Name="AddButton" Height="20" Width="25" Padding="-4" VerticalAlignment="Top" Click="AddButton_OnClick" ToolTip="Add Game Configuration" AutomationProperties.Name="Add Game Configuration"><iconPacks:Material Kind="Plus" Height="13" Width="13"/></Button>
                 </StackPanel>
             </Grid>
             <ui:Button Name="LaunchButton" Appearance="Primary" Content="Launch" Margin="0,0,10,10" VerticalAlignment="Bottom" HorizontalAlignment="Right" Width="75" Click="Button_Click" IsEnabled="{Binding ElementName=GameGrid, Path=SelectedItems.Count}"/>
