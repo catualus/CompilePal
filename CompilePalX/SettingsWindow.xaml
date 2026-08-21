@@ -7,10 +7,39 @@
         xmlns:local="clr-namespace:CompilePalX"
         mc:Ignorable="d"
         Title="Settings"
-          Height="450" Width="800"
-          MinHeight="450" MinWidth="800"
+          Height="600" Width="720"
+          MinHeight="420" MinWidth="560"
           Icon="CompilePalIcon.ico"
           FontFamily="Segoe UI Variable Text, Segoe UI" >
+    <Window.Resources>
+        <!-- One row per setting: label and explanation on the left, the control on the right. The window
+             used to be eight unrelated controls stacked in a single scroller, so an error-database URL
+             sat directly above "play a sound when the compile finishes" with nothing to separate them. -->
+        <Style x:Key="SettingRow" TargetType="Border">
+            <Setter Property="Padding" Value="14,11"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}"/>
+        </Style>
+        <Style x:Key="SettingTitle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="SettingHint" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,2,12,0"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}"/>
+        </Style>
+        <Style x:Key="SectionHeading" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="2,16,0,6"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}"/>
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -23,45 +52,156 @@
                 <ui:ImageIcon Source="CompilePalIcon.ico" />
             </ui:TitleBar.Icon>
         </ui:TitleBar>
-    <Grid Grid.Row="1" Margin="20">
+    <Grid Grid.Row="1" Margin="20,4,20,16">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="auto"/>
         </Grid.RowDefinitions>
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel Orientation="Vertical" FocusManager.FocusedElement="{Binding ElementName=ErrorSourceURL}">
-                <StackPanel Margin="0, 0, 0, 10" HorizontalAlignment="Left">
-                    <Label Padding="0, 5 5, 5" Margin="0, 0, -5, 0" IsTabStop="False">Appearance</Label>
-                    <ComboBox ItemsSource="{Binding Path=Themes, Mode=OneTime}" SelectedItem="{Binding Path=Theme, Mode=TwoWay}" MinWidth="200" HorizontalAlignment="Left"
-                              ToolTip="System follows the Windows light/dark setting. Applied as soon as you save."/>
-                </StackPanel>
-                <TextBox Template="{StaticResource LabeledTextbox}" Text="{Binding Path=ErrorSourceURL, Mode=TwoWay}" Tag="Error Source" Name="ErrorSourceURL"/>
-                <TextBox Template="{StaticResource LabeledTextbox}" Text="{Binding Path=ErrorCacheExpirationDays , Mode=TwoWay}" Tag="Error Cache Duration" Name="ErrorCacheDurationDays" ToolTip="How many days to cache error information" PreviewTextInput="ErrorCacheDurationDays_PreviewTextInput"/>
-                <StackPanel Margin="0, 0, 0, 5" HorizontalAlignment="Left">
-                    <Label Padding="0, 5 5, 5" Margin="0, 0, -5, 0" IsTabStop="False">Play Sound On Compile Completion</Label>
-                    <CheckBox IsChecked="{Binding Path=PlaySoundOnCompileCompletion, Mode=TwoWay}" Focusable="True" HorizontalAlignment="Left"/>
-                </StackPanel>
-                <StackPanel Margin="0, 5, 0, 5" HorizontalAlignment="Left">
-                    <Label Padding="0, 5 5, 5" Margin="0, 0, -5, 0" IsTabStop="False">Hammer++ Compile Tools (tools++)</Label>
-                    <ComboBox ItemsSource="{Binding Path=ToolsPlusPlusModes, Mode=OneTime}" SelectedItem="{Binding Path=ToolsPlusPlusMode, Mode=TwoWay}" MinWidth="200" HorizontalAlignment="Left"
-                              ToolTip="Auto inspects the configured vbsp/vvis/vrad/bspzip binaries and shows tools++ only parameters when ficool2's tools are detected.&#x0a;Restart Compile Pal after changing this."/>
-                </StackPanel>
-                <StackPanel Margin="0, 5, 0, 5" HorizontalAlignment="Left" Orientation="Horizontal">
-                    <CheckBox IsChecked="{Binding Path=PreferToolsPlusPlusBinaries, Mode=TwoWay}" Focusable="True" VerticalAlignment="Center"
-                              ToolTip="When a tools++ build of vbsp/vvis/vrad/bspzip is found next to the configured binary (usually in bin/win64 or bin/x64), run it instead - even though the Game Configuration screen still shows the path you typed there.&#x0a;Turn this off to always run exactly the binary configured in Game Configuration."/>
-                    <TextBlock Text="Prefer tools++ binaries when found, even if not the one configured" Margin="6,0,0,0" VerticalAlignment="Center" />
-                </StackPanel>
-                <!-- UpdateSourceTrigger=PropertyChanged on purpose. The default for TextBox.Text is
-                     LostFocus, so a value typed and then committed with the Save button (or Enter)
-                     without the box losing focus first never reaches the Settings object, and the
-                     save silently writes the old value back. -->
-                <TextBox Template="{StaticResource LabeledTextbox}" Text="{Binding Path=OutputFontFamily, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Tag="Output Font" Name="OutputFontFamily"
-                          ToolTip="Font used for the OUTPUT tab. Comma-separated fallback list, same as a XAML FontFamily. Keep this monospace or compiler tables (VBSP's lump report, etc.) will misalign.&#x0a;Applies as soon as you save."/>
-                <TextBox Template="{StaticResource LabeledTextbox}" Text="{Binding Path=OutputFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Tag="Output Font Size" Name="OutputFontSize"
-                          PreviewTextInput="OutputFontSize_PreviewTextInput" ToolTip="Font size for the OUTPUT tab. Applies as soon as you save."/>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
+            <StackPanel Orientation="Vertical">
+
+                <TextBlock Style="{StaticResource SectionHeading}" Text="APPEARANCE" Margin="2,4,0,6"/>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <ComboBox DockPanel.Dock="Right" MinWidth="200" VerticalAlignment="Center"
+                                  ItemsSource="{Binding Path=Themes, Mode=OneTime}" SelectedItem="{Binding Path=Theme, Mode=TwoWay}"
+                                  AutomationProperties.Name="Theme"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Theme"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="System follows the Windows light/dark setting. Applied as soon as you save."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource SectionHeading}" Text="COMPILE OUTPUT"/>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <!-- A picker over the monospace families actually installed, rather than a text
+                             box asking for "a comma-separated fallback list, same syntax as a XAML
+                             FontFamily" - which was a config file rendered as a form. -->
+                        <ComboBox DockPanel.Dock="Right" MinWidth="220" VerticalAlignment="Center" Name="OutputFontFamily"
+                                  IsEditable="True"
+                                  ItemsSource="{Binding Path=MonospaceFonts, RelativeSource={RelativeSource AncestorType=Window}, Mode=OneTime}"
+                                  Text="{Binding Path=OutputFontFamily, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  AutomationProperties.Name="Output font">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" FontFamily="{Binding}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Font"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Monospace families installed on this machine. Compiler output is aligned with spaces, so a proportional font will misalign it. Applies as soon as you save."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <ui:NumberBox DockPanel.Dock="Right" MinWidth="120" VerticalAlignment="Center" Name="OutputFontSize"
+                                      Minimum="6" Maximum="72" SmallChange="1"
+                                      Value="{Binding Path=OutputFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      AutomationProperties.Name="Output font size"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Font size"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Applies as soon as you save."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Right" Padding="10,6" CornerRadius="4" MinWidth="220"
+                                Background="{DynamicResource ControlFillColorDefaultBrush}">
+                            <TextBlock Name="FontPreview" Text="VBSP  1024  [====]  0.00%"
+                                       FontFamily="{Binding Text, ElementName=OutputFontFamily}"
+                                       FontSize="{Binding Value, ElementName=OutputFontSize}"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </Border>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Preview"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="How the OUTPUT tab will render."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource SectionHeading}" Text="COMPILE TOOLS"/>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <ComboBox DockPanel.Dock="Right" MinWidth="200" VerticalAlignment="Center"
+                                  ItemsSource="{Binding Path=ToolsPlusPlusModes, Mode=OneTime}" SelectedItem="{Binding Path=ToolsPlusPlusMode, Mode=TwoWay}"
+                                  AutomationProperties.Name="Hammer++ compile tools mode"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Hammer++ tools (tools++)"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Auto inspects the configured vbsp/vvis/vrad/bspzip binaries and shows tools++ only parameters when ficool2's tools are detected. Restart Compile Pal after changing this."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <ui:ToggleSwitch DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         IsChecked="{Binding Path=PreferToolsPlusPlusBinaries, Mode=TwoWay}"
+                                         AutomationProperties.Name="Prefer tools++ binaries when found"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Prefer tools++ binaries when found"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Run a tools++ build of vbsp/vvis/vrad/bspzip found next to the configured binary, even though Game Configuration still shows the path you typed. Turn this off to always run exactly what is configured."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource SectionHeading}" Text="ERROR CHECKING"/>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <TextBox DockPanel.Dock="Right" MinWidth="260" VerticalAlignment="Center" Name="ErrorSourceURL"
+                                 Text="{Binding Path=ErrorSourceURL, Mode=TwoWay}"
+                                 AutomationProperties.Name="Error database URL"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Error database"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Where compile error explanations are fetched from. Compile Pal falls back to its bundled catalogue when this is unreachable."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <ui:NumberBox DockPanel.Dock="Right" MinWidth="120" VerticalAlignment="Center" Name="ErrorCacheDurationDays"
+                                      Minimum="0" Maximum="365" SmallChange="1"
+                                      Value="{Binding Path=ErrorCacheExpirationDays, Mode=TwoWay}"
+                                      AutomationProperties.Name="Error cache duration in days"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Cache duration"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Days to keep downloaded error information before fetching it again."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource SectionHeading}" Text="NOTIFICATIONS"/>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <ui:ToggleSwitch DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         IsChecked="{Binding Path=PlaySoundOnCompileCompletion, Mode=TwoWay}"
+                                         AutomationProperties.Name="Play a sound when a compile finishes"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Sound on completion"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Plays the system notification sound when a compile finishes."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
-        <ui:Button Grid.Row="1" Appearance="Primary" Click="SaveButton_Click">Save</ui:Button>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="Cancel" Width="96" Height="32" IsCancel="True" Click="CancelButton_Click"/>
+            <ui:Button Appearance="Primary" Content="Save" Width="96" Height="32" Margin="8,0,0,0" Click="SaveButton_Click"/>
+        </StackPanel>
     </Grid>
     </Grid>
 </ui:FluentWindow>
