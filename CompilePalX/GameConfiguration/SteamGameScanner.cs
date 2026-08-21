@@ -86,7 +86,7 @@ namespace CompilePalX
 
 		/// <summary>
 		/// Canonical form of a path, so two spellings of the same folder compare equal.
-		/// Falls back to the original if the path is malformed enough that GetFullPath objects.
+		/// Falls back to the original if the path is malformed enough that GetFullPath throws.
 		/// </summary>
 		private static string Normalise(string path)
 		{

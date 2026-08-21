@@ -133,11 +133,43 @@ namespace CompilePalX.Compilers
             if (cancellationToken.IsCancellationRequested)
                 return;
 
+            // Recorded, not acted on. Source games return arbitrary exit codes - which is exactly why
+            // this step stopped trusting them (upstream issues #256, #262) - so a non-zero one is worth
+            // having in the log when diagnosing a failure but must not be turned back into an error.
+            TryLogExitCode();
+
             var after = SnapshotBsp();
-            if (before is not null && after is not null && before == after)
+
+            if (after is null)
+            {
+                // The BSP could not be read afterwards at all, which is a worse outcome than an
+                // unchanged one and previously went unreported: both branches below need a snapshot.
+                CompilePalLogger.LogLineCompileError($"{Path.GetFileName(bspFile)} could not be read after the game exited, so it is not known whether cubemaps were built.",
+                    new Error("Cubemaps could not be verified - BSP unreadable after the game exited", ErrorSeverity.Error));
+            }
+            else if (before is not null && before == after)
             {
                 CompilePalLogger.LogLineCompileError($"The game closed without modifying {Path.GetFileName(bspFile)}, so no cubemaps were built. Check that the map loads and that Steam is running.",
                     new Error("Cubemaps were not built - BSP unchanged after the game exited", ErrorSeverity.Error));
+            }
+        }
+
+        /// <summary>
+        /// Notes the game's exit code in the debug log, if it can still be read.
+        ///
+        /// Reading ExitCode throws when the process was never started by us or has already been
+        /// released, and a diagnostic line is never worth an exception.
+        /// </summary>
+        private void TryLogExitCode()
+        {
+            try
+            {
+                if (Process is { HasExited: true } process && process.ExitCode != 0)
+                    CompilePalLogger.LogLineDebug($"The game exited with code {process.ExitCode} (Source exit codes are not reliable; the BSP check below decides the outcome).");
+            }
+            catch (Exception e)
+            {
+                CompilePalLogger.LogLineDebug($"Could not read the game's exit code: {e.Message}");
             }
         }
 

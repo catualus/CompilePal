@@ -39,7 +39,7 @@ namespace CompilePalX
                 File.WriteAllText(Path.Combine("CrashLogs", crashLogName + ".txt"), e.ToString() + e.InnerException ?? "");
 				
 				ProgressManager.ErrorProgress();
-				await Theming.AppDialog.ShowAsync("A fatal exception has occured", e.Message, closeText: "Exit");
+				await Theming.AppDialog.ShowAsync("A fatal exception has occurred", e.Message, closeText: "Exit");
 
                 Environment.Exit(0);
             }
