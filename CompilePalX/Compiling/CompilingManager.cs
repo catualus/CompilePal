@@ -375,15 +375,21 @@ namespace CompilePalX
 
                 var mapErrors = new List<MapErrors>();
 
+                // Snapshot, for the same reason as the step order below: this loop runs for the whole
+                // compile, and anything that adds to or removes from the queue meanwhile would
+                // invalidate its enumerator and abort the run. It also fixes what a run means - the maps
+                // that were queued when Compile was pressed, not whatever the list holds by the end.
+                var maps = MapFiles.ToList();
+
                 // Everything the queue shows about a previous run is about to be replaced, and leaving
                 // the old chips up while the new run is under way reads as though those are its results.
-                var queued = MapFiles.Where(m => m.Compile).ToList();
-                foreach (var m in MapFiles)
+                var queued = maps.Where(m => m.Compile).ToList();
+                foreach (var m in maps)
                     UpdateMapOnUiThread(m, x => x.State = x.Compile ? MapCompileState.Queued : MapCompileState.None);
 
                 int mapNumber = 0;
 
-                foreach (Map map in MapFiles)
+                foreach (Map map in maps)
                 {
                     if (!map.Compile)
                     {
@@ -437,32 +443,38 @@ namespace CompilePalX
 
                     // Worked out once per map: the weights come from how long each step took on previous
                     // runs, so they only change when a run finishes, not while one is in progress.
-                    var stepShares = StepShares(map);
+                    var stepShares = StepShares(map, maps);
 
                     // The footer's segmented bar draws one segment per step at its own width, so it needs
                     // the order as a list rather than the name-keyed shares (a name can repeat).
-                    var stepNames = OrderManager.CurrentOrder.Select(c => c.Name).ToList();
+                    // Snapshot. OrderManager.UpdateOrder clears and refills CurrentOrder, and anything
+                    // that calls it - selecting the ORDER tab, for one - would otherwise invalidate the
+                    // enumerator of the loop below and abort the compile partway through with
+                    // "collection was modified".
+                    var order = OrderManager.CurrentOrder.ToList();
+
+                    var stepNames = order.Select(c => c.Name).ToList();
                     var stepWeights = stepNames
                         .Select(n => stepShares.TryGetValue(n, out var w) ? w : 1d / Math.Max(1, stepNames.Count))
                         .ToList();
 
 					int stepNumber = 0;
-					foreach (var compileProcess in OrderManager.CurrentOrder)
+					foreach (var compileProcess in order)
 					{
                         cancellationToken.ThrowIfCancellationRequested();
                         currentCompileProcess = compileProcess;
 
-                        LogStepDivider(compileProcess.Name, ++stepNumber, OrderManager.CurrentOrder.Count);
+                        LogStepDivider(compileProcess.Name, ++stepNumber, order.Count);
 
                         double share = stepShares.TryGetValue(compileProcess.Name, out var s)
                             ? s
-                            : 1d / Math.Max(1, OrderManager.CurrentOrder.Count) / Math.Max(1, CompilingMapCount());
+                            : 1d / Math.Max(1, order.Count) / Math.Max(1, queued.Count);
 
                         OnStepChanged?.Invoke(new CompileStepInfo
                         {
                             StepName = compileProcess.Name,
                             StepNumber = stepNumber,
-                            StepCount = OrderManager.CurrentOrder.Count,
+                            StepCount = order.Count,
                             MapNumber = mapNumber,
                             MapCount = queued.Count,
                             StepNames = stepNames,
@@ -595,7 +607,7 @@ namespace CompilePalX
         /// checkbox is clear too, so compiling one of three queued maps could only ever fill a third of
         /// the bar and reported 33% as "finished".
         /// </summary>
-        private static int CompilingMapCount() => Math.Max(1, MapFiles.Count(m => m.Compile));
+        private static int CompilingMapCount(IReadOnlyList<Map> maps) => Math.Max(1, maps.Count(m => m.Compile));
 
         /// <summary>
         /// How much of the whole run each step of this map accounts for, keyed by step name.
@@ -604,12 +616,12 @@ namespace CompilePalX
         /// at something like a constant rate instead of stalling through VVIS and then leaping. Scaled
         /// down by the number of maps so the shares across the whole run still sum to 1.
         /// </summary>
-        private static Dictionary<string, double> StepShares(Map map)
+        private static Dictionary<string, double> StepShares(Map map, IReadOnlyList<Map> maps)
         {
             var stepNames = OrderManager.CurrentOrder.Select(c => c.Name).ToList();
             var shares = CompileTimings.Shares(map.MapName, stepNames);
 
-            int mapCount = CompilingMapCount();
+            int mapCount = CompilingMapCount(maps);
             foreach (var name in shares.Keys.ToList())
                 shares[name] /= mapCount;
 

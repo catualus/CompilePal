@@ -218,8 +218,15 @@ namespace CompilePalX
             }
         }
 
-        /// <summary>Where each compile step's output begins, for the jump-to-step list.</summary>
-        public sealed record StepAnchor(string Label, TextPointer Position)
+        /// <summary>
+        /// Where each compile step's output begins, for the jump-to-step list.
+        ///
+        /// Anchored to the inline the step's divider was written as, not to a TextPointer taken from
+        /// the paragraph. Paragraph.ContentEnd is not a snapshot of where the end happened to be - it
+        /// denotes the end of the content, wherever that currently is - so every anchor captured that
+        /// way resolved to the bottom of the log and all the entries jumped to the same place.
+        /// </summary>
+        public sealed record StepAnchor(string Label, Inline Anchor)
         {
             public override string ToString() => Label;
         }
@@ -257,10 +264,10 @@ namespace CompilePalX
 
             FlushOutput();
 
-            // The anchor was taken while the document was shorter; a pointer into a document that has
-            // since been cleared is no longer valid to scroll to.
-            if (anchor.Position.IsInSameDocument(CompileOutputTextbox.Document.ContentStart))
-                ScrollRangeIntoView(anchor.Position);
+            // An anchor from a previous run points into a document that has since been cleared.
+            var position = anchor.Anchor.ContentStart;
+            if (position.IsInSameDocument(CompileOutputTextbox.Document.ContentStart))
+                ScrollRangeIntoView(position);
         }
 
         #endregion
@@ -454,14 +461,19 @@ namespace CompilePalX
 
                 currentStepName = info.StepName;
 
-                // Anchored after the step's divider has landed, so jumping to a step lands on the start
-                // of its output. The divider is logged immediately before this event is raised.
+                // Flushed first so the divider is in the document: it is logged immediately before this
+                // event is raised, and the last inline is therefore the divider itself - which is what
+                // the jump should land on.
                 FlushOutput();
-                string label = info.MapCount > 1
-                    ? $"{info.StepName} ({info.StepNumber}/{info.StepCount}) · map {info.MapNumber}"
-                    : $"{info.StepName} ({info.StepNumber}/{info.StepCount})";
 
-                StepAnchors.Add(new StepAnchor(label, OutputParagraph.ContentEnd));
+                if (OutputParagraph.Inlines.LastInline is { } divider)
+                {
+                    string label = info.MapCount > 1
+                        ? $"{info.StepName} ({info.StepNumber}/{info.StepCount}) · map {info.MapNumber}"
+                        : $"{info.StepName} ({info.StepNumber}/{info.StepCount})";
+
+                    StepAnchors.Add(new StepAnchor(label, divider));
+                }
 
                 PaintProgressSegments(info.StepNumber - 1);
 
@@ -1108,6 +1120,13 @@ namespace CompilePalX
 
             CompileStartStopButton.Content = "Compile";
 
+            // A segment is only marked done when the *next* step starts, so the last one never was and
+            // a finished compile ended on a bar that still had a step's worth left to go. A run that was
+            // cancelled keeps its partial bar, which is the honest picture of how far it actually got.
+            bool cancelled = CompilingManager.MapFiles.Any(m => m.State == MapCompileState.Cancelled);
+            if (!cancelled && progressSegments.Count != 0)
+                PaintProgressSegments(progressSegments.Count);
+
             ProgressManager.SetProgress(1);
         }
 
@@ -1673,6 +1692,12 @@ namespace CompilePalX
 
         private void MapRemove_OnClick(object sender, RoutedEventArgs e)
         {
+            // The Add/Remove buttons bind IsEnabled to IsNotCompiling, but a ContextMenu is not in the
+            // visual tree so it cannot reach that binding by ElementName - and removing a map while the
+            // compile is walking the queue is exactly the kind of change that used to abort the run.
+            if (IsCompiling)
+                return;
+
             // Deliberately the right-clicked map, not the selected one - a context menu acts on what it
             // was opened on, and right-clicking a ListBox row does not select it.
             if (MapFromMenuItem(sender) is { } map)
@@ -1728,7 +1753,11 @@ namespace CompilePalX
 		    if (!ReferenceEquals(e.Source, MainTabControl))
 			    return;
 
-		    if (MainTabControl.SelectedItem == OrderTab)
+		    // Never while a compile is running. UpdateOrder clears and refills the collection the compile
+		    // is stepping through, so opening this tab mid-run aborted the compile outright with
+		    // "collection was modified" - after VRAD had already spent four minutes on it. The order on
+		    // screen during a run is the one being executed anyway, so there is nothing to rebuild.
+		    if (MainTabControl.SelectedItem == OrderTab && !IsCompiling)
 			    OrderManager.UpdateOrder();
 
 		    // Error navigation, copy and save only mean anything against the log, so they appear with it
