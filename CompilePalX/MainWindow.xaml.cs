@@ -161,6 +161,164 @@ namespace CompilePalX
         /// </summary>
         private void InvalidateOutputSearchIndex() => outputSearch?.Invalidate();
 
+        #region Output navigation
+
+        /// <summary>Every error and warning recognised in the current log, newest last.</summary>
+        public ObservableCollection<LoggedIssue> Issues { get; } = [];
+
+        private ICollectionView? issuesView;
+
+        /// <summary>Filtered view behind the issues list. Its own view, so nothing else is affected.</summary>
+        public ICollectionView IssuesView =>
+            issuesView ??= CreateIssuesView();
+
+        private ICollectionView CreateIssuesView()
+        {
+            var view = new CollectionViewSource { Source = Issues }.View;
+            view.Filter = o => o is LoggedIssue issue && (!showErrorsOnly || issue.IsError);
+            return view;
+        }
+
+        private bool showErrorsOnly;
+
+        /// <summary>
+        /// Narrows the issues list to errors only.
+        ///
+        /// Filtering the log document itself is not an option - a FlowDocument's blocks have no
+        /// visibility to toggle, so hiding lines would mean rebuilding the document from a model on
+        /// every change to the busiest code path in the app. Listing the recognised issues separately
+        /// gives the same "show me only what went wrong" without touching the log.
+        /// </summary>
+        public bool ShowErrorsOnly
+        {
+            get => showErrorsOnly;
+            set
+            {
+                if (showErrorsOnly == value)
+                    return;
+
+                showErrorsOnly = value;
+                IssuesView.Refresh();
+                OnPropertyChanged(nameof(ShowErrorsOnly));
+                OnPropertyChanged(nameof(IssuesHeading));
+            }
+        }
+
+        public string IssuesHeading
+        {
+            get
+            {
+                int errors = Issues.Count(i => i.IsError);
+                int warnings = Issues.Count - errors;
+
+                if (Issues.Count == 0)
+                    return "No issues found";
+
+                return $"{errors} error{(errors == 1 ? "" : "s")}, {warnings} warning{(warnings == 1 ? "" : "s")}";
+            }
+        }
+
+        /// <summary>Where each compile step's output begins, for the jump-to-step list.</summary>
+        public sealed record StepAnchor(string Label, TextPointer Position)
+        {
+            public override string ToString() => Label;
+        }
+
+        public ObservableCollection<StepAnchor> StepAnchors { get; } = [];
+
+        /// <summary>Step being logged right now, recorded against each issue as it arrives.</summary>
+        private string currentStepName = "";
+
+        private void ClearOutputNavigation()
+        {
+            Issues.Clear();
+            StepAnchors.Clear();
+            currentStepName = "";
+            OnPropertyChanged(nameof(IssuesHeading));
+        }
+
+        /// <summary>Scrolls the log to an issue and highlights the line it was logged on.</summary>
+        private void IssuesList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (IssuesList.SelectedItem is not LoggedIssue { Link: { } link })
+                return;
+
+            MainTabControl.SelectedItem = OutputTab;
+            FlushOutput();
+
+            outputSearch.HighlightSingle(new TextRange(link.ContentStart, link.ContentEnd));
+            ScrollRangeIntoView(link.ContentStart);
+        }
+
+        private void StepJumpBox_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (StepJumpBox.SelectedItem is not StepAnchor anchor)
+                return;
+
+            FlushOutput();
+
+            // The anchor was taken while the document was shorter; a pointer into a document that has
+            // since been cleared is no longer valid to scroll to.
+            if (anchor.Position.IsInSameDocument(CompileOutputTextbox.Document.ContentStart))
+                ScrollRangeIntoView(anchor.Position);
+        }
+
+        #endregion
+
+        #region Compile history
+
+        public ObservableCollection<CompileRun> History { get; } = [];
+
+        private void RefreshHistory()
+        {
+            History.Clear();
+            foreach (var run in CompileHistory.Load())
+                History.Add(run);
+
+            OnPropertyChanged(nameof(HistoryIsEmpty));
+        }
+
+        public bool HistoryIsEmpty => History.Count == 0;
+
+        /// <summary>
+        /// Shows a past compile's transcript in a plain read-only viewer.
+        ///
+        /// Deliberately not loaded into the live OUTPUT document: that one belongs to the compile that
+        /// produced it, and its error links and step anchors point into it. Replacing it with an old
+        /// log would leave both pointing at text they no longer describe.
+        /// </summary>
+        private void HistoryList_OnMouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (HistoryList.SelectedItem is not CompileRun run)
+                return;
+
+            string? log = CompileHistory.ReadLog(run);
+            if (log == null)
+            {
+                CompilePalLogger.LogLineColor($"The log for this run is no longer on disk ({run.LogFile}).",
+                    Error.GetSeverityBrush(3));
+                return;
+            }
+
+            new LogViewerWindow(run, log) { Owner = this }.Show();
+        }
+
+        private void HistoryOpenFolder_OnClick(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string full = System.IO.Path.GetFullPath(CompileHistory.LogDirectory);
+                Directory.CreateDirectory(full);
+                Process.Start(new ProcessStartInfo(full) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Could not open the log folder: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         #region Compile footer
 
         /// <summary>
@@ -293,6 +451,17 @@ namespace CompilePalX
             {
                 if (info.StepNumber == 1 || progressSegments.Count != info.StepNames.Count)
                     BuildProgressSegments(info.StepNames, info.StepWeights);
+
+                currentStepName = info.StepName;
+
+                // Anchored after the step's divider has landed, so jumping to a step lands on the start
+                // of its output. The divider is logged immediately before this event is raised.
+                FlushOutput();
+                string label = info.MapCount > 1
+                    ? $"{info.StepName} ({info.StepNumber}/{info.StepCount}) · map {info.MapNumber}"
+                    : $"{info.StepName} ({info.StepNumber}/{info.StepCount})";
+
+                StepAnchors.Add(new StepAnchor(label, OutputParagraph.ContentEnd));
 
                 PaintProgressSegments(info.StepNumber - 1);
 
@@ -439,6 +608,7 @@ namespace CompilePalX
             AnalyticsManager.Launch();
             PersistenceManager.Init();
             CompileTimings.Init();
+            RefreshHistory();
             ErrorFinder.Init();
 
             // settings must load first: AssembleParameters reads ToolsPlusPlusMode when building parameter
@@ -621,6 +791,23 @@ namespace CompilePalX
 
                     outputErrorLinks.Add(errorLink);
                     UpdateErrorNavLabel();
+
+                    // Also collected as a listable issue, so the log does not have to be read to find
+                    // out what went wrong.
+                    Issues.Add(new LoggedIssue
+                    {
+                        Error = e,
+                        Text = errorText.Trim(),
+                        Step = currentStepName,
+                        Link = errorLink,
+                    });
+                    OnPropertyChanged(nameof(IssuesHeading));
+
+                    // Opened on the first issue of a run, not on every one: an empty panel is 320px of
+                    // log the user could have been reading, but once there is something in it they
+                    // should not have to go looking. Only the first, so closing it stays closed.
+                    if (Issues.Count == 1)
+                        IssuesToggle.IsChecked = true;
                 }
 
                 var underline = new TextDecoration
@@ -841,6 +1028,9 @@ namespace CompilePalX
                 currentErrorIndex = -1;
                 UpdateErrorNavLabel();
 
+                // The issues and step anchors point into the document being cleared.
+                ClearOutputNavigation();
+
                 // The ranges point into a document that no longer exists, so drop them without
                 // trying to un-paint them.
                 outputSearch.Reset();
@@ -891,14 +1081,40 @@ namespace CompilePalX
             string logName = DateTime.Now.ToString("s").Replace(":", "-") + ".txt";
             string textLog = new TextRange(CompileOutputTextbox.Document.ContentStart, CompileOutputTextbox.Document.ContentEnd).Text;
 
-            if (!Directory.Exists("CompileLogs"))
-                Directory.CreateDirectory("CompileLogs");
+            if (!Directory.Exists(CompileHistory.LogDirectory))
+                Directory.CreateDirectory(CompileHistory.LogDirectory);
 
-            File.WriteAllText(System.IO.Path.Combine("CompileLogs", logName), textLog);
+            File.WriteAllText(System.IO.Path.Combine(CompileHistory.LogDirectory, logName), textLog);
+
+            // The transcript has always been written here and never read back. Recording what the run
+            // was makes it findable afterwards instead of being a folder of timestamps.
+            var compiled = CompilingManager.MapFiles.Where(m => m.Compile).ToList();
+            CompileHistory.Add(new CompileRun
+            {
+                Finished = DateTime.Now,
+                LogFile = logName,
+                Maps = compiled.Count == 1
+                    ? compiled[0].FullMapName
+                    : string.Join(", ", compiled.Select(m => m.FullMapName)),
+                Preset = ConfigurationManager.CurrentPreset?.Name ?? "",
+                Game = GameConfigurationManager.GameConfiguration?.Name ?? "",
+                Duration = CompilingManager.GetTime().Elapsed,
+                Errors = LiveErrorCount,
+                Warnings = LiveWarningCount,
+                Cancelled = compiled.Any(m => m.State == MapCompileState.Cancelled),
+            });
+
+            RefreshHistory();
 
             CompileStartStopButton.Content = "Compile";
 
             ProgressManager.SetProgress(1);
+        }
+
+        private void ComparePresetsButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            new PresetDiffWindow(ConfigurationManager.KnownPresets, ConfigurationManager.CurrentPreset,
+                ConfigurationManager.CompileProcesses) { Owner = this }.Show();
         }
 
         /// <summary>Opens the preset action menu, which the kebab button owns as its context menu.</summary>

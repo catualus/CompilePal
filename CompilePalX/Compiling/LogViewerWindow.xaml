@@ -1,0 +1,40 @@
+<ui:FluentWindow x:Class="CompilePalX.Compiling.LogViewerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
+        Title="Compile Log" Height="640" Width="1000" MinHeight="320" MinWidth="520"
+        Icon="..\CompilePalIcon.ico"
+        FontFamily="Segoe UI Variable Text, Segoe UI">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" ShowMaximize="True" ShowMinimize="True">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="..\CompilePalIcon.ico" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+
+        <DockPanel Grid.Row="1" Margin="12,10,12,6">
+            <Button DockPanel.Dock="Right" Content="Copy" Width="80" Height="30" Click="CopyButton_OnClick"
+                    AutomationProperties.Name="Copy this log"/>
+            <StackPanel>
+                <TextBlock Name="HeadingBlock" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Name="SubheadingBlock" FontSize="11.5" Margin="0,2,0,0"
+                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- A plain TextBox, not the RichTextBox the live log uses: a saved transcript is text with no
+             severity information left in it, so there is nothing to colour and nothing to link. -->
+        <TextBox Grid.Row="2" Name="LogBox" Margin="12,0,12,12" IsReadOnly="True"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                 BorderThickness="1" TextWrapping="NoWrap"
+                 FontFamily="Cascadia Mono, Cascadia Code, Consolas, Courier New" FontSize="12.5"
+                 AutomationProperties.Name="Compile log"/>
+    </Grid>
+</ui:FluentWindow>

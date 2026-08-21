@@ -27,6 +27,7 @@
         >
 
     <ui:FluentWindow.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <Style x:Key="GroupListBoxStyle" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
             <Setter Property="Margin" Value="-5,1,0,1" />
             <Setter Property="Padding" Value="10,3,0,3" />
@@ -258,6 +259,8 @@
                                         <MenuItem Header="Edit" Click="EditPresetButton_OnClick"/>
                                         <MenuItem Header="Clone" Click="ClonePresetButton_OnClick"/>
                                         <MenuItem Header="Delete" Click="RemovePresetButton_OnClick"/>
+                                        <Separator/>
+                                        <MenuItem Header="Compare with…" Click="ComparePresetsButton_OnClick"/>
                                     </ContextMenu>
                                 </Button.ContextMenu>
                             </Button>
@@ -695,14 +698,110 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
-            <TabItem Name="OutputTab" Header="OUTPUT">
+            <!-- Every finished compile already wrote a timestamped transcript to CompileLogs and nothing
+                 ever read one back, so the record was there and invisible. -->
+            <TabItem Name="HistoryTab" Header="HISTORY">
                 <Grid Background="{DynamicResource CompilePal.Brushes.GridBackground}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <Border Name="OutputSearchBar" Grid.Row="0" Visibility="Collapsed" Padding="10,6" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource CompilePal.Brushes.Border}">
+                    <DockPanel Grid.Row="0" Margin="12,10,12,4">
+                        <Button DockPanel.Dock="Right" Content="Open log folder" Height="30" Padding="12,0"
+                                Click="HistoryOpenFolder_OnClick" AutomationProperties.Name="Open the compile log folder"/>
+                        <TextBlock Text="Past compiles. Double-click a run to read its log."
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                    </DockPanel>
+
+                    <TextBlock Grid.Row="1" Margin="12,20,12,0" VerticalAlignment="Top"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                               Text="No compiles recorded yet. They appear here once a compile finishes."
+                               Visibility="{Binding HistoryIsEmpty, ElementName=CompileWindow, Converter={StaticResource BoolToVisibility}}"/>
+
+                    <ListBox Grid.Row="1" Name="HistoryList" Margin="12,6,12,12" BorderThickness="0" Background="Transparent"
+                             ItemsSource="{Binding History, ElementName=CompileWindow}"
+                             MouseDoubleClick="HistoryList_OnMouseDoubleClick"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             AutomationProperties.Name="Past compiles">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="10,8" Margin="0,0,0,4" CornerRadius="6" BorderThickness="1"
+                                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0" x:Name="OutcomeStripe" CornerRadius="2"
+                                                Background="{DynamicResource CompilePal.Brushes.Success}"/>
+
+                                        <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                            <TextBlock Text="{Binding Maps}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock FontSize="11" Margin="0,2,0,0"
+                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}">
+                                                <Run Text="{Binding Preset, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Game, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                                            <TextBlock Text="{Binding When}" FontSize="11.5" HorizontalAlignment="Right"/>
+                                            <TextBlock Text="{Binding Summary}" FontSize="11" Margin="0,2,0,0" HorizontalAlignment="Right"
+                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Outcome}" Value="failed">
+                                        <Setter TargetName="OutcomeStripe" Property="Background" Value="{DynamicResource CompilePal.Brushes.Severity4}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Outcome}" Value="cancelled">
+                                        <Setter TargetName="OutcomeStripe" Property="Background" Value="{DynamicResource CompilePal.Brushes.Severity3}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <TabItem Name="OutputTab" Header="OUTPUT">
+                <Grid Background="{DynamicResource CompilePal.Brushes.GridBackground}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Navigation for a log that routinely runs to tens of thousands of lines. The step
+                         dividers already written into the output are content, not navigation; this turns
+                         the same information into somewhere to jump to. -->
+                    <DockPanel Grid.Row="0" Margin="10,8,10,4">
+                        <TextBlock DockPanel.Dock="Left" Text="Jump to step" VerticalAlignment="Center"
+                                   Margin="0,0,8,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                        <ComboBox DockPanel.Dock="Left" Name="StepJumpBox" Width="240" MinHeight="28"
+                                  ItemsSource="{Binding StepAnchors, ElementName=CompileWindow}"
+                                  SelectionChanged="StepJumpBox_OnSelectionChanged"
+                                  AutomationProperties.Name="Jump to compile step"/>
+
+                        <ToggleButton DockPanel.Dock="Right" Name="IssuesToggle" MinHeight="28" Padding="10,0"
+                                      IsChecked="False"
+                                      ToolTip="Show or hide the list of errors and warnings"
+                                      AutomationProperties.Name="Show issues list">
+                            <StackPanel Orientation="Horizontal">
+                                <iconPacks:PackIconMaterial Kind="AlertCircleOutline" Height="11" Width="11" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding IssuesHeading, ElementName=CompileWindow}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </ToggleButton>
+                        <TextBlock/>
+                    </DockPanel>
+
+                    <Border Name="OutputSearchBar" Grid.Row="1" Visibility="Collapsed" Padding="10,6" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource CompilePal.Brushes.Border}">
                         <StackPanel Orientation="Horizontal">
                             <TextBox Name="OutputSearchBox" Width="240" VerticalContentAlignment="Center" KeyDown="OutputSearchBox_OnKeyDown" TextChanged="OutputSearchBox_OnTextChanged"/>
                             <Button Name="OutputSearchPrevButton" Margin="6,0,0,0" Width="28" Height="28" Padding="0" MinWidth="0" MinHeight="0" Click="OutputSearchPrevButton_OnClick" ToolTip="Previous match (Shift+Enter)" AutomationProperties.Name="Previous match (Shift+Enter)">
@@ -718,7 +817,13 @@
                         </StackPanel>
                     </Border>
 
-                    <RichTextBox Grid.Row="1" IsReadOnly="True" x:Name="CompileOutputTextbox" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderThickness="0" Margin="10,10,10,10" FontFamily="Cascadia Mono, Cascadia Code, Consolas, Courier New" Typography.StandardLigatures="False" IsReadOnlyCaretVisible="True" Block.LineHeight="2" IsDocumentEnabled="True" IsInactiveSelectionHighlightEnabled="True">
+                    <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <RichTextBox Grid.Column="0" IsReadOnly="True" x:Name="CompileOutputTextbox" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderThickness="0" Margin="10,10,10,10" FontFamily="Cascadia Mono, Cascadia Code, Consolas, Courier New" Typography.StandardLigatures="False" IsReadOnlyCaretVisible="True" Block.LineHeight="2" IsDocumentEnabled="True" IsInactiveSelectionHighlightEnabled="True">
                         <RichTextBox.Resources>
                             <!-- For text the user selects by hand to copy: once focus moves away the
                                  selection renders "inactive", and Windows' default inactive-selection
@@ -742,6 +847,69 @@
                             </FlowDocument>
                         </RichTextBox.Document>
                     </RichTextBox>
+
+                    <!-- Every recognised error and warning, listed away from the log. This is the
+                         "errors only" view: a FlowDocument's blocks carry no visibility, so genuinely
+                         filtering the log would mean rebuilding the document on every change to the
+                         busiest path in the app. It doubles as the post-compile summary - after a run
+                         it is a list of exactly what needs looking at, and each entry jumps to its line. -->
+                    <Border Grid.Column="1" Width="320" Margin="0,10,10,10" Padding="8"
+                            Style="{DynamicResource CompilePal.Styles.Panel}"
+                            Visibility="{Binding IsChecked, ElementName=IssuesToggle, Converter={StaticResource BoolToVisibility}}">
+                        <DockPanel>
+                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                <CheckBox DockPanel.Dock="Right" Content="Errors only" VerticalAlignment="Center"
+                                          Style="{DynamicResource CompilePal.Styles.CompactCheckBox}"
+                                          IsChecked="{Binding ShowErrorsOnly, ElementName=CompileWindow, Mode=TwoWay}"
+                                          AutomationProperties.Name="Show errors only"/>
+                                <TextBlock Text="Issues" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                            </DockPanel>
+
+                            <TextBlock DockPanel.Dock="Bottom" Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11"
+                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                       Text="Select an issue to jump to it in the log.">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Items.Count, ElementName=IssuesList}" Value="0">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <ListBox Name="IssuesList" BorderThickness="0" Background="Transparent"
+                                     ItemsSource="{Binding IssuesView, ElementName=CompileWindow}"
+                                     SelectionChanged="IssuesList_OnSelectionChanged"
+                                     HorizontalContentAlignment="Stretch"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ItemContainerStyle="{DynamicResource CompilePal.Styles.CompactListBoxItem}"
+                                     AutomationProperties.Name="Errors and warnings">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2" ToolTip="{Binding Text}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="3"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <!-- Severity as a stripe as well as a colour, so it survives
+                                                 the accent fill behind a selected row. -->
+                                            <Border Grid.Column="0" Background="{Binding SeverityBrush}" CornerRadius="2"/>
+                                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontSize="12"/>
+                                                <TextBlock FontSize="10.5" Margin="0,1,0,0"
+                                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}">
+                                                    <Run Text="{Binding SeverityLabel, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Step, Mode=OneWay}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+                    </Grid>
                 </Grid>
 
             </TabItem>
