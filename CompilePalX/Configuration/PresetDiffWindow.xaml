@@ -1,0 +1,76 @@
+<ui:FluentWindow x:Class="CompilePalX.Configuration.PresetDiffWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Compare Presets" Height="620" Width="900" MinHeight="360" MinWidth="620"
+        Icon="..\CompilePalIcon.ico"
+        FontFamily="Segoe UI Variable Text, Segoe UI">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}" ShowMaximize="True" ShowMinimize="False">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="..\CompilePalIcon.ico" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+
+        <Grid Grid.Row="1" Margin="14,10,14,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <ComboBox Grid.Column="0" Name="LeftBox" MinHeight="30" DisplayMemberPath="Name"
+                      IsSynchronizedWithCurrentItem="False"
+                      SelectionChanged="Selection_OnChanged" AutomationProperties.Name="First preset"/>
+            <TextBlock Grid.Column="1" Text="vs" Margin="12,0" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+            <ComboBox Grid.Column="2" Name="RightBox" MinHeight="30" DisplayMemberPath="Name"
+                      IsSynchronizedWithCurrentItem="False"
+                      SelectionChanged="Selection_OnChanged" AutomationProperties.Name="Second preset"/>
+
+            <CheckBox Grid.Column="3" Name="DifferencesOnly" Content="Differences only" Margin="14,0,0,0"
+                      VerticalAlignment="Center" IsChecked="True" Click="Selection_OnChanged"
+                      AutomationProperties.Name="Show differences only"/>
+        </Grid>
+
+        <TextBlock Grid.Row="2" Name="EmptyMessage" Margin="16,16,16,0" VerticalAlignment="Top" TextWrapping="Wrap"
+                   Visibility="Collapsed" Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                   Text="These two presets are identical."/>
+
+        <DataGrid Grid.Row="2" Name="DiffGrid" Margin="14,0,14,14" AutoGenerateColumns="False"
+                  CanUserAddRows="False" IsReadOnly="True" HeadersVisibility="Column"
+                  Background="Transparent" BorderThickness="1"
+                  AutomationProperties.Name="Preset differences">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Step" Binding="{Binding Step}" Width="120"/>
+                <DataGridTextColumn Header="Parameter" Binding="{Binding Parameter}" Width="2*" MinWidth="160"
+                                    ElementStyle="{StaticResource CompilePal.Styles.WrappingCellText}"/>
+                <DataGridTextColumn Header="Left" Binding="{Binding Left}" Width="1.4*" MinWidth="120"
+                                    ElementStyle="{StaticResource CompilePal.Styles.WrappingCellText}"/>
+                <DataGridTextColumn Header="Right" Binding="{Binding Right}" Width="1.4*" MinWidth="120"
+                                    ElementStyle="{StaticResource CompilePal.Styles.WrappingCellText}"/>
+            </DataGrid.Columns>
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Style.Triggers>
+                        <!-- Differing rows are the point of the window, so they are marked even when the
+                             list is not filtered down to them. -->
+                        <DataTrigger Binding="{Binding Differs}" Value="True">
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Differs}" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+        </DataGrid>
+    </Grid>
+</ui:FluentWindow>

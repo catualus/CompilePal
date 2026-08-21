@@ -21,9 +21,13 @@
             WindowCornerPreference="Round"
             FontFamily="Segoe UI Variable Text, Segoe UI"
             PreviewKeyDown="CompileWindow_OnPreviewKeyDown"
+            AllowDrop="True"
+            DragOver="CompileWindow_OnDragOver"
+            Drop="CompileWindow_OnDrop"
         >
 
     <ui:FluentWindow.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <Style x:Key="GroupListBoxStyle" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
             <Setter Property="Margin" Value="-5,1,0,1" />
             <Setter Property="Padding" Value="10,3,0,3" />
@@ -42,6 +46,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- ui:TitleBar.Header replaces its built-in icon+title area rather than sitting alongside it, so
@@ -54,23 +59,38 @@
             <ui:TitleBar.Header>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0" WindowChrome.IsHitTestVisibleInChrome="True">
                     <ui:ImageIcon Source="CompilePalIcon.ico" Width="18" Height="18" VerticalAlignment="Center"/>
-                    <Button Click="ConfigBack_OnClick" ToolTip="Open Game Selector" x:Name="ConfigSelectButton"
-                            Background="Transparent" BorderThickness="0" Padding="8,5" Margin="10,0,0,0" VerticalAlignment="Center">
-                        <iconPacks:Material Kind="Menu" Width="14" Height="14"/>
+                    <TextBlock Text="Compile Pal" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="9,0,0,0"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"/>
+                    <!-- The game decides every tool path, every default and every compatibility warning,
+                         so it is named here rather than left as the tail of the window title. This used
+                         to be a bare hamburger glyph - a control that universally means "menu" - doing
+                         duty as "change game". -->
+                    <Button Click="ConfigBack_OnClick" ToolTip="Change game" AutomationProperties.Name="Change game" x:Name="ConfigSelectButton"
+                            Background="{DynamicResource ControlFillColorDefaultBrush}"
+                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
+                            Padding="8,3" Margin="12,0,0,0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <iconPacks:PackIconMaterial Kind="GamepadVariantOutline" Width="12" Height="12" VerticalAlignment="Center"
+                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="{Binding GameName, ElementName=CompileWindow}" Margin="6,0,6,0" FontSize="12" VerticalAlignment="Center"
+                                       MaxWidth="220" TextTrimming="CharacterEllipsis"/>
+                            <iconPacks:PackIconMaterial Kind="ChevronDown" Width="10" Height="10" VerticalAlignment="Center"
+                                                Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                        </StackPanel>
                     </Button>
                 </StackPanel>
             </ui:TitleBar.Header>
             <ui:TitleBar.TrailingContent>
                 <StackPanel Orientation="Horizontal" WindowChrome.IsHitTestVisibleInChrome="True">
-                    <Button Click="UnsupportedPlatformButton_OnClick" Foreground="{DynamicResource CompilePal.Brushes.Warning}" ToolTip="Unsupported Platform" x:Name="UnsupportedPlatformButton" Visibility="Collapsed"
+                    <Button Click="UnsupportedPlatformButton_OnClick" Foreground="{DynamicResource CompilePal.Brushes.Warning}" ToolTip="Unsupported Platform" AutomationProperties.Name="Unsupported Platform" x:Name="UnsupportedPlatformButton" Visibility="Collapsed"
                             Background="Transparent" BorderThickness="0" Padding="8,4">
                         <iconPacks:Material Kind="Alert" Width="12" Height="12"/>
                     </Button>
-                    <Button Click="BugReportButton_OnClick" ToolTip="Report a bug" x:Name="BugReportButton"
+                    <Button Click="BugReportButton_OnClick" ToolTip="Report a bug" AutomationProperties.Name="Report a bug" x:Name="BugReportButton"
                             Background="Transparent" BorderThickness="0" Padding="8,4">
                         <iconPacks:Material Kind="Bug" Width="12" Height="12"/>
                     </Button>
-                    <Button Click="SettingsButton_Click" ToolTip="Settings" x:Name="SettingsButton"
+                    <Button Click="SettingsButton_Click" ToolTip="Settings" AutomationProperties.Name="Settings" x:Name="SettingsButton"
                             Background="Transparent" BorderThickness="0" Padding="8,4">
                         <iconPacks:Material Kind="Cog" Width="12" Height="12"/>
                     </Button>
@@ -78,410 +98,732 @@
             </ui:TitleBar.TrailingContent>
         </ui:TitleBar>
 
-        <!-- Overlaid rather than nested in the TitleBar so it centers on the whole window width instead
-             of just the space between the icon/menu and the window buttons. IsHitTestVisible="False"
-             lets drag/double-click on the title bar pass through to it underneath. -->
-        <TextBlock Grid.Row="0" Text="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}"
-                   HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"
-                   FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                   TextTrimming="CharacterEllipsis" Margin="180,0" />
+    <!-- The centred window title that used to be overlaid here is gone: the header now names the app and
+         the game chip names the game, so it only repeated them. Window.Title still carries both plus the
+         compile percentage, which is what the taskbar and alt-tab show. -->
 
+    <!-- The queue moved from a short strip across the top - capped at 240px, so three maps filled it -
+         to a full-height rail down the left. Batch compiling is the case the queue exists for, and it
+         could not show a batch. -->
     <Grid Grid.Row="1">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="89" MinHeight="89" MaxHeight="240" Name="MapListBoxRow"></RowDefinition>
-            <RowDefinition Height="10"></RowDefinition>
-            <RowDefinition></RowDefinition>
-        </Grid.RowDefinitions>
-        <ListBox x:Name="MapListBox" ItemContainerStyle="{DynamicResource CompilePal.Styles.CompactListBoxItem}" Grid.Row="0" Margin="10,10,112,0" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" SelectionChanged="MapListBox_OnSelectionChanged" BorderThickness="1" SelectionMode="Single">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="252" MinWidth="190" MaxWidth="460" Name="QueueColumn"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Style="{DynamicResource CompilePal.Styles.Panel}" Margin="10,10,0,10" Padding="8">
+        <DockPanel Background="Transparent">
+            <DockPanel DockPanel.Dock="Top" Height="30" Margin="0,-2,0,4">
+                <Button x:Name="AddMapButton" IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}" DockPanel.Dock="Right"
+                        MinHeight="25" Height="25" Width="25" Padding="0" Margin="0,0,0,5" Click="AddMapButton_Click"
+                        ToolTip="Add Map (Ctrl+O)" AutomationProperties.Name="Add Map">
+                    <iconPacks:Material Kind="Plus" Height="10" Width="10"/>
+                </Button>
+                <Button x:Name="RemoveMapButton" IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}" DockPanel.Dock="Right"
+                        MinHeight="25" Height="25" Width="25" Padding="0" Margin="0,0,3,5" Click="RemoveMapButton_Click"
+                        ToolTip="Remove selected map" AutomationProperties.Name="Remove Map">
+                    <iconPacks:Material Kind="Minus" Height="10" Width="10"/>
+                </Button>
+                <TextBlock FontSize="16" Margin="0,0,0,5" FontWeight="SemiBold" Text="{Binding QueueHeading, ElementName=CompileWindow}"/>
+            </DockPanel>
+
+            <Border DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="0,8" CornerRadius="6"
+                    BorderThickness="1" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}">
+                <TextBlock HorizontalAlignment="Center" FontSize="11" TextAlignment="Center" TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                           Text="Drop .vmf or .bsp files here"/>
+            </Border>
+
+        <ListBox x:Name="MapListBox" ItemContainerStyle="{DynamicResource CompilePal.Styles.CompactListBoxItem}" BorderThickness="0" Background="Transparent" SelectionChanged="MapListBox_OnSelectionChanged" SelectionMode="Single"
+                 HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <DockPanel HorizontalAlignment="Stretch">
-                        <TextBlock Text="{Binding File}" Margin="0, 0, 5, 0">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Path=Compile}" Value="False">
-                                            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.TextDisabled}"/>
-                                        </DataTrigger>
-                                        <MultiDataTrigger>
-                                            <MultiDataTrigger.Conditions>
-                                                <Condition Binding="{Binding RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type ListBoxItem}}, Path=IsSelected}" Value="True"/>
-                                                <Condition Binding="{Binding Path=Compile}" Value="False"/>
-                                            </MultiDataTrigger.Conditions>
-                                            <MultiDataTrigger.Setters>
-                                                <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForegroundDisabled}"></Setter>
-                                            </MultiDataTrigger.Setters>
-                                        </MultiDataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                        <TextBlock Text="{Binding Path=Preset.Name, StringFormat=({0})}" Margin="0, 0, 5, 0" FontWeight="SemiBold" Name="selectedPreset">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray1}"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Path=Compile}" Value="False">
-                                            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.Gray3}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                        <CheckBox IsChecked="{Binding Compile, Mode=TwoWay}" HorizontalAlignment="Right" />
-                    </DockPanel>
+                    <!-- A card, not a row: name first, folder under it, the preset this map compiles with
+                         as a control on the card itself, and how the last run went. The preset used to be
+                         a parenthesised string with no way to change it except by selecting the map and
+                         going to another panel, and there was no result at all - after a batch of eight,
+                         which one failed was only answerable from the log. -->
+                    <Grid HorizontalAlignment="Stretch" ToolTip="{Binding File}" Margin="0,3">
+                        <Grid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Open Containing Folder" Click="MapOpenFolder_OnClick"/>
+                                <MenuItem Header="Copy Full Path" Click="MapCopyPath_OnClick"/>
+                                <Separator/>
+                                <MenuItem Header="Remove From Queue" Click="MapRemove_OnClick"/>
+                            </ContextMenu>
+                        </Grid.ContextMenu>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <CheckBox Grid.Column="0" IsChecked="{Binding Compile, Mode=TwoWay}"
+                                  Style="{DynamicResource CompilePal.Styles.CompactCheckBox}"
+                                  VerticalAlignment="Top" Margin="0,1,8,0"
+                                  ToolTip="Include this map in the next compile"
+                                  AutomationProperties.Name="Include this map in the next compile"/>
+
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" x:Name="MapNameBlock"/>
+                            <TextBlock Text="{Binding DirectoryDisplay}" FontSize="10.5" Margin="0,1,0,0"
+                                       Style="{DynamicResource CompilePal.Styles.RowSubtleText}"/>
+
+                            <!-- The preset lives on the card because it is per map: a batch routinely mixes
+                                 a full lighting preset for the map being shipped with a fast one for the
+                                 rest, and there was no way to see that, let alone change it, from here.
+
+                                 IsSynchronizedWithCurrentItem="False" is load-bearing: every card binds the
+                                 same ICollectionView, and a view carries one CurrentItem that ComboBox
+                                 syncs its selection with by default, so all the cards showed whichever
+                                 preset was picked last rather than their own. -->
+                            <ComboBox Margin="0,5,0,0" Height="24" MinHeight="0" Padding="6,0" FontSize="11"
+                                      ItemsSource="{Binding AllPresets, ElementName=CompileWindow}"
+                                      SelectedItem="{Binding Preset, Mode=TwoWay}"
+                                      DisplayMemberPath="Name"
+                                      IsSynchronizedWithCurrentItem="False"
+                                      IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                      SelectionChanged="MapPresetCombo_OnSelectionChanged"
+                                      ToolTip="Preset this map compiles with"
+                                      AutomationProperties.Name="Preset for this map"/>
+
+                            <TextBlock Text="{Binding StatusLine}" FontSize="10.5" Margin="0,4,0,0" x:Name="MapStatusBlock"
+                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding StatusLine}" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
                     <DataTemplate.Triggers>
-                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type ListBoxItem}}, Path=IsSelected}" Value="True">
-                            <Setter Property="Opacity" Value="0.7" TargetName="selectedPreset"/>
-                            <Setter Property="Foreground" Value="{DynamicResource MahApps.Brushes.IdealForeground}" TargetName="selectedPreset"/>
+                        <DataTrigger Binding="{Binding Compile}" Value="False">
+                            <Setter TargetName="MapNameBlock" Property="Foreground" Value="{DynamicResource TextFillColorDisabledBrush}"/>
+                        </DataTrigger>
+                        <!-- Result colours come from the same severity ramp the log uses, so a red chip
+                             here and a red line there mean the same thing. -->
+                        <DataTrigger Binding="{Binding State}" Value="Succeeded">
+                            <Setter TargetName="MapStatusBlock" Property="Foreground" Value="{DynamicResource CompilePal.Brushes.Success}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding State}" Value="Failed">
+                            <Setter TargetName="MapStatusBlock" Property="Foreground" Value="{DynamicResource CompilePal.Brushes.Severity4}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding State}" Value="Cancelled">
+                            <Setter TargetName="MapStatusBlock" Property="Foreground" Value="{DynamicResource CompilePal.Brushes.Severity3}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding State}" Value="Running">
+                            <Setter TargetName="MapStatusBlock" Property="Foreground" Value="{DynamicResource CompilePal.Brushes.Link}"/>
+                            <Setter TargetName="MapStatusBlock" Property="FontWeight" Value="SemiBold"/>
                         </DataTrigger>
                     </DataTemplate.Triggers>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
-        <TextBlock Grid.Row="0" Text="No maps added yet - use Add Map to get started."
-                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                   HorizontalAlignment="Left" VerticalAlignment="Center" Margin="26,10,0,0" IsHitTestVisible="False">
-            <TextBlock.Style>
-                <Style TargetType="TextBlock">
-                    <Setter Property="Visibility" Value="Collapsed"/>
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding ElementName=MapListBox, Path=Items.Count}" Value="0">
-                            <Setter Property="Visibility" Value="Visible"/>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </TextBlock.Style>
-        </TextBlock>
-        <Button x:Name="AddMapButton"  Grid.Row="0" Content="Add Map" Margin="0,10,10,0" VerticalAlignment="Top" HorizontalAlignment="Right" Width="92" Click="AddMapButton_Click"/>
-        <Button x:Name="RemoveMapButton"  Grid.Row="0" Content="Remove" Margin="0,45,10,0" VerticalAlignment="Top" HorizontalAlignment="Right" Width="92" Click="RemoveMapButton_Click"/>
-        <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" Background="{DynamicResource ControlStrokeColorDefaultBrush}" ResizeBehavior="PreviousAndNext" ResizeDirection="Rows"/>
-        <TabControl Grid.Row="2" Margin="10,10,10,40" Name="MainTabControl">
-            <TabItem Header="CONFIG">
-                <Grid Background="{DynamicResource CompilePal.Brushes.GridBackground}">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" MinWidth="135"/>
-                        <ColumnDefinition Width="Auto" MinWidth="135"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Border Grid.Column="0" Style="{DynamicResource CompilePal.Styles.Panel}" Margin="10,10,0,10" Padding="8"><DockPanel Background="Transparent">
-                        <DockPanel DockPanel.Dock="Top" Background="{DynamicResource CompilePal.Brushes.GridBackground}" Height="30" Margin="0, -5, 0, 0">
-                            <Button x:Name="AddPresetButton" MinHeight="25" Height="25" Width="25" Padding="0" Margin="0, 0, 0, 5" Click="AddPresetButton_Click" ToolTip="Add Preset" DockPanel.Dock="Right">
-                                <iconPacks:Material Kind="Plus" Height="10" Width="10"/>
-                            </Button>
-                            <ToggleButton x:Name="FilterPresetButton" MinHeight="25" Height="25" Width="25" Padding="0" Margin="0, 0, 3, 5" DockPanel.Dock="Right" IsChecked="{Binding ElementName=CompileWindow, Path=PresetFilterEnabled, Mode=OneWay}" Checked="FilterPresetButton_OnChecked" Unchecked="FilterPresetButton_OnChecked">
-                                <ToggleButton.Style>
-                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
-                                        <Style.Triggers>
-                                            <Trigger Property="IsChecked" Value="False">
-                                                <Setter Property="Content">
-                                                    <Setter.Value>
-                                                        <iconPacks:Material Kind="Filter" Height="10" Width="10"/>
-                                                    </Setter.Value>
-                                                </Setter>
-                                                <Setter Property="ToolTip" Value="Filter Presets"/>
-                                            </Trigger>
-                                            <Trigger Property="IsChecked" Value="True">
-                                                <Setter Property="Content">
-                                                    <Setter.Value>
-                                                        <iconPacks:Material Kind="FilterRemove" Height="10" Width="10"/>
-                                                    </Setter.Value>
-                                                </Setter>
-                                                <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Gray10}"/>
-                                                <Setter Property="ToolTip" Value="Show All Presets"/>
-                                            </Trigger>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter Property="Background" Value="{DynamicResource MahApps.Brushes.Button.Square.Background.MouseOver}"/>
-                                            </Trigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </ToggleButton.Style>
-                            </ToggleButton>
-                            <TextBlock FontSize="16" Margin="0, 0, 0, 5" FontWeight="SemiBold">Preset</TextBlock>
-                        </DockPanel>
-                        <ListBox Name="PresetConfigListBox" SelectionChanged="PresetConfigListBox_SelectionChanged" SelectionMode="Single" ItemContainerStyle="{StaticResource GroupListBoxStyle}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="1*"/>
-                                            <ColumnDefinition Width="auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding Name}" Margin="0, 0, 5, 0"/>
-                                        <Button Name="PresetKebabButton" Grid.Column="1" Height="5" Width="15" Padding="0" Margin="0, -8, 0, -8" Visibility="Collapsed" Style="{DynamicResource CompilePal.Styles.KebabButton}" ContextMenuOpening="PresetActionButton_OnContextMenuOpening" Click="PresetActionButton_OnClick" IsEnabled="{Binding ElementName=PresetConfigListBox, Path=IsEnabled}">
-                                            <iconPacks:PackIconMaterial Kind="DotsVertical" Height="8" Width="8"/>
-                                            <Button.ContextMenu>
-                                                <ContextMenu Name="PresetActionMenu" Placement="Bottom">
-                                                    <MenuItem Header="Edit" Click="EditPresetButton_OnClick" />
-                                                    <MenuItem Header="Clone" Click="ClonePresetButton_OnClick"/>
-                                                    <MenuItem Header="Delete" Click="RemovePresetButton_OnClick"/>
-                                                </ContextMenu>
-                                            </Button.ContextMenu>
-                                        </Button>
-                                    </Grid>
-                                    <DataTemplate.Triggers>
-                                        <DataTrigger Binding="{Binding RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type ListBoxItem}}, Path=IsSelected}" Value="True">
-                                            <Setter TargetName="PresetKebabButton" Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </DataTemplate.Triggers>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                            <ListBox.GroupStyle>
-                                <GroupStyle>
-                                    <GroupStyle.HeaderTemplate>
-                                        <DataTemplate>
-                                            <TextBlock x:Name="PresetHeaderBlock" FontWeight="Bold" FontSize="12" Text="{Binding Name}" Margin="5, 2, 5, 0"/>
-                                            <DataTemplate.Triggers>
-                                                <DataTrigger Binding="{Binding Name}" Value="{x:Null}">
-                                                    <Setter TargetName="PresetHeaderBlock" Property="Text" Value="Global"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding Items.Groups.Count, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}" Value="1">
-                                                    <Setter TargetName="PresetHeaderBlock" Property="Visibility" Value="Collapsed"/>
-                                                </DataTrigger>
-                                            </DataTemplate.Triggers>
-                                        </DataTemplate>
-                                    </GroupStyle.HeaderTemplate>
-                                </GroupStyle>
-                            </ListBox.GroupStyle>
-                        </ListBox>
-                    </DockPanel></Border>
-                    <Border Grid.Column="1" Style="{DynamicResource CompilePal.Styles.Panel}" Margin="10,10,0,10" Padding="8"><DockPanel Background="Transparent">
-                        <DockPanel DockPanel.Dock="Top" Background="{DynamicResource CompilePal.Brushes.GridBackground}" Height="30" Margin="0, -5, 0, 0">
-                            <Button x:Name="AddProcessesButton" MinHeight="25" Height="25" Width="25" Padding="0" Margin="0, 0, 0, 5" Click="AddProcessButton_Click"  DockPanel.Dock="Right" ToolTip="Add Process">
-                                <iconPacks:Material Kind="Plus" Height="10" Width="10"/>
-                            </Button>
-                            <Button x:Name="RemoveProcessesButton" MinHeight="25" Height="25" Width="25" Padding="0" Margin="0, 0, 3, 5" Click="RemoveProcessButton_Click" DockPanel.Dock="Right" ToolTip="Remove Process">
-                                <iconPacks:Material Kind="Minus" Height="10" Width="10"/>
-                            </Button>
-                            <TextBlock FontSize="16" Margin="0, 0, 0, 5" FontWeight="SemiBold">Process</TextBlock>
-                        </DockPanel>
-                        <ListBox x:Name ="CompileProcessesListBox" Grid.Row="0" SelectionChanged="CompileProcessesListBox_SelectionChanged">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <DockPanel Name="ProcessDockPanel"  HorizontalAlignment="Stretch">
-                                        <TextBlock VerticalAlignment="Center" Text="{Binding}" Margin="0, 0, 5, 0"/>
-                                        <iconPacks:PackIconMaterial VerticalAlignment="Center" Kind="Alert" Foreground="Orange" Margin="0, 0, 5, 0" ToolTip="This process is potentially incompatible with the current game">
-                                            <iconPacks:PackIconMaterial.Style>
-                                                <Style TargetType="iconPacks:PackIconMaterial">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsCompatible}" Value="False">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </iconPacks:PackIconMaterial.Style>
-                                        </iconPacks:PackIconMaterial>
-                                        <CheckBox x:Name="ProcessCheckbox"  IsChecked="{Binding DoRun, Mode=TwoWay}" HorizontalAlignment="Right" Click="DoRun_OnClick" ToolTipService.ShowOnDisabled="True"/>
-                                    </DockPanel>
-                                    <DataTemplate.Triggers>
-                                        <MultiDataTrigger>
-                                            <MultiDataTrigger.Conditions>
-                                                <Condition Binding="{Binding Path=SelectedItem.IsBSP, ElementName=MapListBox}" Value="True"/>
-                                                <Condition Binding="{Binding SupportsBSP}" Value="False"/>
-                                            </MultiDataTrigger.Conditions>
-                                            <MultiDataTrigger.Setters>
-                                                <Setter TargetName="ProcessCheckbox" Property="IsChecked" Value="False"/>
-                                                <Setter TargetName="ProcessCheckbox" Property="IsEnabled" Value="False"/>
-                                                <Setter TargetName="ProcessDockPanel" Property="Opacity" Value="0.5"/>
-                                                <Setter TargetName="ProcessDockPanel" Property="ToolTip" Value="This step needs a .vmf source file, so it cannot run against the selected .bsp. Select a .vmf map to enable it."/>
-                                            </MultiDataTrigger.Setters>
-                                        </MultiDataTrigger>
-                                    </DataTemplate.Triggers>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </DockPanel></Border>
-                    <Border Grid.Column="2" Style="{DynamicResource CompilePal.Styles.Panel}" Margin="10,10,10,10" Padding="8"><Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="35px"/>
-                            <RowDefinition/>
-                        </Grid.RowDefinitions>
-                        <DockPanel Background="{DynamicResource CompilePal.Brushes.GridBackground}" Height="25" Margin="10, 0, 10, 0">
-                            <TextBlock TextAlignment="Right" FontSize="16" Margin="0, 0, 0, 0" FontWeight="SemiBold" DockPanel.Dock="Left">Parameters</TextBlock>
-                            <Button Name="AddParameterButton" DockPanel.Dock="Right" MinHeight="25" Width="25" Padding="0" Margin="0, 0, 3, 0" Click="AddParameterButton_Click" ToolTip="Add Parameter">
-                                <iconPacks:Material Kind="Plus" Height="10" Width="10"/>
-                            </Button>
-                            <Button Name="RemoveParameterButton" DockPanel.Dock="Right" MinHeight="25" Width="25" Padding="0" Margin="0, 0, 3, 0" Click="RemoveParameterButton_OnClickParameterButton_Click" ToolTip="Remove Parameter">
-                                <iconPacks:Material Kind="Minus" Height="10" Width="10"/>
-                            </Button>
-                            <Button Name="AddCustomParameterButton" DockPanel.Dock="Right" MinHeight="25" Width="25" Padding="0" Margin="0, 0, 3, 0" Click="AddCustomParameterButton_Click" ToolTip="Add Custom Parameter" IsEnabled="{Binding AddCustomParameterButtonEnabled, ElementName=CompileWindow, UpdateSourceTrigger=PropertyChanged, Mode=OneWay}">
-                                <iconPacks:Material Kind="PlaylistPlus" Height="10" Width="10"/>
-                            </Button>
-                            <TextBox Name="ParametersTextBox" Margin="20,0,20,0" Padding="8,4" IsEnabled="True" IsReadOnly="True" Background="{DynamicResource MahApps.Brushes.Gray.SemiTransparent}" FontWeight="DemiBold" BorderThickness="0"/>
-                        </DockPanel>
-                        <DataGrid Grid.Row ="1" Name="ConfigDataGrid" Margin="10,0,10,10" AutoGenerateColumns="False" CanUserAddRows="False" ItemsSource="{Binding}">
-                            <DataGrid.Columns>
-                                <DataGridTemplateColumn Header="Name" Width="Auto" IsReadOnly="True">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="{Binding Name}" Margin="5, 0, 5, 0"/>
-                                                <iconPacks:PackIconMaterial Kind="Alert" Foreground="{DynamicResource CompilePal.Brushes.Warning}" Margin="0, 0, 5, 0" ToolTip="This parameter is potentially incompatible with the current game">
-                                                    <iconPacks:PackIconMaterial.Style>
-                                                        <Style TargetType="iconPacks:PackIconMaterial">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsCompatible}" Value="False">
-                                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </iconPacks:PackIconMaterial.Style>
-                                                </iconPacks:PackIconMaterial>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Header="Value" Width="150">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <Grid>
-                                                <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" KeyUp="OnConfigChanged">
-                                                    <TextBox.Style>
-                                                        <Style TargetType="{x:Type TextBox}">
-                                                            <Setter Property="VerticalContentAlignment" Value="Center"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding ValueIsFile}" Value="True">
-                                                                    <Setter Property="Visibility" Value="Hidden"/>
-                                                                </DataTrigger>
-                                                                <DataTrigger Binding="{Binding ValueIsFolder}" Value="True">
-                                                                    <Setter Property="Visibility" Value="Hidden"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBox.Style>
-                                                </TextBox>
-                                                <local:FileInput Config="{Binding}" FileDialogTitle="Choose File" IsFolder="{Binding ValueIsFolder}">
-                                                    <local:FileInput.Style>
-                                                        <Style TargetType="{x:Type local:FileInput}">
-                                                            <Style.Triggers>
-                                                                <MultiDataTrigger>
-                                                                    <MultiDataTrigger.Conditions>
-                                                                        <Condition Binding="{Binding ValueIsFile}" Value="False"/>
-                                                                        <Condition Binding="{Binding ValueIsFolder}" Value="False"/>
-                                                                    </MultiDataTrigger.Conditions>
-                                                                    <MultiDataTrigger.Setters>
-                                                                        <Setter Property="Visibility" Value="Hidden"/>
-                                                                    </MultiDataTrigger.Setters>
-                                                                </MultiDataTrigger>
-                                                                <DataTrigger Binding="{Binding ValueIsFolder}" Value="True">
-                                                                    <Setter Property="Hint" Value="Choose Folder"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </local:FileInput.Style>
-                                                </local:FileInput>
-                                                <Grid.Style>
-                                                    <Style TargetType="{x:Type Grid}">
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding CanHaveValue}" Value="False">
-                                                                <Setter Property="Visibility" Value="Hidden"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Grid.Style>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="Description" Binding="{ Binding Description}" IsReadOnly="True" Width="2*" MinWidth="180" ElementStyle="{StaticResource CompilePal.Styles.WrappingCellText}"/>
-                                <DataGridTextColumn Header="Warnings" Binding="{ Binding Warning}" IsReadOnly="True" Width="1.2*" MinWidth="120" ElementStyle="{StaticResource CompilePal.Styles.WrappingCellText}"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
+        </DockPanel>
+        </Border>
 
-                        <TabControl Grid.Row="1" Visibility="Hidden" Name="ProcessTab" IsEnabled="False" SelectionChanged="ProcessTab_OnSelectionChanged">
-                            <TabItem Header="PROGRAMS" x:Name="ProgramTab">
-                                <DataGrid IsEnabled="False" Visibility="Visible" Name="ProcessDataGrid" Margin="10,10,10,10" AutoGenerateColumns="False" CanUserAddRows="False" ItemsSource="{Binding}">
-                                    <DataGrid.Columns>
-                                        <DataGridTemplateColumn Header="Program Path" CanUserSort="False">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <local:FileInput Config="{Binding}" FileDialogTitle="Choose Program"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
+        <GridSplitter Grid.Column="1" Width="4" VerticalAlignment="Stretch" HorizontalAlignment="Center"
+                      Background="Transparent" ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"/>
 
-                                        <DataGridTemplateColumn Header="Command Line Arguments" CanUserSort="False" Width="*">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <TextBox Text="{Binding Value2, UpdateSourceTrigger=PropertyChanged}" KeyUp="OnConfigChanged"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-
-                                        <DataGridCheckBoxColumn Header="Read Output" Binding="{Binding ReadOutput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" CanUserSort="False"/>
-
-                                        <DataGridCheckBoxColumn Header="Wait For Exit" Binding="{Binding WaitForExit, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" CanUserSort="False"/>
-                                    </DataGrid.Columns>
-                                </DataGrid>
-                            </TabItem>
-
-                            <TabItem Header="ORDER" IsEnabledChanged="OrderGrid_OnIsEnabledChanged" x:Name="OrderTab">
-                                <DataGrid Name="OrderGrid" Margin="10,10,10,10" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single" ItemsSource="{Binding Source={x:Static config:OrderManager.CurrentOrder}}" local:RowDragHelper.EnableRowDrag="True">
-                                    <DataGrid.Columns>
-                                        <DataGridTextColumn Header="Original Order" Binding="{ Binding Ordering}" IsReadOnly="True" CanUserSort="False"/>
-                                        <DataGridTextColumn Header="Name" Binding="{ Binding Name}" IsReadOnly="True" Width="*" CanUserSort="False"/>
-                                        <DataGridTextColumn Header="Description" Binding="{ Binding Description}" IsReadOnly="True" Width="*" CanUserSort="False"/>
-                                    </DataGrid.Columns>
-                                    <DataGrid.CellStyle>
-                                        <Style TargetType="DataGridCell">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsDraggable}" Value="False">
-                                                    <Setter Property="Background" Value="{DynamicResource CompilePal.Brushes.GridBackground}"/>
-                                                    <Setter Property="BorderThickness" Value="0"/>
-                                                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                                                    <Setter Property="Foreground" Value="Black"/>
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding IsDraggable}" Value="True">
-                                                    <Setter Property="BorderThickness" Value="0"/>
-                                                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </DataGrid.CellStyle>
-                                    <DataGrid.RowStyle>
-                                        <Style TargetType="DataGridRow">
-                                            <Style.Setters>
-                                                <EventSetter Event="MouseEnter" Handler="DataGridCell_OnEnter"/>
-                                                <EventSetter Event="MouseLeave" Handler="DataGridCell_OnExit"/>
-                                            </Style.Setters>
-                                        </Style>
-                                    </DataGrid.RowStyle>
-                                    <DataGrid.Resources>
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="{x:Static SystemColors.HighlightColor}"/>
-                                        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="{x:Static SystemColors.HighlightTextColor}"/>
-                                    </DataGrid.Resources>
-                                </DataGrid>
-                            </TabItem>
-                        </TabControl>
-                    </Grid></Border>
-                </Grid>
-            </TabItem>
-            <TabItem Name="OutputTab" Header="OUTPUT">
+        <TabControl Grid.Column="2" Margin="0,10,10,10" Name="MainTabControl" SelectionChanged="MainTabControl_OnSelectionChanged">
+            <!-- SETUP replaces the old three peer columns (Preset | Process | Parameters). A preset is an
+                 ordered list of steps, each on or off, each with parameters - which is a stepper. Laid out
+                 that way, run order is visible without a separate view, the enable toggle sits on the row
+                 it belongs to, and a step's parameters open underneath that step instead of in a third
+                 column whose link to the second had to be inferred. -->
+            <TabItem Header="SETUP" Name="SetupTab">
                 <Grid Background="{DynamicResource CompilePal.Brushes.GridBackground}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <Border Name="OutputSearchBar" Grid.Row="0" Visibility="Collapsed" Padding="10,6" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource CompilePal.Brushes.Border}">
+                    <!-- The preset is now picked from one dropdown rather than browsed in a column of its
+                         own. Thirteen presets with six near-identical names needed searching, not a list. -->
+                    <Border Grid.Row="0" Style="{DynamicResource CompilePal.Styles.Panel}" Margin="10,10,10,0" Padding="10,8">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="Preset" FontWeight="SemiBold" FontSize="14"
+                                       VerticalAlignment="Center" Margin="0,0,10,0"/>
+
+                            <Button DockPanel.Dock="Right" x:Name="PresetMenuButton" Width="30" Height="30" Padding="0" Margin="4,0,0,0"
+                                    IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                    Click="PresetMenuButton_OnClick" ToolTip="Preset actions" AutomationProperties.Name="Preset actions">
+                                <iconPacks:Material Kind="DotsVertical" Height="12" Width="12"/>
+                                <Button.ContextMenu>
+                                    <ContextMenu Placement="Bottom">
+                                        <MenuItem Header="Edit" Click="EditPresetButton_OnClick"/>
+                                        <MenuItem Header="Clone" Click="ClonePresetButton_OnClick"/>
+                                        <MenuItem Header="Delete" Click="RemovePresetButton_OnClick"/>
+                                        <Separator/>
+                                        <MenuItem Header="Compare with…" Click="ComparePresetsButton_OnClick"/>
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                            </Button>
+
+                            <Button DockPanel.Dock="Right" x:Name="AddPresetButton" Width="30" Height="30" Padding="0" Margin="4,0,0,0"
+                                    IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                    Click="AddPresetButton_Click" ToolTip="Add Preset" AutomationProperties.Name="Add Preset">
+                                <iconPacks:Material Kind="Plus" Height="12" Width="12"/>
+                            </Button>
+
+                            <ToggleButton DockPanel.Dock="Right" x:Name="FilterPresetButton" Width="30" Height="30" Padding="0" Margin="8,0,0,0"
+                                          IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                          IsChecked="{Binding ElementName=CompileWindow, Path=PresetFilterEnabled, Mode=OneWay}"
+                                          Checked="FilterPresetButton_OnChecked" Unchecked="FilterPresetButton_OnChecked">
+                                <ToggleButton.Style>
+                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsChecked" Value="False">
+                                                <Setter Property="Content">
+                                                    <Setter.Value>
+                                                        <iconPacks:Material Kind="Filter" Height="12" Width="12"/>
+                                                    </Setter.Value>
+                                                </Setter>
+                                                <Setter Property="ToolTip" Value="Filter Presets"/>
+                                                <Setter Property="AutomationProperties.Name" Value="Filter presets to the selected map"/>
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter Property="Content">
+                                                    <Setter.Value>
+                                                        <iconPacks:Material Kind="FilterRemove" Height="12" Width="12"/>
+                                                    </Setter.Value>
+                                                </Setter>
+                                                <Setter Property="ToolTip" Value="Show All Presets"/>
+                                                <Setter Property="AutomationProperties.Name" Value="Show all presets"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ToggleButton.Style>
+                            </ToggleButton>
+
+                            <!-- Named PresetConfigListBox still, and still a Selector, so every existing
+                                 handler that reads or sets its SelectedItem keeps working unchanged. -->
+                            <!-- No fixed Height: Fluent's ComboBox sizes itself around its content padding,
+                                 and pinning it to 30 clipped the descenders off the preset name. -->
+                            <ComboBox x:Name="PresetConfigListBox" MinHeight="30" VerticalContentAlignment="Center"
+                                      IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                      SelectionChanged="PresetConfigListBox_SelectionChanged"
+                                      DisplayMemberPath="Name"
+                                      AutomationProperties.Name="Preset being edited"/>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Steps. ItemsSource is the same CompileProcessesSubList the old middle column used,
+                         so ordering, filtering by preset and the add/remove buttons all behave as before. -->
+                    <Border Grid.Row="1" Style="{DynamicResource CompilePal.Styles.Panel}" Margin="10,10,10,10" Padding="8">
+                        <DockPanel>
+                            <DockPanel DockPanel.Dock="Top" Height="30" Margin="0,-2,0,6">
+                                <Button x:Name="AddProcessesButton" DockPanel.Dock="Right" MinHeight="25" Height="25" Width="25" Padding="0"
+                                        IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                        Click="AddProcessButton_Click" ToolTip="Add Process" AutomationProperties.Name="Add Process">
+                                    <iconPacks:Material Kind="Plus" Height="10" Width="10"/>
+                                </Button>
+                                <Button x:Name="RemoveProcessesButton" DockPanel.Dock="Right" MinHeight="25" Height="25" Width="25" Padding="0" Margin="0,0,3,0"
+                                        IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                        Click="RemoveProcessButton_Click" ToolTip="Remove Process" AutomationProperties.Name="Remove Process">
+                                    <iconPacks:Material Kind="Minus" Height="10" Width="10"/>
+                                </Button>
+                                <TextBlock FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" Text="Steps, in run order"/>
+                            </DockPanel>
+
+                            <ListBox x:Name="CompileProcessesListBox" BorderThickness="0" Background="Transparent"
+                                     IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                     SelectionChanged="CompileProcessesListBox_SelectionChanged"
+                                     HorizontalContentAlignment="Stretch"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle>
+                                    <!-- No selection highlight: on a stepper the row that matters is the one
+                                         you expanded, and a full-width accent bar behind an open step made
+                                         its parameters unreadable. -->
+                                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="0,0,0,4"/>
+                                        <Setter Property="MinHeight" Value="0"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <ContentPresenter/>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border x:Name="StepCard" CornerRadius="6" BorderThickness="1"
+                                                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                            <Expander x:Name="StepExpander" Background="Transparent" BorderThickness="0"
+                                                      Expanded="StepExpander_OnExpanded">
+                                                <Expander.Header>
+                                                    <Grid x:Name="StepHeader" Margin="0,2">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <CheckBox Grid.Column="0" x:Name="ProcessCheckbox"
+                                                                  IsChecked="{Binding DoRun, Mode=TwoWay}"
+                                                                  Click="DoRun_OnClick" ToolTipService.ShowOnDisabled="True"
+                                                                  Style="{DynamicResource CompilePal.Styles.CompactCheckBox}"
+                                                                  Margin="0,0,10,0"
+                                                                  AutomationProperties.Name="Run this compile step"/>
+
+                                                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold"
+                                                                   VerticalAlignment="Center" MinWidth="86"/>
+
+                                                        <iconPacks:PackIconMaterial Grid.Column="2" Kind="Alert" VerticalAlignment="Center"
+                                                                                    Height="11" Width="11" Margin="0,0,8,0"
+                                                                                    Foreground="{DynamicResource CompilePal.Brushes.Warning}"
+                                                                                    ToolTip="This step is potentially incompatible with the current game">
+                                                            <iconPacks:PackIconMaterial.Style>
+                                                                <Style TargetType="iconPacks:PackIconMaterial">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsCompatible}" Value="False">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </iconPacks:PackIconMaterial.Style>
+                                                        </iconPacks:PackIconMaterial>
+
+                                                        <!-- The step's own arguments on the collapsed row, so a
+                                                             whole preset reads at a glance. -->
+                                                        <TextBlock Grid.Column="3" x:Name="ArgsBlock" Text="{Binding ArgumentSummary}"
+                                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                                   FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="11"
+                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+
+                                                        <TextBlock Grid.Column="4" Text="{Binding Description}" VerticalAlignment="Center"
+                                                                   FontSize="11" MaxWidth="260" TextTrimming="CharacterEllipsis"
+                                                                   Margin="12,0,4,0"
+                                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                                                    </Grid>
+                                                </Expander.Header>
+
+                                                <Grid Margin="8,4,4,8">
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                    </Grid.RowDefinitions>
+
+                                                    <DockPanel Grid.Row="0" Margin="0,0,0,6">
+                                                        <Button DockPanel.Dock="Right" MinHeight="25" Height="25" Width="25" Padding="0"
+                                                                IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                                                Click="AddParameterButton_Click" ToolTip="Add Parameter" AutomationProperties.Name="Add Parameter">
+                                                            <iconPacks:Material Kind="Plus" Height="10" Width="10"/>
+                                                        </Button>
+                                                        <Button DockPanel.Dock="Right" MinHeight="25" Height="25" Width="25" Padding="0" Margin="0,0,3,0"
+                                                                IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                                                Click="RemoveParameterButton_OnClickParameterButton_Click" ToolTip="Remove Parameter" AutomationProperties.Name="Remove Parameter">
+                                                            <iconPacks:Material Kind="Minus" Height="10" Width="10"/>
+                                                        </Button>
+                                                        <Button DockPanel.Dock="Right" MinHeight="25" Height="25" Width="25" Padding="0" Margin="0,0,3,0"
+                                                                Click="AddCustomParameterButton_Click" ToolTip="Add Custom Parameter" AutomationProperties.Name="Add Custom Parameter"
+                                                                IsEnabled="{Binding SupportsCustomParameters}">
+                                                            <iconPacks:Material Kind="PlaylistPlus" Height="10" Width="10"/>
+                                                        </Button>
+                                                        <TextBlock Text="Parameters" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                    </DockPanel>
+
+                                                    <!-- The CUSTOM step configures external programs, not flags, so its
+                                                         rows carry a path, arguments and two switches instead of a
+                                                         value. It had a whole separate grid before; here it is a
+                                                         second set of columns on the same row of the stepper. -->
+                                                    <DataGrid Grid.Row="1" x:Name="StepProgramGrid" MaxHeight="320" Visibility="Collapsed"
+                                                              ItemsSource="{Binding CurrentPresetParameters}"
+                                                              IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                                              AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column"
+                                                              Background="Transparent" BorderThickness="0">
+                                                        <DataGrid.Columns>
+                                                            <DataGridTemplateColumn Header="Program Path" CanUserSort="False" Width="*">
+                                                                <DataGridTemplateColumn.CellTemplate>
+                                                                    <DataTemplate>
+                                                                        <local:FileInput Config="{Binding}" FileDialogTitle="Choose Program"/>
+                                                                    </DataTemplate>
+                                                                </DataGridTemplateColumn.CellTemplate>
+                                                            </DataGridTemplateColumn>
+                                                            <DataGridTemplateColumn Header="Command Line Arguments" CanUserSort="False" Width="*">
+                                                                <DataGridTemplateColumn.CellTemplate>
+                                                                    <DataTemplate>
+                                                                        <TextBox Text="{Binding Value2, UpdateSourceTrigger=PropertyChanged}" KeyUp="OnConfigChanged"/>
+                                                                    </DataTemplate>
+                                                                </DataGridTemplateColumn.CellTemplate>
+                                                            </DataGridTemplateColumn>
+                                                            <DataGridCheckBoxColumn Header="Read Output" Binding="{Binding ReadOutput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" CanUserSort="False"/>
+                                                            <DataGridCheckBoxColumn Header="Wait For Exit" Binding="{Binding WaitForExit, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" CanUserSort="False"/>
+                                                        </DataGrid.Columns>
+                                                    </DataGrid>
+
+                                                    <DataGrid Grid.Row="1" x:Name="StepParameterGrid" MaxHeight="320"
+                                                              ItemsSource="{Binding CurrentPresetParameters}"
+                                                              IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                                              AutoGenerateColumns="False" CanUserAddRows="False" HeadersVisibility="Column"
+                                                              Background="Transparent" BorderThickness="0">
+                                                        <DataGrid.Columns>
+                                                            <DataGridTemplateColumn Header="Parameter" Width="2*" MinWidth="200" IsReadOnly="True">
+                                                                <DataGridTemplateColumn.CellTemplate>
+                                                                    <DataTemplate>
+                                                                        <StackPanel Margin="5,6">
+                                                                            <StackPanel Orientation="Horizontal">
+                                                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,5,0"/>
+                                                                                <iconPacks:PackIconMaterial Kind="Alert" Height="11" Width="11" VerticalAlignment="Center" Margin="0,0,5,0"
+                                                                                                            Foreground="{DynamicResource CompilePal.Brushes.Warning}"
+                                                                                                            ToolTip="This parameter is potentially incompatible with the current game">
+                                                                                    <iconPacks:PackIconMaterial.Style>
+                                                                                        <Style TargetType="iconPacks:PackIconMaterial">
+                                                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            <Style.Triggers>
+                                                                                                <DataTrigger Binding="{Binding IsCompatible}" Value="False">
+                                                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                                                </DataTrigger>
+                                                                                            </Style.Triggers>
+                                                                                        </Style>
+                                                                                    </iconPacks:PackIconMaterial.Style>
+                                                                                </iconPacks:PackIconMaterial>
+                                                                            </StackPanel>
+                                                                            <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}">
+                                                                                <TextBlock.Style>
+                                                                                    <Style TargetType="TextBlock">
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding Description}" Value="">
+                                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding Description}" Value="{x:Null}">
+                                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </TextBlock.Style>
+                                                                            </TextBlock>
+                                                                        </StackPanel>
+                                                                    </DataTemplate>
+                                                                </DataGridTemplateColumn.CellTemplate>
+                                                            </DataGridTemplateColumn>
+
+                                                            <DataGridTemplateColumn Header="Value" Width="170">
+                                                                <DataGridTemplateColumn.CellTemplate>
+                                                                    <DataTemplate>
+                                                                        <Grid>
+                                                                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" KeyUp="OnConfigChanged">
+                                                                                <TextBox.Style>
+                                                                                    <Style TargetType="{x:Type TextBox}">
+                                                                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding ValueIsFile}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Hidden"/>
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding ValueIsFolder}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Hidden"/>
+                                                                                            </DataTrigger>
+                                                                                            <!-- A flag takes no value. This used to be handled by hiding the
+                                                                                                 whole cell, which also hid the editor; now the cell stays
+                                                                                                 visible to show "on", so the editor has to opt out itself -
+                                                                                                 otherwise a switch like REPACK's -compress offers a text box
+                                                                                                 whose contents would be appended to the command line. -->
+                                                                                            <DataTrigger Binding="{Binding CanHaveValue}" Value="False">
+                                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </TextBox.Style>
+                                                                            </TextBox>
+                                                                            <local:FileInput Config="{Binding}" FileDialogTitle="Choose File" IsFolder="{Binding ValueIsFolder}">
+                                                                                <local:FileInput.Style>
+                                                                                    <Style TargetType="{x:Type local:FileInput}">
+                                                                                        <Style.Triggers>
+                                                                                            <MultiDataTrigger>
+                                                                                                <MultiDataTrigger.Conditions>
+                                                                                                    <Condition Binding="{Binding ValueIsFile}" Value="False"/>
+                                                                                                    <Condition Binding="{Binding ValueIsFolder}" Value="False"/>
+                                                                                                </MultiDataTrigger.Conditions>
+                                                                                                <MultiDataTrigger.Setters>
+                                                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                                </MultiDataTrigger.Setters>
+                                                                                            </MultiDataTrigger>
+                                                                                            <DataTrigger Binding="{Binding CanHaveValue}" Value="False">
+                                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding ValueIsFolder}" Value="True">
+                                                                                                <Setter Property="Hint" Value="Choose Folder"/>
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </local:FileInput.Style>
+                                                                            </local:FileInput>
+                                                                            <!-- A flag parameter has no value to show. The cell used to render an
+                                                                                 empty textbox, so "on" and "has no value" looked identical. -->
+                                                                            <TextBlock Text="on" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}" FontStyle="Italic">
+                                                                                <TextBlock.Style>
+                                                                                    <Style TargetType="TextBlock">
+                                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding CanHaveValue}" Value="False">
+                                                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </TextBlock.Style>
+                                                                            </TextBlock>
+                                                                            <Grid.Style>
+                                                                                <Style TargetType="{x:Type Grid}">
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding CanHaveValue}" Value="False">
+                                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </Grid.Style>
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </DataGridTemplateColumn.CellTemplate>
+                                                            </DataGridTemplateColumn>
+
+                                                            <DataGridTextColumn Header="Warnings" Binding="{Binding Warning}" IsReadOnly="True" Width="1*" MinWidth="120">
+                                                                <DataGridTextColumn.ElementStyle>
+                                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource CompilePal.Styles.WrappingCellText}">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource CompilePal.Brushes.Warning}"/>
+                                                                    </Style>
+                                                                </DataGridTextColumn.ElementStyle>
+                                                            </DataGridTextColumn>
+                                                        </DataGrid.Columns>
+                                                    </DataGrid>
+
+                                                    <!-- The literal command line this step will run. It used to be a single
+                                                         read-only line clipped mid-flag in a 560px box. -->
+                                                    <Border Grid.Row="2" Margin="0,8,0,0" Padding="8,6" CornerRadius="4"
+                                                            Background="{DynamicResource ControlFillColorDefaultBrush}">
+                                                        <TextBox Text="{Binding ArgumentSummary, Mode=OneWay}" IsReadOnly="True"
+                                                                 BorderThickness="0" Background="Transparent" TextWrapping="Wrap"
+                                                                 FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="11"
+                                                                 Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                                 AutomationProperties.Name="Resolved command line for this step"/>
+                                                    </Border>
+                                                </Grid>
+                                            </Expander>
+                                        </Border>
+
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding DoRun}" Value="False">
+                                                <Setter TargetName="StepHeader" Property="Opacity" Value="0.5"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Name}" Value="CUSTOM">
+                                                <Setter TargetName="StepParameterGrid" Property="Visibility" Value="Collapsed"/>
+                                                <Setter TargetName="StepProgramGrid" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ArgumentSummary}" Value="">
+                                                <Setter TargetName="ArgsBlock" Property="Text" Value="no parameters set"/>
+                                                <Setter TargetName="ArgsBlock" Property="FontStyle" Value="Italic"/>
+                                            </DataTrigger>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding Path=SelectedItem.IsBSP, ElementName=MapListBox}" Value="True"/>
+                                                    <Condition Binding="{Binding SupportsBSP}" Value="False"/>
+                                                </MultiDataTrigger.Conditions>
+                                                <MultiDataTrigger.Setters>
+                                                    <Setter TargetName="ProcessCheckbox" Property="IsChecked" Value="False"/>
+                                                    <Setter TargetName="ProcessCheckbox" Property="IsEnabled" Value="False"/>
+                                                    <Setter TargetName="StepHeader" Property="Opacity" Value="0.5"/>
+                                                    <Setter TargetName="StepHeader" Property="ToolTip" Value="This step needs a .vmf source file, so it cannot run against the selected .bsp. Select a .vmf map to enable it."/>
+                                                </MultiDataTrigger.Setters>
+                                            </MultiDataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+            <TabItem Name="OrderTab" Header="ORDER">
+                <Grid Background="{DynamicResource CompilePal.Brushes.GridBackground}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Margin="12,10,12,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                               Text="The order steps run in for the selected preset. Custom programs can be dragged to a new position; the built-in steps run in their fixed order."/>
+                    <DataGrid Grid.Row="1" Name="OrderGrid" IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}" Margin="10,10,10,10" AutoGenerateColumns="False" CanUserAddRows="False" SelectionMode="Single" ItemsSource="{Binding Source={x:Static config:OrderManager.CurrentOrder}}" local:RowDragHelper.EnableRowDrag="True">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Original Order" Binding="{ Binding Ordering}" IsReadOnly="True" CanUserSort="False"/>
+                            <DataGridTextColumn Header="Name" Binding="{ Binding Name}" IsReadOnly="True" Width="*" CanUserSort="False"/>
+                            <DataGridTextColumn Header="Description" Binding="{ Binding Description}" IsReadOnly="True" Width="*" CanUserSort="False" ElementStyle="{StaticResource CompilePal.Styles.WrappingCellText}"/>
+                        </DataGrid.Columns>
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDraggable}" Value="False">
+                                        <Setter Property="Background" Value="{DynamicResource CompilePal.Brushes.GridBackground}"/>
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                        <!-- Was a hardcoded Black, which rendered the non-draggable rows -
+                                             i.e. every built-in step - as black text on the dark theme's
+                                             near-black grid background. -->
+                                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsDraggable}" Value="True">
+                                        <Setter Property="BorderThickness" Value="0"/>
+                                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.CellStyle>
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Style.Setters>
+                                    <EventSetter Event="MouseEnter" Handler="DataGridCell_OnEnter"/>
+                                    <EventSetter Event="MouseLeave" Handler="DataGridCell_OnExit"/>
+                                </Style.Setters>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Resources>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="{x:Static SystemColors.HighlightColor}"/>
+                            <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="{x:Static SystemColors.HighlightTextColor}"/>
+                        </DataGrid.Resources>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+            <!-- Every finished compile already wrote a timestamped transcript to CompileLogs and nothing
+                 ever read one back, so the record was there and invisible. -->
+            <TabItem Name="HistoryTab" Header="HISTORY">
+                <Grid Background="{DynamicResource CompilePal.Brushes.GridBackground}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Grid.Row="0" Margin="12,10,12,4">
+                        <Button DockPanel.Dock="Right" Content="Open log folder" Height="30" Padding="12,0"
+                                Click="HistoryOpenFolder_OnClick" AutomationProperties.Name="Open the compile log folder"/>
+                        <TextBlock Text="Past compiles. Double-click a run to read its log."
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                    </DockPanel>
+
+                    <TextBlock Grid.Row="1" Margin="12,20,12,0" VerticalAlignment="Top"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                               Text="No compiles recorded yet. They appear here once a compile finishes."
+                               Visibility="{Binding HistoryIsEmpty, ElementName=CompileWindow, Converter={StaticResource BoolToVisibility}}"/>
+
+                    <ListBox Grid.Row="1" Name="HistoryList" Margin="12,6,12,12" BorderThickness="0" Background="Transparent"
+                             ItemsSource="{Binding History, ElementName=CompileWindow}"
+                             MouseDoubleClick="HistoryList_OnMouseDoubleClick"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             AutomationProperties.Name="Past compiles">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="10,8" Margin="0,0,0,4" CornerRadius="6" BorderThickness="1"
+                                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="3"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Border Grid.Column="0" x:Name="OutcomeStripe" CornerRadius="2"
+                                                Background="{DynamicResource CompilePal.Brushes.Success}"/>
+
+                                        <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                            <TextBlock Text="{Binding Maps}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock FontSize="11" Margin="0,2,0,0"
+                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}">
+                                                <Run Text="{Binding Preset, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Game, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                                            <TextBlock Text="{Binding When}" FontSize="11.5" HorizontalAlignment="Right"/>
+                                            <TextBlock Text="{Binding Summary}" FontSize="11" Margin="0,2,0,0" HorizontalAlignment="Right"
+                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Outcome}" Value="failed">
+                                        <Setter TargetName="OutcomeStripe" Property="Background" Value="{DynamicResource CompilePal.Brushes.Severity4}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Outcome}" Value="cancelled">
+                                        <Setter TargetName="OutcomeStripe" Property="Background" Value="{DynamicResource CompilePal.Brushes.Severity3}"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </TabItem>
+
+            <TabItem Name="OutputTab" Header="OUTPUT">
+                <Grid Background="{DynamicResource CompilePal.Brushes.GridBackground}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Navigation for a log that routinely runs to tens of thousands of lines. The step
+                         dividers already written into the output are content, not navigation; this turns
+                         the same information into somewhere to jump to. -->
+                    <DockPanel Grid.Row="0" Margin="10,8,10,4">
+                        <TextBlock DockPanel.Dock="Left" Text="Jump to step" VerticalAlignment="Center"
+                                   Margin="0,0,8,0" Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                        <ComboBox DockPanel.Dock="Left" Name="StepJumpBox" Width="240" MinHeight="28"
+                                  ItemsSource="{Binding StepAnchors, ElementName=CompileWindow}"
+                                  SelectionChanged="StepJumpBox_OnSelectionChanged"
+                                  AutomationProperties.Name="Jump to compile step"/>
+
+                        <ToggleButton DockPanel.Dock="Right" Name="IssuesToggle" MinHeight="28" Padding="10,0"
+                                      IsChecked="False"
+                                      ToolTip="Show or hide the list of errors and warnings"
+                                      AutomationProperties.Name="Show issues list">
+                            <StackPanel Orientation="Horizontal">
+                                <iconPacks:PackIconMaterial Kind="AlertCircleOutline" Height="11" Width="11" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding IssuesHeading, ElementName=CompileWindow}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </ToggleButton>
+                        <TextBlock/>
+                    </DockPanel>
+
+                    <Border Name="OutputSearchBar" Grid.Row="1" Visibility="Collapsed" Padding="10,6" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource CompilePal.Brushes.Border}">
                         <StackPanel Orientation="Horizontal">
                             <TextBox Name="OutputSearchBox" Width="240" VerticalContentAlignment="Center" KeyDown="OutputSearchBox_OnKeyDown" TextChanged="OutputSearchBox_OnTextChanged"/>
-                            <Button Name="OutputSearchPrevButton" Margin="6,0,0,0" Width="28" Height="28" Padding="0" MinWidth="0" MinHeight="0" Click="OutputSearchPrevButton_OnClick" ToolTip="Previous match (Shift+Enter)">
+                            <Button Name="OutputSearchPrevButton" Margin="6,0,0,0" Width="28" Height="28" Padding="0" MinWidth="0" MinHeight="0" Click="OutputSearchPrevButton_OnClick" ToolTip="Previous match (Shift+Enter)" AutomationProperties.Name="Previous match (Shift+Enter)">
                                 <iconPacks:Material Width="14" Height="14" Kind="ChevronUp"/>
                             </Button>
-                            <Button Name="OutputSearchNextButton" Margin="4,0,0,0" Width="28" Height="28" Padding="0" MinWidth="0" MinHeight="0" Click="OutputSearchNextButton_OnClick" ToolTip="Next match (Enter)">
+                            <Button Name="OutputSearchNextButton" Margin="4,0,0,0" Width="28" Height="28" Padding="0" MinWidth="0" MinHeight="0" Click="OutputSearchNextButton_OnClick" ToolTip="Next match (Enter)" AutomationProperties.Name="Next match (Enter)">
                                 <iconPacks:Material Width="14" Height="14" Kind="ChevronDown"/>
                             </Button>
                             <Label Name="OutputSearchCountLabel" VerticalAlignment="Center" Margin="10,0,0,0" Opacity="0.7"/>
-                            <Button Name="OutputSearchCloseButton" Margin="10,0,0,0" Width="28" Height="28" Padding="0" MinWidth="0" MinHeight="0" Click="OutputSearchCloseButton_OnClick" ToolTip="Close (Esc)">
+                            <Button Name="OutputSearchCloseButton" Margin="10,0,0,0" Width="28" Height="28" Padding="0" MinWidth="0" MinHeight="0" Click="OutputSearchCloseButton_OnClick" ToolTip="Close (Esc)" AutomationProperties.Name="Close (Esc)">
                                 <iconPacks:Material Width="14" Height="14" Kind="Close"/>
                             </Button>
                         </StackPanel>
                     </Border>
 
-                    <RichTextBox Grid.Row="1" IsReadOnly="True" x:Name="CompileOutputTextbox" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderThickness="0" Margin="10,10,10,10" FontFamily="Cascadia Mono, Cascadia Code, Consolas, Courier New" Typography.StandardLigatures="False" IsReadOnlyCaretVisible="True" Block.LineHeight="2" IsDocumentEnabled="True" IsInactiveSelectionHighlightEnabled="True">
+                    <Grid Grid.Row="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <RichTextBox Grid.Column="0" IsReadOnly="True" x:Name="CompileOutputTextbox" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderThickness="0" Margin="10,10,10,10" FontFamily="Cascadia Mono, Cascadia Code, Consolas, Courier New" Typography.StandardLigatures="False" IsReadOnlyCaretVisible="True" Block.LineHeight="2" IsDocumentEnabled="True" IsInactiveSelectionHighlightEnabled="True">
                         <RichTextBox.Resources>
                             <!-- For text the user selects by hand to copy: once focus moves away the
                                  selection renders "inactive", and Windows' default inactive-selection
@@ -505,32 +847,168 @@
                             </FlowDocument>
                         </RichTextBox.Document>
                     </RichTextBox>
+
+                    <!-- Every recognised error and warning, listed away from the log. This is the
+                         "errors only" view: a FlowDocument's blocks carry no visibility, so genuinely
+                         filtering the log would mean rebuilding the document on every change to the
+                         busiest path in the app. It doubles as the post-compile summary - after a run
+                         it is a list of exactly what needs looking at, and each entry jumps to its line. -->
+                    <Border Grid.Column="1" Width="320" Margin="0,10,10,10" Padding="8"
+                            Style="{DynamicResource CompilePal.Styles.Panel}"
+                            Visibility="{Binding IsChecked, ElementName=IssuesToggle, Converter={StaticResource BoolToVisibility}}">
+                        <DockPanel>
+                            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                <CheckBox DockPanel.Dock="Right" Content="Errors only" VerticalAlignment="Center"
+                                          Style="{DynamicResource CompilePal.Styles.CompactCheckBox}"
+                                          IsChecked="{Binding ShowErrorsOnly, ElementName=CompileWindow, Mode=TwoWay}"
+                                          AutomationProperties.Name="Show errors only"/>
+                                <TextBlock Text="Issues" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                            </DockPanel>
+
+                            <TextBlock DockPanel.Dock="Bottom" Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11"
+                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                       Text="Select an issue to jump to it in the log.">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Items.Count, ElementName=IssuesList}" Value="0">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <ListBox Name="IssuesList" BorderThickness="0" Background="Transparent"
+                                     ItemsSource="{Binding IssuesView, ElementName=CompileWindow}"
+                                     SelectionChanged="IssuesList_OnSelectionChanged"
+                                     HorizontalContentAlignment="Stretch"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ItemContainerStyle="{DynamicResource CompilePal.Styles.CompactListBoxItem}"
+                                     AutomationProperties.Name="Errors and warnings">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2" ToolTip="{Binding Text}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="3"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <!-- Severity as a stripe as well as a colour, so it survives
+                                                 the accent fill behind a selected row. -->
+                                            <Border Grid.Column="0" Background="{Binding SeverityBrush}" CornerRadius="2"/>
+                                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                                <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontSize="12"/>
+                                                <TextBlock FontSize="10.5" Margin="0,1,0,0"
+                                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}">
+                                                    <Run Text="{Binding SeverityLabel, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Step, Mode=OneWay}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Border>
+                    </Grid>
                 </Grid>
 
             </TabItem>
         </TabControl>
-        <StackPanel Grid.Row="2" VerticalAlignment="Bottom" HorizontalAlignment="Right" Orientation="Horizontal" Margin="10,0,10,0">
-            <ProgressBar Name="CompileProgressBar" Margin="0,0,0,12" Height="6" VerticalAlignment="Bottom" HorizontalAlignment="Right" Width="200"/>
-            <Button Name="PrevErrorButton" Margin="5,10,0,6" Width="32" Height="32" Padding="0" MinWidth="0" MinHeight="0" Click="PrevErrorButton_OnClick" ToolTip="Previous Error">
-                <iconPacks:Material Width="15" Height="15" Kind="ChevronUp" />
-            </Button>
-            <Label Name="ErrorNavLabel" VerticalAlignment="Bottom" Margin="2,0,2,9" Opacity="0.7"/>
-            <Button Name="NextErrorButton" Margin="0,10,5,6" Width="32" Height="32" Padding="0" MinWidth="0" MinHeight="0" Click="NextErrorButton_OnClick" ToolTip="Next Error">
-                <iconPacks:Material Width="15" Height="15" Kind="ChevronDown" />
-            </Button>
-            <Button Name="CopyButton" Margin="0,10,0,6" Width="44" Click="CopyButton_OnClick" ToolTip="Copy Output">
-                <iconPacks:Material Height="15" Kind="ContentCopy" />
-            </Button>
-            <Button Name="SaveLogButton" Margin="5,10,0,6" Width="44" Click="SaveLogButton_OnClick" ToolTip="Save Output To File">
-                <iconPacks:Material Height="15" Kind="ContentSave" />
-            </Button>
-            <ui:Button Name="CompileStartStopButton" Appearance="Primary" Content="Compile" Margin="5,10,0,6" Width="75" Click="CompileStartStopButton_OnClick" IsEnabled="{Binding ElementName=MapListBox, Path=Items.Count}"/>
-        </StackPanel>
-        <Label Name="UpdateLabel" Visibility="Collapsed"  Grid.Row="2" VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="10" MouseLeftButtonUp="UpdateLabel_MouseLeftButtonUp" >
-            <Hyperlink Name="UpdateHyperLink" NavigateUri="https://github.com/ruarai/CompilePal/releases/latest" RequestNavigate="UpdateHyperLink_OnRequestNavigate" Foreground="{DynamicResource CompilePal.Brushes.Link}"/>
-        </Label>
-        <Label Name="TimeElapsedLabel" Visibility="Collapsed" Grid.Row="2" VerticalAlignment="Bottom" FontWeight="Bold" HorizontalAlignment="Left" Margin="10" />
     </Grid>
+
+    <!-- Compile state was previously a 200px sliver of bar wedged into a row of buttons at the bottom of
+         the tab area, so during the 5-40 minutes that actually matter the window said almost nothing.
+         This is a real footer: what is running, how far in, how much longer, and how many errors so far. -->
+    <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+            Background="{DynamicResource CompilePal.Brushes.GridBackground}" Padding="10,7">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Progress and the words that explain it, stacked so the bar is full width rather than
+                 competing with the buttons for horizontal room. -->
+            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,14,0">
+                <Grid Name="CompileProgressSegments" Height="6" Margin="0,0,0,5"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Grid.Column="0">
+                        <TextBlock Text="{Binding CompileStatusLine, ElementName=CompileWindow}" FontSize="11"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                        <Label Name="TimeElapsedLabel" Visibility="Collapsed" Padding="0" Margin="10,0,0,0"
+                               FontSize="11" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                        <TextBlock Text="{Binding CompileRemainingText, ElementName=CompileWindow}" FontSize="11" Margin="10,0,0,0"
+                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                        <Label Name="UpdateLabel" Visibility="Collapsed" Padding="0" Margin="10,0,0,0" FontSize="11"
+                               VerticalAlignment="Center" MouseLeftButtonUp="UpdateLabel_MouseLeftButtonUp">
+                            <Hyperlink Name="UpdateHyperLink" NavigateUri="https://github.com/ruarai/CompilePal/releases/latest" RequestNavigate="UpdateHyperLink_OnRequestNavigate" Foreground="{DynamicResource CompilePal.Brushes.Link}"/>
+                        </Label>
+                    </StackPanel>
+
+                    <!-- Running totals rather than a summary only at the end: a compile that has been
+                         logging errors for ten minutes should say so while it is still running. -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <TextBlock Text="{Binding LiveWarningCount, ElementName=CompileWindow, StringFormat=⚠ {0}}" FontSize="11"
+                                   Foreground="{DynamicResource CompilePal.Brushes.Warning}" Margin="8,0,0,0"
+                                   ToolTip="Warnings logged this compile">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LiveWarningCount, ElementName=CompileWindow}" Value="0">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Text="{Binding LiveErrorCount, ElementName=CompileWindow, StringFormat=✕ {0}}" FontSize="11"
+                                   Foreground="{DynamicResource CompilePal.Brushes.Severity4}" Margin="8,0,0,0"
+                                   ToolTip="Errors logged this compile">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LiveErrorCount, ElementName=CompileWindow}" Value="0">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <!-- Only meaningful against the log, so shown with it rather than sitting dead on every tab. -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                        Visibility="{Binding OutputToolsVisibility, ElementName=CompileWindow}">
+                <Button Name="PrevErrorButton" Width="32" Height="32" Padding="0" MinWidth="0" MinHeight="0" Click="PrevErrorButton_OnClick" ToolTip="Previous Error" AutomationProperties.Name="Previous Error">
+                    <iconPacks:Material Width="15" Height="15" Kind="ChevronUp" />
+                </Button>
+                <Label Name="ErrorNavLabel" VerticalAlignment="Center" Padding="0" Margin="6,0,6,0" Opacity="0.7" FontSize="11"/>
+                <Button Name="NextErrorButton" Width="32" Height="32" Padding="0" MinWidth="0" MinHeight="0" Click="NextErrorButton_OnClick" ToolTip="Next Error" AutomationProperties.Name="Next Error">
+                    <iconPacks:Material Width="15" Height="15" Kind="ChevronDown" />
+                </Button>
+                <Button Name="CopyButton" Width="36" Height="32" Padding="0" MinWidth="0" MinHeight="0" Margin="6,0,0,0" Click="CopyButton_OnClick" ToolTip="Copy Output" AutomationProperties.Name="Copy Output">
+                    <iconPacks:Material Height="15" Kind="ContentCopy" />
+                </Button>
+                <Button Name="SaveLogButton" Width="36" Height="32" Padding="0" MinWidth="0" MinHeight="0" Margin="4,0,0,0" Click="SaveLogButton_OnClick" ToolTip="Save Output To File" AutomationProperties.Name="Save Output To File">
+                    <iconPacks:Material Height="15" Kind="ContentSave" />
+                </Button>
+            </StackPanel>
+
+            <ui:Button Grid.Column="3" Name="CompileStartStopButton" Appearance="Primary" Content="Compile" Margin="10,0,0,0"
+                       Width="96" Height="32" VerticalAlignment="Center" Click="CompileStartStopButton_OnClick"
+                       ToolTip="Start or cancel a compile (F9)"
+                       IsEnabled="{Binding ElementName=MapListBox, Path=Items.Count}"/>
+        </Grid>
+    </Border>
     </Grid>
 
     <Window.TaskbarItemInfo>

@@ -44,9 +44,11 @@ namespace CompilePalX
                 {
                     // keep the bad file rather than silently discarding whatever was in it
                     string backup = mapFiles + ".corrupt";
+                    bool moved = false;
                     try
                     {
                         File.Move(mapFiles, backup, overwrite: true);
+                        moved = true;
                     }
                     catch (Exception moveFailure)
                     {
@@ -54,9 +56,16 @@ namespace CompilePalX
                     }
 
                     ExceptionHandler.LogException(e, false);
+
+                    // Only claim the rename happened if it did. Saying the file "was kept as
+                    // mapfiles.json.corrupt" when the move failed sends the user looking for a file
+                    // that is not there, while the real one still sits under its original name.
                     CompilePalLogger.LogLineColor(
-                        $"Could not read the map list; starting with an empty one. The unreadable file " +
-                        $"was kept as {backup}.", Error.GetSeverityBrush(3));
+                        "Could not read the map list; starting with an empty one. " +
+                        (moved
+                            ? $"The unreadable file was kept as {backup}."
+                            : $"The unreadable file could not be renamed and is still at {mapFiles}."),
+                        Error.GetSeverityBrush(3));
                 }
             }
 

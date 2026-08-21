@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 using Newtonsoft.Json;
+using CompilePalX.Compiling;
 
 namespace CompilePalX
 {
@@ -162,6 +163,24 @@ namespace CompilePalX
                 catch (Exception e)
                 {
                     ExceptionHandler.LogException(e);
+                }
+            }
+
+            // Then every Source game Steam has installed. The registry key above only ever names the
+            // last bin folder Hammer was started from, so without this a game is invisible until Hammer
+            // has been opened for it - and switching between two games means alternating Hammer
+            // launches to make each one appear.
+            foreach (var binFolder in SteamGameScanner.FindBinFolders())
+            {
+                try
+                {
+                    configs.AddRange(GameConfigurationParser.Parse(binFolder));
+                }
+                catch (Exception e)
+                {
+                    // One unreadable game configuration must not lose the others, and it is not worth a
+                    // dialog - this runs on every refresh, including at startup.
+                    CompilePalLogger.LogLineDebug($"Could not parse the game configuration in {binFolder}: {e.Message}");
                 }
             }
 

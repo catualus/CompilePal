@@ -30,6 +30,12 @@
   <ItemGroup>
     <None Include="..\.editorconfig" Link=".editorconfig" />
   </ItemGroup>
+  <!-- Most types worth testing are public already, but a few cannot be: anything whose signature
+       mentions CompileProcess is internal because CompileProcess is. Widening those to public purely
+       so a test can reach them would be shaping the API around the tests. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="CompilePalX.Tests" />
+  </ItemGroup>
   <!-- Meshwright, the offline nav mesh generator that used to be compiled in here, is now installed
        as an ordinary Compile Pal plugin instead: a folder under Plugins/ containing meta.json,
        parameters.json and a self-contained meshwright.exe, which ConfigurationManager discovers on
@@ -45,6 +51,7 @@
     <PackageReference Include="Glob" Version="1.1.9" />
     <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
     <PackageReference Include="Microsoft.Windows.Compatibility" Version="10.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="MahApps.Metro.IconPacks" Version="6.2.1" />
