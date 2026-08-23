@@ -48,7 +48,6 @@
        decide whether they wanted the step. As a plugin, having it is a folder and not having it is no
        folder, and it works against upstream Compile Pal rather than only this fork. -->
   <ItemGroup>
-    <PackageReference Include="Analytics" Version="3.8.1" />
     <PackageReference Include="Glob" Version="1.1.9" />
     <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />

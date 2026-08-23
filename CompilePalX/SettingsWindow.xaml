@@ -183,29 +183,43 @@
 
                 <TextBlock Style="{StaticResource SectionHeading}" Text="PRIVACY"/>
 
-                <!-- Opt-in, and presented as one. Upstream reported usage from every install with no
-                     setting anywhere to refuse; a fork handing out builds cannot carry that forward. -->
+                <!-- Opt-in, and presented as one. Upstream reported usage from every install with
+                     no setting anywhere to refuse; a fork handing out builds cannot carry that
+                     forward. The "Show what is sent" button prints the actual payload, so the
+                     description below is checkable rather than a claim. -->
                 <Border Style="{StaticResource SettingRow}">
                     <DockPanel>
                         <ui:ToggleSwitch DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0"
-                                         IsChecked="{Binding Path=AnalyticsEnabled, Mode=TwoWay}"
+                                         IsChecked="{Binding Path=TelemetryEnabled, Mode=TwoWay}"
                                          AutomationProperties.Name="Send anonymous usage statistics"/>
                         <StackPanel>
                             <TextBlock Style="{StaticResource SettingTitle}" Text="Send anonymous usage statistics"/>
-                            <TextBlock Style="{StaticResource SettingHint}" Text="Off by default. When on, Compile Pal reports which of its features are used - launches, compiles, preset changes and how often compiles hit errors - under a random ID that is not derived from your machine. No map names, file paths or compile output are ever sent, and nothing is sent at all unless a destination is configured below."/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Off by default. When on, Compile Pal sends one summary as it closes: how many times you compiled, how many compiles hit errors, and which of the games it supports you used. No identifier of any kind is included - not a machine ID, not an account, nothing that distinguishes your install from anyone else's. No map names, file paths, presets or compile output are ever sent."/>
                         </StackPanel>
                     </DockPanel>
                 </Border>
 
                 <Border Style="{StaticResource SettingRow}">
                     <DockPanel>
-                        <TextBox DockPanel.Dock="Right" MinWidth="260" VerticalAlignment="Center" Name="AnalyticsHost"
-                                 Text="{Binding Path=AnalyticsHost, Mode=TwoWay}"
-                                 IsEnabled="{Binding Path=AnalyticsEnabled}"
+                        <ui:Button DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   Content="Show what is sent" Click="ShowTelemetryPayload_Click"
+                                   IsEnabled="{Binding Path=TelemetryEnabled}"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Inspect the data"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Shows the exact message that would be sent right now, generated from the same values the send uses. The totals collected so far are also published at telemetry.catualus.dev/api/telemetry/v1/stats, which anyone can read."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <TextBox DockPanel.Dock="Right" MinWidth="260" VerticalAlignment="Center" Name="TelemetryEndpoint"
+                                 Text="{Binding Path=TelemetryEndpoint, Mode=TwoWay}"
+                                 IsEnabled="{Binding Path=TelemetryEnabled}"
                                  AutomationProperties.Name="Usage statistics endpoint"/>
                         <StackPanel>
-                            <TextBlock Style="{StaticResource SettingTitle}" Text="Statistics endpoint"/>
-                            <TextBlock Style="{StaticResource SettingHint}" Text="Where usage statistics are sent. Leave blank to send nowhere. Any Segment-compatible collector works, including one you host yourself."/>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Endpoint"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Where the summary is posted. Must be https, and clearing it stops anything being sent at all."/>
                         </StackPanel>
                     </DockPanel>
                 </Border>

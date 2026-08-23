@@ -38,12 +38,12 @@ public partial class GameConfigurationWindow
         if (this.index != null)
         {
             GameConfigurationManager.GameConfigurations[(int)this.index] = config;
-            AnalyticsManager.ModifyGameConfiguration(config.Name);
+            TelemetryManager.ModifyGameConfiguration(config.Name);
         }
         else
         {
             GameConfigurationManager.GameConfigurations.Add(config);
-            AnalyticsManager.NewGameConfiguration(config.Name);
+            TelemetryManager.NewGameConfiguration(config.Name);
         }
 
         GameConfigurationManager.SaveGameConfigurations();

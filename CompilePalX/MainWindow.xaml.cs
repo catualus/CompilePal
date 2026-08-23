@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -617,7 +617,7 @@ namespace CompilePalX
             UpdateManager.OnUpdateFound += UpdateManager_OnUpdateFound;
             UpdateManager.CheckVersion();
 
-            AnalyticsManager.Launch();
+            TelemetryManager.Launch();
             PersistenceManager.Init();
             CompileTimings.Init();
             RefreshHistory();
@@ -996,7 +996,7 @@ namespace CompilePalX
 
             // reload parameters incase new game config has a plugin folder
             ConfigurationManager.AssembleParameters();
-            AnalyticsManager.SelectGameConfiguration(gameConfiguration.Name);
+            TelemetryManager.SelectGameConfiguration(gameConfiguration.Name);
         }
 
         void ProgressManager_ProgressChange(double progress)
@@ -1243,7 +1243,7 @@ namespace CompilePalX
 					}
 	            }
 
-                AnalyticsManager.ModifyPreset();
+                TelemetryManager.ModifyPreset();
 
                 step.NotifyParametersChanged();
             }
@@ -1278,7 +1278,7 @@ namespace CompilePalX
 
                 selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Add((ConfigItem)customArgumentItem.Clone());
             }
-            AnalyticsManager.ModifyPreset();
+            TelemetryManager.ModifyPreset();
 
             StepFor(sender)?.NotifyParametersChanged();
         }
@@ -1302,7 +1302,7 @@ namespace CompilePalX
                 ConfigurationManager.MarkProcessesDirty();
             }
 
-            AnalyticsManager.ModifyPreset();
+            TelemetryManager.ModifyPreset();
             ConfigurationManager.MarkDirty(ConfigurationManager.CurrentPreset);
 
             UpdateProcessList();
@@ -1333,7 +1333,7 @@ namespace CompilePalX
             var presetInfo = (Preset)dialog.DataContext;
             var preset = ConfigurationManager.NewPreset(presetInfo);
 
-            AnalyticsManager.NewPreset();
+            TelemetryManager.NewPreset();
 
             SetSources();
             CompileProcessesListBox.SelectedIndex = 0;
@@ -1356,7 +1356,7 @@ namespace CompilePalX
             var presetInfo = (Preset)dialog.DataContext;
             var preset = ConfigurationManager.ClonePreset(presetInfo);
 
-            AnalyticsManager.NewPreset();
+            TelemetryManager.NewPreset();
 
             SetSources();
             CompileProcessesListBox.SelectedIndex = 0;
@@ -2243,6 +2243,29 @@ namespace CompilePalX
                 // fail silently, worst case scenario is the height of the list box doesnt save
                 CompilePalLogger.LogLineDebug($"Failed while saving settings on shutdown: {ex}");
             }
+
+            /*
+             * The one and only telemetry send, if the user turned it on.
+             *
+             * Here rather than spread across the session on purpose: a single summary at the end
+             * carries the same totals as a stream of events without also describing when the user
+             * was working. See TelemetryManager.
+             *
+             * Waited on, but hard-bounded. This runs on the closing path, so an unreachable
+             * endpoint must cost a visible moment at most - GetAwaiter().GetResult() on a task
+             * that already carries its own timeout, and which swallows every failure internally,
+             * cannot hang the shutdown. Dropping the submission is always preferable to not
+             * closing.
+             */
+            try
+            {
+                TelemetryManager.FlushAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Telemetry flush failed on shutdown: {ex.Message}");
+            }
+
             base.OnClosing(e);
         }
     }
