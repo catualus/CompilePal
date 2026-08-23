@@ -1,0 +1,270 @@
+# Builds Compile Pal and publishes it as a GitHub Release.
+#
+# Start it from the Actions tab: Actions -> Release -> "Run workflow".
+#
+# WHAT YOU PICK
+# -------------
+#   channel      prerelease (default) or release.
+#                  prerelease -> Debug build, version_prerelease.txt, marked as a pre-release
+#                  release    -> Release build, version.txt, marked as the latest release
+#   version      Leave blank and the next version is worked out from the version file already in
+#                the repo (see "AUTO-ADVANCE"). Fill it in to force an exact one, e.g. 031 or 030.4.
+#   dry_run      Build and upload the zip as a run artifact, but create no tag, no release, and no
+#                commit. Use it to check a build before spending a version number on it.
+#
+# AUTO-ADVANCE
+# ------------
+# This is the part the previous workflow could not do: it only ran `on: release`, so a release had
+# to be hand-created in the UI *first*, and it read the version out of whatever tag you happened to
+# type. Nothing derived the next version from the last one, and a typo produced a release the
+# in-app updater could not compare against.
+#
+# Now the version files in the repo are the source of truth and the next number comes from them:
+#
+#   release      version.txt holds the stable version as a zero-padded integer ("029").
+#                The next release is that plus one -> "030".
+#   prerelease   version_prerelease.txt holds "<stable>.<n>" ("029.1"). The next prerelease is
+#                n + 1 -> "029.2". If a stable release has since overtaken it (version.txt is
+#                higher than the prerelease's stable part) it restarts at .1 on the new stable
+#                number instead, so prereleases never appear to go backwards.
+#
+# The resolved version is written back to the version file and committed to the default branch as
+# part of the run, because that file is exactly what the in-app update check reads (see
+# UpdateManager.LatestVersionURL). A release that does not update it is invisible to every existing
+# install.
+#
+# TAGS
+# ----
+# The tag is "v" + the version: v030, v029.2. UpdateManager builds the prerelease download link as
+# releases/tag/v0<major>.<minor>, so the leading zero in the version string is load-bearing - do not
+# publish a tag like "v30".
+#
+# Pushing a tag by hand (git tag v029.2 && git push --tags) also runs this workflow, building and
+# releasing that exact version without the bump/commit step.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Which channel to publish to"
+        required: true
+        default: prerelease
+        type: choice
+        options:
+          - prerelease
+          - release
+      version:
+        description: "Exact version (e.g. 030 or 029.4). Leave blank to advance from the last one."
+        required: false
+        type: string
+      dry_run:
+        description: "Build only - no tag, no release, no commit"
+        required: false
+        default: false
+        type: boolean
+
+  push:
+    tags:
+      - "v0*"
+
+# The run writes the bumped version file back to the default branch and creates a release.
+permissions:
+  contents: write
+
+# Two releases building at once would race each other's version bump and could both land on the
+# same number. Never cancel one in flight, though - a half-published release is worse than a queue.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version bump is committed back, so the checkout needs a real branch to push to
+          # rather than the detached HEAD a default checkout leaves behind.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || '' }}
+          fetch-depth: 0
+
+      # Resolves channel, configuration, version and tag in one place, so every later step just
+      # reads them back out of the environment instead of re-deriving them from the event.
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ('${{ github.event_name }}' -eq 'push') {
+              # Tag-driven run: the tag names the version outright. "029.2" has a minor part, so it
+              # is a prerelease; a bare "030" is a stable release.
+              $version = '${{ github.ref_name }}' -replace '^v', ''
+              $channel = if ($version -match '\.') { 'prerelease' } else { 'release' }
+              $bumped  = $false
+          }
+          else {
+              $channel = '${{ inputs.channel }}'
+              $exact   = '${{ inputs.version }}'.Trim()
+
+              $stable = (Get-Content 'CompilePalX/version.txt' -Raw).Trim()
+
+              if ($exact) {
+                  $version = $exact
+              }
+              elseif ($channel -eq 'release') {
+                  $version = '{0:000}' -f ([int]$stable + 1)
+              }
+              else {
+                  $current = (Get-Content 'CompilePalX/version_prerelease.txt' -Raw).Trim()
+                  $parts   = $current -split '\.'
+                  $major   = [int]$parts[0]
+                  $minor   = if ($parts.Count -gt 1) { [int]$parts[1] } else { 0 }
+
+                  # A stable release published since the last prerelease has moved the line forward;
+                  # continuing to count up from the old stable number would produce a "new"
+                  # prerelease that the updater reads as older than what users already have.
+                  if ([int]$stable -gt $major) {
+                      $major = [int]$stable
+                      $minor = 1
+                  }
+                  else {
+                      $minor = $minor + 1
+                  }
+
+                  $version = ('{0:000}' -f $major) + '.' + $minor
+              }
+
+              $bumped = $true
+          }
+
+          if ($version -notmatch '^\d{3}(\.\d+)?$') {
+              throw "Version '$version' is not in the expected form: 3 digits, optionally .minor (e.g. 030, 029.4)"
+          }
+
+          if ($channel -eq 'release') {
+              $configuration = 'Release'
+              $versionFile   = 'version.txt'
+              $prerelease    = 'false'
+          } else {
+              $configuration = 'Debug'
+              $versionFile   = 'version_prerelease.txt'
+              $prerelease    = 'true'
+          }
+
+          Write-Host "channel=$channel version=$version tag=v$version configuration=$configuration"
+
+          "CHANNEL=$channel"             | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VERSION=$version"             | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "TAG=v$version"                | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "CONFIGURATION=$configuration" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VERSION_FILE=$versionFile"    | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "PRERELEASE=$prerelease"       | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "BUMPED=$($bumped.ToString().ToLower())" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Written before the build so the number is baked into the binary that ships, not just into
+      # the release page. UpdateManager reads this file at startup to know what it is.
+      - name: Stamp version file
+        shell: pwsh
+        run: |
+          Set-Content -Path "CompilePalX/${{ env.VERSION_FILE }}" -Value "${{ env.VERSION }}" -NoNewline
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      # The tests are cheap and this is the last point at which a bad build costs nothing. Failing
+      # here leaves no tag and no release behind, so the version number is not spent.
+      - name: Test
+        run: dotnet test CompilePalX.Tests --configuration ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Build
+        run: dotnet publish /p:PublishProfile=Publish${{ env.CONFIGURATION }}
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $deploy = "./CompilePalX/bin/${{ env.CONFIGURATION }}/Deploy"
+
+          if (-not (Test-Path $deploy)) {
+              throw "Publish produced nothing at $deploy"
+          }
+
+          $name = "Compile Pal ${{ env.VERSION }}"
+          $dest = "./CompilePalX/bin/${{ env.CONFIGURATION }}/$name"
+
+          # Re-runs of a failed release find the previous rename still in place.
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+          Rename-Item -Path $deploy -NewName $name
+
+          Compress-Archive -Path $dest -DestinationPath "./$name.zip" -CompressionLevel Optimal
+
+          "ASSET=$name.zip" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Always uploaded, dry run or not, so the build is inspectable from the run page either way.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: compile-pal-${{ env.VERSION }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+      # Only for a workflow_dispatch run that actually chose the version. A tag-driven run releases
+      # whatever is already committed and must not rewrite history behind the tag.
+      - name: Commit version bump
+        if: ${{ env.BUMPED == 'true' && inputs.dry_run != true }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "CompilePalX/${{ env.VERSION_FILE }}"
+
+          # Nothing to do when an exact version equal to the current one was requested - a re-run of
+          # a failed publish, most likely. `git commit` would fail the job on an empty diff.
+          if (git diff --cached --quiet) {
+              Write-Host "Version file already at ${{ env.VERSION }}, nothing to commit"
+          } else {
+              git commit -m "chore: release ${{ env.VERSION }}"
+              git push
+          }
+
+      - name: Publish release
+        if: ${{ inputs.dry_run != true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Compile Pal ${{ env.VERSION }}
+          prerelease: ${{ env.PRERELEASE == 'true' }}
+          # The tag is created here rather than beforehand, so it has to point at the commit the
+          # version bump just produced.
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: ${{ env.ASSET }}
+          fail_on_unmatched_files: true
+
+      - name: Summary
+        shell: pwsh
+        run: |
+          $lines = @(
+            "## Compile Pal ${{ env.VERSION }}",
+            "",
+            "| | |",
+            "|---|---|",
+            "| Channel | ${{ env.CHANNEL }} |",
+            "| Configuration | ${{ env.CONFIGURATION }} |",
+            "| Tag | ${{ env.TAG }} |",
+            "| Asset | ${{ env.ASSET }} |",
+            "| Dry run | ${{ inputs.dry_run == true }} |"
+          )
+          $lines -join "`n" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
