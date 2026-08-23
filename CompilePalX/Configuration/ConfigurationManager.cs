@@ -550,9 +550,21 @@ namespace CompilePalX
 
         public static void SaveSettings(Settings settings)
         {
+            // Compared before Settings is replaced. The error catalogue only has to be re-fetched when
+            // the source it comes from actually changed - and forcing it otherwise was expensive in a
+            // way that was easy to miss: SaveSettings also runs on window close, to persist the map list
+            // height and the last preset, so every shutdown spent one request against a source that
+            // rate limits to about five of them. After a handful of launches the fetch only ever
+            // returned 403 and error descriptions stopped resolving.
+            bool sourceChanged = !string.Equals(Settings?.ErrorSourceURL, settings.ErrorSourceURL,
+                StringComparison.Ordinal);
+
             WriteFileAtomic(SettingsFile, JsonConvert.SerializeObject(settings, Formatting.Indented));
             Settings = settings;
-            ErrorFinder.Init(true);
+
+            if (sourceChanged)
+                ErrorFinder.Init(true);
+
             OnSettingsSaved?.Invoke();
         }
         public static void SaveSettings()
