@@ -1,8 +1,14 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Media;
+using CompilePalX.Theming;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 
 namespace CompilePalX.Compiling
 {
@@ -13,17 +19,50 @@ namespace CompilePalX.Compiling
     {
         private readonly string html;
 
+        private static string stylePath = Path.Combine("./Compiling", "errorpage.css");
+
+        /// <summary>
+        /// Read once and kept. Every error window needs the same stylesheet, and these windows are
+        /// opened and closed one after another as the user works down a compile log.
+        /// </summary>
+        private static string? cachedStyle;
+
+        /// <summary>
+        /// One WebView2 environment for the whole process.
+        ///
+        /// Each window creates its own WebView2 control, and left to itself each control creates its
+        /// own environment over the default user data folder. That folder is single-writer: while a
+        /// previous window's browser process still holds it, creating the next environment fails, so
+        /// opening several error descriptions in quick succession left later windows blank (or in the
+        /// plain-text fallback) until enough of them had finished shutting down. Sharing one
+        /// environment means the folder is opened once and every window attaches to it.
+        /// </summary>
+        private static Task<CoreWebView2Environment>? environment;
+        private static readonly object environmentLock = new();
+
         public ErrorWindow(Error error)
         {
             InitializeComponent();
 
             html = BuildHtml(error);
 
+            // Set before the core is created: afterwards the first paint has already happened, and on a
+            // dark theme that paint is a full-window white flash.
+            ErrorBrowser.DefaultBackgroundColor = ThemeBridge.IsDarkTheme()
+                ? System.Drawing.Color.FromArgb(255, 32, 32, 32)
+                : System.Drawing.Color.White;
+
             Loaded += async (_, _) => await ShowAsync();
+
+            // The browser process outlives the window otherwise, and each one that lingers holds part of
+            // the shared environment open. Closing enough of them without this is what eventually
+            // exhausted the renderer processes.
+            Closed += (_, _) => ErrorBrowser.Dispose();
         }
 
         /// <summary>
-        /// Fills the catalogue's HTML template with the values captured from the log line.
+        /// Fills the catalogue's HTML template with the values captured from the log line, then appends
+        /// the stylesheet.
         /// </summary>
         private static string BuildHtml(Error error)
         {
@@ -47,14 +86,52 @@ namespace CompilePalX.Compiling
                 i++;
             }
 
-            return html;
+            // Appended rather than prepended, and deliberately so. Entries cached in errors.txt were
+            // written with an older template that set its own body font and left the colours to the
+            // renderer; a stylesheet placed after that one wins on document order without having to
+            // out-specify it selector by selector.
+            return html + "\n<style>\n" + Style() + "\n</style>\n";
         }
 
-        private async System.Threading.Tasks.Task ShowAsync()
+        private static string Style()
+        {
+            if (cachedStyle is not null)
+                return cachedStyle;
+
+            try
+            {
+                cachedStyle = File.ReadAllText(stylePath);
+            }
+            catch (Exception e)
+            {
+                // Losing the stylesheet must not cost the description its legibility, which is the whole
+                // reason the file exists. The minimum that keeps the text readable is stated inline.
+                CompilePalLogger.LogLineDebug($"Could not read {stylePath}: {e.Message}");
+                cachedStyle = "html,body{background:#202020;color:#e6e6e6;" +
+                              "font-family:'Segoe UI',sans-serif;padding:16px}a{color:#5cb0ff}";
+            }
+
+            return cachedStyle;
+        }
+
+        private static Task<CoreWebView2Environment> Environment()
+        {
+            lock (environmentLock)
+            {
+                // Cleared on failure so a transient problem - the runtime still installing, a locked
+                // folder - does not permanently pin every later window to the plain-text fallback.
+                if (environment is { IsFaulted: true })
+                    environment = null;
+
+                return environment ??= CoreWebView2Environment.CreateAsync();
+            }
+        }
+
+        private async Task ShowAsync()
         {
             try
             {
-                await ErrorBrowser.EnsureCoreWebView2Async();
+                await ErrorBrowser.EnsureCoreWebView2Async(await Environment());
             }
             catch (Exception e)
             {
@@ -81,6 +158,8 @@ namespace CompilePalX.Compiling
             core.Settings.AreDefaultScriptDialogsEnabled = false;
             core.Settings.IsWebMessageEnabled = false;
 
+            ApplyTheme(core);
+
             core.NewWindowRequested += (_, e) =>
             {
                 e.Handled = true;
@@ -101,13 +180,42 @@ namespace CompilePalX.Compiling
             ErrorBrowser.NavigateToString(html);
         }
 
+        /// <summary>
+        /// Points the renderer's prefers-color-scheme at the app's own theme setting.
+        ///
+        /// Without this the WebView follows Windows, so a user who has picked Light or Dark in settings
+        /// - against the OS - gets a description page in the opposite scheme to the window around it.
+        /// It also pins the auto-dark behaviour: left on Auto the runtime is free to darken a page it
+        /// considers light-only, which it did here without lifting the text colour to match.
+        /// </summary>
+        private static void ApplyTheme(CoreWebView2 core)
+        {
+            try
+            {
+                core.Profile.PreferredColorScheme = ThemeBridge.IsDarkTheme()
+                    ? CoreWebView2PreferredColorScheme.Dark
+                    : CoreWebView2PreferredColorScheme.Light;
+            }
+            catch (Exception e)
+            {
+                // Older runtimes do not expose Profile. The stylesheet still defaults to the light
+                // palette in that case, which is readable either way.
+                CompilePalLogger.LogLineDebug($"Could not set the WebView colour scheme: {e.Message}");
+            }
+        }
+
         private void ShowFallback()
         {
             ErrorBrowser.Visibility = Visibility.Collapsed;
             FallbackScroller.Visibility = Visibility.Visible;
 
-            // Crude, but the template is simple markup and this only has to be readable.
-            FallbackText.Text = Regex.Replace(html, "<[^>]+>", " ")
+            // Crude, but the template is simple markup and this only has to be readable. The stylesheet
+            // appended by BuildHtml is dropped whole - stripping its tags would leave the CSS text
+            // itself sitting at the bottom of the description.
+            var body = Regex.Replace(html, "<style[^>]*>.*?</style>", " ",
+                RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+            FallbackText.Text = Regex.Replace(body, "<[^>]+>", " ")
                 .Replace("&nbsp;", " ")
                 .Replace("&amp;", "&")
                 .Replace("&lt;", "<")

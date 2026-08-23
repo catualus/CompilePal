@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Media;
@@ -72,6 +72,33 @@ namespace CompilePalX.Theming
             ["MahApps.Colors.IdealForeground"] = "TextOnAccentFillColorPrimaryBrush",
             ["MahApps.Colors.Gray10"] = "ControlFillColorDisabledBrush",
         };
+
+        /// <summary>
+        /// Whether the app is currently painting dark.
+        ///
+        /// Resolved from WPF-UI rather than from the setting, because the setting's third option is
+        /// "follow the OS" - which is not an answer any caller that has to pick a colour can use.
+        /// </summary>
+        public static bool IsDarkTheme()
+        {
+            switch (ConfigurationManager.Settings.Theme)
+            {
+                case AppTheme.Light:
+                    return false;
+                case AppTheme.Dark:
+                    return true;
+            }
+
+            try
+            {
+                return ApplicationThemeManager.GetAppTheme() == ApplicationTheme.Dark;
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Failed to read the current theme: {ex.Message}");
+                return false;
+            }
+        }
 
         /// <summary>Applies the theme from settings and refreshes the legacy aliases.</summary>
         public static void Initialize()

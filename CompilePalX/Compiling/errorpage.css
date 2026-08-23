@@ -1,0 +1,161 @@
+/*
+ * Presentation for the error description pages shown in ErrorWindow.
+ *
+ * Kept as a separate stylesheet, injected by ErrorWindow at display time rather than baked into
+ * each entry by errorstyle.html, because entry HTML is *persisted*: errors.txt caches whatever the
+ * remote catalogue returned with the template of the day already applied to it. Styling at build
+ * time meant a cached catalogue kept whatever colours it was fetched with - so changing this file
+ * would have fixed nothing until the cache expired a week later.
+ *
+ * The pages themselves specify no colours at all. Left alone the WebView renders them as Chromium's
+ * default - black on white - and when the surrounding app is dark the runtime's auto-dark pass
+ * darkens the background without reliably lifting the text with it, which is what made the
+ * description unreadable. Both schemes are therefore stated outright below and the WebView is told
+ * which one to use (see ErrorWindow.ApplyTheme), instead of being left to guess.
+ */
+
+:root {
+    color-scheme: light dark;
+
+    --page-bg: #ffffff;
+    --page-fg: #1b1b1b;
+    --muted-fg: #5c5c5c;
+    --rule: #d8d8d8;
+    --box-bg: #f6f6f6;
+    --link: #0a5ccc;
+
+    /* Mirrors CompilePal.Colors.Severity1-5 in CompilePalTheme.xaml. */
+    --sev1: #4a63b8;
+    --sev2: #9c6700;
+    --sev3: #b4520e;
+    --sev4: #c21f1d;
+    --sev5: #b30f0d;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --page-bg: #202020;
+        --page-fg: #e6e6e6;
+        --muted-fg: #a0a0a0;
+        --rule: #3a3a3a;
+        --box-bg: #272727;
+        --link: #5cb0ff;
+
+        --sev1: #7392f0;
+        --sev2: #efa718;
+        --sev3: #ea761d;
+        --sev4: #f4605e;
+        --sev5: #ff5a58;
+    }
+}
+
+html,
+body {
+    background: var(--page-bg);
+    color: var(--page-fg);
+}
+
+body {
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 0;
+    padding: 18px 22px 28px;
+    /* The catalogue's descriptions include compiler output and file paths with no spaces in them,
+       which otherwise force a horizontal scrollbar across the whole page. */
+    overflow-wrap: anywhere;
+}
+
+/* Inherit rather than restate, so anything the catalogue wraps its text in still gets the theme
+   foreground instead of falling back to the renderer's black. */
+p,
+div,
+span,
+li,
+td,
+th,
+strong,
+em,
+b,
+i {
+    color: inherit;
+}
+
+h4 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+}
+
+h5 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted-fg);
+    margin: 18px 0 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--rule);
+}
+
+strong {
+    font-weight: 600;
+}
+
+a,
+a:visited {
+    color: var(--link);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+code,
+pre {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    background: var(--box-bg);
+    border-radius: 4px;
+}
+
+code {
+    padding: 1px 4px;
+}
+
+pre {
+    padding: 10px 12px;
+    overflow-x: auto;
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* The catalogue tags each entry with its severity but ships no stylesheet for those classes, so
+   until now the severity sentence read as ordinary body text. */
+.e_type {
+    display: inline-block;
+    margin-top: 4px;
+    font-weight: 600;
+}
+
+.e_lvl1 { color: var(--sev1); }
+.e_lvl2 { color: var(--sev2); }
+.e_lvl3 { color: var(--sev3); }
+.e_lvl4 { color: var(--sev4); }
+.e_lvl5 { color: var(--sev5); }
+
+.error_box {
+    margin: 0;
+}
+
+/* Attribution line appended by errorstyle.html. */
+.cp-footer {
+    margin-top: 22px;
+    padding-top: 10px;
+    border-top: 1px solid var(--rule);
+    font-size: 11px;
+    color: var(--muted-fg);
+}

@@ -1,29 +1,18 @@
+<!--
+    Wrapper applied to each catalogue entry as it is parsed. %content% is the entry's body HTML.
+
+    Deliberately carries no styling of its own. The result of this substitution is what gets written
+    into errors.txt, so anything set here is frozen into the cache for as long as it lives; the
+    colours and typography come from errorpage.css instead, which ErrorWindow injects when the page
+    is shown. See the comment at the top of that file.
+-->
 <head>
-    <style type="text/css">
-        @font-face {
-            font-family: 'Segoe UI';
-            src: local('Segoe UI'), local('Segoe UI'), url('Segoe UI.ttf');
-        }
-
-        body {
-            font-family: "Segoe UI";
-        }
-
-        strong {
-            font-weight: 600;
-        }
-        h5 {
-            font-weight: 600;
-        }
-        h4 {
-            font-weight: 600;
-        }
-    </style>
+    <meta charset="utf-8" />
 </head>
 
 <body>
 
     %content%
 
-    All content copyright Interlopers.net 2004 - 2015
+    <div class="cp-footer">All content copyright Interlopers.net 2004 - 2015</div>
 </body>
