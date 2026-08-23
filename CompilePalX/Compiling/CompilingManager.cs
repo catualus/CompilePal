@@ -247,7 +247,10 @@ namespace CompilePalX
             
         private static void CompilePalLogger_OnErrorFound(Error e)
         {
-            currentCompileProcess.CompileErrors.Add(e);
+            // Null before the first step of a run starts, and between runs. Errors can be logged there -
+            // a failure building the compile context, or the summary that postCompile prints - and this
+            // used to throw a NullReferenceException out of a logging call.
+            currentCompileProcess?.CompileErrors.Add(e);
 
             if (e.Severity == 5 && IsCompiling)
             {
@@ -310,6 +313,16 @@ namespace CompilePalX
             compileTimeStopwatch.Start();
 
             OnClear();
+
+            // After OnClear, which empties the output document, and before the compile thread can write
+            // a single line. The logger holds the tail of the previous run in process-wide buffers -
+            // clearing the document alone left those in place, so the new output opened with whatever
+            // the last compile was midway through printing when it ended. See ResetOutputState.
+            CompilePalLogger.ResetOutputState();
+
+            // Stale between runs otherwise: it still names the last step of the previous compile, and
+            // an error recognised before the first step of this one starts would be filed against it.
+            currentCompileProcess = null;
 
             cts = new CancellationTokenSource();
             compileTask = Task.Run(() => CompileThreaded(cts.Token));

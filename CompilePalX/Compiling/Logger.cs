@@ -146,6 +146,32 @@ namespace CompilePalX.Compiling
 
         private static StringBuilder lineBuffer = new ();
         private static List<Run> tempText = [];
+
+        /// <summary>
+        /// Drops everything left over from the previous compile. Called as a run starts, once the
+        /// output document has been cleared.
+        ///
+        /// All three of these are process-wide and none of them used to be reset, which is what put
+        /// the tail of the last compile at the top of the next one's output. A compile tool's stdout
+        /// arrives in fixed-size chunks, so <see cref="LogProgressive"/> almost always ends a run
+        /// holding a partial line in <see cref="lineBuffer"/> - and cancelling makes that certain,
+        /// because the reader returns the moment the token trips, mid-line by definition. The next
+        /// compile's first chunk was then appended to that remnant and the whole thing emitted as one
+        /// line: the previous run's trailing text, leading the new run's first.
+        ///
+        /// <see cref="tempText"/> is the same problem one step further on - it holds Run objects that
+        /// belong to a FlowDocument that has since been cleared, and the first backtrack of the new
+        /// compile would blank those instead of anything on screen. <see cref="errorsFound"/> is the
+        /// per-error occurrence count behind the 128-hyperlink cap; carried across runs, a long
+        /// compile could exhaust the cap for an error that the *new* run had barely reported.
+        /// </summary>
+        public static void ResetOutputState()
+        {
+            lineBuffer.Clear();
+            tempText.Clear();
+            errorsFound.Clear();
+        }
+
         public static void LogProgressive(string s)
         {
             lineBuffer.Append(s);

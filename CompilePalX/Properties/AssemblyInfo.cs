@@ -7,6 +7,12 @@ using System.Windows;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
+// Stated here rather than as the <InternalsVisibleTo> item in the .csproj, which the project also
+// carries. That item only takes effect through the SDK's generated assembly info, and this project
+// sets GenerateAssemblyInfo=False - so it silently did nothing, and every internal type stayed out
+// of reach of the tests.
+[assembly: InternalsVisibleTo("CompilePalX.Tests")]
+
 [assembly: AssemblyTitle("CompilePalX")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
