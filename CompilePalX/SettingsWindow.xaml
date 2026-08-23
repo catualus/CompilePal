@@ -1,4 +1,4 @@
-<ui:FluentWindow x:Class="CompilePalX.SettingsWindow"
+﻿<ui:FluentWindow x:Class="CompilePalX.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -177,6 +177,35 @@
                         <StackPanel>
                             <TextBlock Style="{StaticResource SettingTitle}" Text="Cache duration"/>
                             <TextBlock Style="{StaticResource SettingHint}" Text="Days to keep downloaded error information before fetching it again."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <TextBlock Style="{StaticResource SectionHeading}" Text="PRIVACY"/>
+
+                <!-- Opt-in, and presented as one. Upstream reported usage from every install with no
+                     setting anywhere to refuse; a fork handing out builds cannot carry that forward. -->
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <ui:ToggleSwitch DockPanel.Dock="Right" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         IsChecked="{Binding Path=AnalyticsEnabled, Mode=TwoWay}"
+                                         AutomationProperties.Name="Send anonymous usage statistics"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Send anonymous usage statistics"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Off by default. When on, Compile Pal reports which of its features are used - launches, compiles, preset changes and how often compiles hit errors - under a random ID that is not derived from your machine. No map names, file paths or compile output are ever sent, and nothing is sent at all unless a destination is configured below."/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Style="{StaticResource SettingRow}">
+                    <DockPanel>
+                        <TextBox DockPanel.Dock="Right" MinWidth="260" VerticalAlignment="Center" Name="AnalyticsHost"
+                                 Text="{Binding Path=AnalyticsHost, Mode=TwoWay}"
+                                 IsEnabled="{Binding Path=AnalyticsEnabled}"
+                                 AutomationProperties.Name="Usage statistics endpoint"/>
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource SettingTitle}" Text="Statistics endpoint"/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Where usage statistics are sent. Leave blank to send nowhere. Any Segment-compatible collector works, including one you host yourself."/>
                         </StackPanel>
                     </DockPanel>
                 </Border>
