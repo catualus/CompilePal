@@ -86,8 +86,34 @@ namespace CompilePalX.Compilers
             { 
                 ReadOutput(cancellationToken);
 
-                if (Metadata.CheckExitCode && Process.ExitCode != 0)
-                    CompilePalLogger.LogCompileError($"{Name} exited with code: {Process.ExitCode} (0x{Process.ExitCode.ToString("X")})\n", new Error($"{Name} exited with code: {Process.ExitCode} (0x{Process.ExitCode.ToString("X")})", ErrorSeverity.Warning));
+                /*
+                 * A compile tool that fails calls Error() in cmdlib, which prints the reason and exits
+                 * non-zero. The message it prints is whatever the failure happened to be - there are
+                 * several hundred across vbsp, vvis and vrad, and the error catalogue recognises only
+                 * the ones somebody has written an entry for.
+                 *
+                 * So the exit code, not the message, is what tells us the step failed. Without this a
+                 * fatal vbsp error printed as ordinary white text and the compile carried on into vvis
+                 * and vrad against a .bsp that had never been written - which then fails in turn with
+                 * something misleading ("couldn't read .prt / the map likely has a leak") and sends you
+                 * hunting a leak that does not exist.
+                 *
+                 * Fatal rather than a warning: these three run in sequence and each needs the previous
+                 * one's output, so once one fails there is nothing useful left to do. Severity 5 is what
+                 * CompilingManager watches for to stop the run.
+                 *
+                 * Not while cancelling. Cancel kills the process, which is a non-zero exit by
+                 * definition, and reporting the user's own cancellation as a compile failure would be
+                 * both wrong and alarming.
+                 */
+                if (Metadata.CheckExitCode && !cancellationToken.IsCancellationRequested && Process.ExitCode != 0)
+                {
+                    string message = $"{Name} failed with exit code {Process.ExitCode} (0x{Process.ExitCode:X}). " +
+                                     "The reason it gives is in its output above.";
+
+                    CompilePalLogger.LogCompileError(message + "\n",
+                        new Error(message, $"{Name} failed", ErrorSeverity.FatalError));
+                }
             }
         }
 

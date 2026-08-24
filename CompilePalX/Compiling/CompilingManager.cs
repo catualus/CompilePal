@@ -391,6 +391,31 @@ namespace CompilePalX
                 Error.GetSeverityBrush(1));
         }
 
+        /// <summary>
+        /// Says once, at the start of a compile, which of the preset's parameters will not be passed on.
+        ///
+        /// Once. This used to be logged from GetParameterString, which is a pure query bound to a UI row
+        /// and called repeatedly by the packer - so a preset carrying one CS:GO-only flag printed the
+        /// same warning several dozen times before the compile started, and again as it finished. The
+        /// message was correct; the placement made the output unreadable and buried the compile's own
+        /// first lines.
+        /// </summary>
+        private static void ReportIncompatibleParameters()
+        {
+            string game = GameConfigurationManager.GameConfiguration?.Name ?? "this game";
+
+            // Snapshot, for the same reason the compile loop does: UpdateOrder clears and refills
+            // CurrentOrder, and several UI actions call it - including just opening the ORDER tab.
+            foreach (var process in OrderManager.CurrentOrder.ToList())
+            foreach (var (name, flag, toolsPlusPlus) in process.IncompatibleParameters())
+                CompilePalLogger.LogLineColor(
+                    $"{process.Name}: skipping '{name}' ({flag}) - " +
+                    (toolsPlusPlus
+                        ? "requires the Hammer++ compile tools."
+                        : $"not supported by {game}."),
+                    Error.GetSeverityBrush(1));
+        }
+
         private static void CompileThreaded(CancellationToken cancellationToken)
         {
             try
@@ -437,6 +462,10 @@ namespace CompilePalX
 
 					//Update the grid so we have the most up to date order
 	                OrderManager.UpdateOrder();
+
+	                // After UpdateOrder, which is what fills CurrentOrder - reporting before it ran
+	                // read whatever the previous compile left behind.
+	                ReportIncompatibleParameters();
 
 	                // Say so rather than reporting a successful zero-second compile, which is what this
 	                // looked like before: no steps enabled is a configuration mistake, not a result.

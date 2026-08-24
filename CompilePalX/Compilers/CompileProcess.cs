@@ -226,6 +226,20 @@ namespace CompilePalX
         #endregion
 
 
+        /// <summary>
+        /// Parameters this preset carries that the configured compiler will not accept, with the
+        /// reason. Empty when everything applies.
+        /// </summary>
+        public IEnumerable<(string Name, string Flag, bool ToolsPlusPlus)> IncompatibleParameters()
+        {
+            if (ConfigurationManager.CurrentPreset is not { } preset || !PresetDictionary.ContainsKey(preset))
+                yield break;
+
+            foreach (var parameter in PresetDictionary[preset])
+                if (!parameter.IsCompatible)
+                    yield return (parameter.Name, parameter.Parameter.Trim(), parameter.RequiresToolsPlusPlus);
+        }
+
         public string GetParameterString()
         {
             string parameters = Metadata.Arguments;
@@ -238,15 +252,14 @@ namespace CompilePalX
                     // handed every one of its arguments to whatever compiler ran next. That is how a
                     // Garry's Mod compile ended up passing -StaticPropLightingFinal and
                     // -StaticPropBounce, both marked CS:GO-only, and having ficool2's VRAD reject them.
+                    //
+                    // Reported by ReportIncompatibleParameters, NOT from here. This method is a pure
+                    // query on a hot path - ArgumentSummary binds it to a row, and BSPPack calls it
+                    // twenty times in a row to test for individual flags - so logging here produced one
+                    // line per WPF binding refresh. A single skipped parameter filled the output with
+                    // dozens of identical warnings before the compile had even started.
                     if (!parameter.IsCompatible)
-                    {
-                        CompilePalLogger.LogLineColor(
-                            $"Skipping '{parameter.Name}' ({parameter.Parameter.Trim()}): not supported by " +
-                            $"{GameConfigurationManager.GameConfiguration?.Name ?? "this game"}" +
-                            (parameter.RequiresToolsPlusPlus ? " with the configured (non-tools++) compiler." : "."),
-                            Error.GetSeverityBrush(1));
                         continue;
-                    }
 
                     parameters += parameter.Parameter;
 

@@ -1,4 +1,4 @@
-{
+﻿{
   "Name": "VRAD",
   "Path": "$vrad$",
   "Order": 3.0,
@@ -8,6 +8,6 @@
   "Warning": "",
   "PresetDefault": false,
   "BasisString": " -game $game$ $vmfFile$",
-  "CheckExitCode": false,
+  "CheckExitCode": true,
   "WorkingDirectory": "$binFolder$"
 }

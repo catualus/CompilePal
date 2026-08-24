@@ -218,16 +218,14 @@ namespace CompilePalX
                     // on the response headers - which is what this did - never found it, so a source
                     // serving JSON was parsed as the line-based text format and produced nothing.
                     var contentType = httpResult.Content.Headers.ContentType?.MediaType;
-                    if (contentType == "application/json")
-                    {
-                        LoadJSONErrorData(result);
-                    }
-                    else
-                    {
-                        LoadTextErrorData(result);
-                    }
+                    var fromSource = contentType == "application/json"
+                        ? LoadJSONErrorData(result)
+                        : LoadTextErrorData(result);
 
-                    await File.WriteAllTextAsync(errorCache, JsonConvert.SerializeObject(errorList, new RegexConverter()));
+                    // What the SOURCE gave us, not errorList - errorList now also holds the supplement,
+                    // and caching that would re-add it from the cache next launch and again from the
+                    // file, growing the catalogue a little every time.
+                    await File.WriteAllTextAsync(errorCache, JsonConvert.SerializeObject(fromSource, new RegexConverter()));
 
                     meta.FetchedUtc = DateTime.UtcNow;
                     meta.LastFailure = null;
@@ -325,14 +323,12 @@ namespace CompilePalX
             }
         }
 
-        static void LoadJSONErrorData(string input)
+        /// <summary>Publishes the fetched entries, and returns them so only they are cached.</summary>
+        static List<Error> LoadJSONErrorData(string input)
         {
             var errors = JsonConvert.DeserializeObject<List<Error>>(input, new RegexConverter()) ?? throw new Exception("Failed to deserialize errors");
-            for (var i = 0; i < errors.Count; i++)
-            {
-                errors[i].ID = i;
-            }
-            errorList = errors;
+            Publish(errors);
+            return errors;
         }
 
         /// <summary>
@@ -380,12 +376,11 @@ namespace CompilePalX
                 CompilePalLogger.LogLineDebug($"Bundled catalogue not found: {bundledErrors}");
             }
 
-            int added = ParseSupplementErrorData(loaded);
-
+            // Publish appends the supplement itself; doing it here as well would load every entry twice.
             Publish(loaded);
 
-            if (upstream + added > 0)
-                CompilePalLogger.LogLineDebug($"Loaded {upstream} upstream + {added} supplementary error definitions");
+            if (errorList.Count > 0)
+                CompilePalLogger.LogLineDebug($"Loaded {upstream} upstream + {errorList.Count - upstream} supplementary error definitions");
         }
 
         static int ParseSupplementErrorData(List<Error> into)
@@ -432,11 +427,13 @@ namespace CompilePalX
             }
         }
 
-        static void LoadTextErrorData(string input)
+        /// <summary>Publishes the fetched entries, and returns them so only they are cached.</summary>
+        static List<Error> LoadTextErrorData(string input)
         {
             var loaded = new List<Error>();
             ParseTextErrorData(input, loaded);
             Publish(loaded);
+            return loaded;
         }
 
         /// <summary>
@@ -446,8 +443,21 @@ namespace CompilePalX
         /// <see cref="Error.GetHashCode"/> are defined purely on ID - two entries sharing one are the
         /// same error as far as the log's occurrence counting is concerned.
         /// </summary>
-        static void Publish(List<Error> loaded)
+        static void Publish(List<Error> primary)
         {
+            /*
+             * The supplement is appended HERE rather than by whichever loader ran, because it used to
+             * be appended only by LoadOfflineErrorData. Anyone whose fetch from the remote catalogue
+             * succeeded - or who simply had a usable cache - therefore ran with none of it, and the
+             * supplementary definitions exist precisely because the upstream catalogue has not been
+             * updated in years. The feature worked only for the users whose network had failed.
+             *
+             * After the primary entries, never before: GetError returns the first match, so upstream
+             * keeps precedence wherever both describe the same message.
+             */
+            var loaded = new List<Error>(primary);
+            ParseSupplementErrorData(loaded);
+
             for (int i = 0; i < loaded.Count; i++)
                 loaded[i].ID = i;
 

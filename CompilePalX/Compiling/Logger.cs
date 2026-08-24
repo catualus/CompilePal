@@ -176,7 +176,10 @@ namespace CompilePalX.Compiling
         {
             lineBuffer.Append(s);
 
-            if (!s.Contains("\n"))
+            // Any line ending at all, matching the split below. With only "\n" tested here a
+            // chunk ending in a bare "\r" was treated as still-in-progress text and echoed to the
+            // live run, then split into a finished line a moment later - printing it twice.
+            if (s.IndexOfAny(['\n', '\r']) < 0)
             {
                 Run? log = Log(s);
                 if (log != null)
@@ -184,7 +187,29 @@ namespace CompilePalX.Compiling
             }
 
             // Log has completed at least 1 line, process it further
-            List<string> lines = lineBuffer.ToString().Split("\r\n").ToList();
+            /*
+             * Split on every line ending the compile tools actually emit, not just CRLF.
+             *
+             * This was Split("\r\n") alone. The Source tools are not consistent: vbsp and vrad write
+             * "\r\n" through printf, but messages routed via their Msg()/Warning() paths, and much of
+             * what ficool2's rebuilt tools print, arrive as a bare "\n". Those never terminated a line
+             * here, so the text stayed in lineBuffer and was emitted glued to whatever came next -
+             *
+             *     Building Faces...Water: $LightMapWaterFog doesn't work without $FlowMap
+             *
+             * which is two messages from two subsystems on one line. Not merely ugly: GetError matches
+             * unanchored so the warning was still recognised, but the issues list takes its summary from
+             * the whole line, and so listed it with an unrelated progress message stuck to its front.
+             *
+             * A lone "\r" is a carriage return with no line feed, which the tools use to overwrite a
+             * counter in place. It ends a line for our purposes - the text before it is complete and
+             * will never be appended to - even though a console would redraw over it.
+             */
+            List<string> lines = lineBuffer.ToString()
+                .Replace("\r\n", "\n")
+                .Replace('\r', '\n')
+                .Split('\n')
+                .ToList();
 
             string suffixText = lines.Last();
 

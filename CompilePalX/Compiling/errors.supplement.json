@@ -58,5 +58,41 @@
     "Severity": 5,
     "Title": "Compiler executable not found",
     "Html": "<h4>Compiler executable not found</h4><p><strong>Description:</strong><br />The configured path to vbsp, vvis or vrad does not point at an existing file.</p><p><strong>Solution:</strong><br />Check the Game Configuration screen, and that the game's bin folder actually contains the tools.</p>"
+  },
+  {
+    "Pattern": "Too many brushes in one leaf",
+    "Severity": 5,
+    "Title": "Too many brushes in one leaf",
+    "Html": "<h4>Too many brushes in one leaf</h4><p><strong>Maximum:</strong><br />65536</p><p><strong>Description:</strong><br />vbsp splits the map into leaves, and a single leaf cannot reference more than 65536 brushes. This is <em>not</em> the same as having too many brushes in the map overall - it means too many ended up in one region, which is what happens when a large volume of detail brushwork sits in an area vbsp cannot subdivide further.</p><p>vbsp stops here. No BSP is written, so every later step is working on a file that does not exist or is left over from a previous compile.</p><p><strong>Solution:</strong><br />Find the dense area and reduce it. Turning detail brushwork into models is usually the quickest large win. Brushes tied to entities do not count toward a leaf in the same way, so func_detail on the fiddly geometry - a fence, a pile of crates, trim - helps directly. Check also for a brush that has been accidentally scaled to span the whole map, which puts it in every leaf at once.</p>"
+  },
+  {
+    "Pattern": "LoadPortals.{0,4} couldn't (read|get)",
+    "Severity": 5,
+    "Title": "VVIS could not read the portal file",
+    "Html": "<h4>VVIS could not read the portal file</h4><p><strong>Description:</strong><br />vvis reads a .prt file that vbsp writes. If it is missing, vbsp did not finish - so the real error is further up, in the VBSP step, and this message is only the consequence.</p><p>The message vvis prints next (\"the map likely has a leak, or you forgot to run BSP step\") is a guess, and often the wrong one. Do not go looking for a leak on the strength of it until you have read VBSP's own output.</p><p><strong>Solution:</strong><br />Scroll up to the VBSP step and fix whatever it reported. A leak is only one of the possibilities; running out of a limit, an invalid brush or a missing game configuration all end the same way.</p><p><em>Note:</em> the upstream catalogue has an entry for this, but its pattern cannot match a full Windows path because it excludes the drive colon, so it never fired on a real compile.</p>"
+  },
+  {
+    "Pattern": "The map likely has a leak, or you forgot to run BSP step",
+    "Severity": 4,
+    "Title": "VVIS has no portal data",
+    "Html": "<h4>VVIS has no portal data</h4><p><strong>Description:</strong><br />vvis prints this after failing to read the .prt file. It is a guess at the cause and frequently a misleading one - the usual reason is simply that the VBSP step failed, so no portal file was ever written.</p><p><strong>Solution:</strong><br />Read the VBSP step's output above before believing the word \"leak\". If VBSP reported an error, that is the problem. If VBSP genuinely succeeded and reported a leak, load the pointfile in Hammer and seal it.</p>"
+  },
+  {
+    "Pattern": "Cannot load the static props.{0,4} encountered a stale map version",
+    "Severity": 5,
+    "Title": "BSP is older than the tools expect",
+    "Html": "<h4>BSP is older than the tools expect</h4><p><strong>Description:</strong><br />vrad is reading a BSP written by a different (older) version of vbsp, so the static prop lump is in a layout it does not understand.</p><p>The usual cause is that VBSP did not run in this compile - either it was not enabled, or it failed - so vrad picked up a .bsp left behind by an earlier one.</p><p><strong>Solution:</strong><br />Run the whole compile, VBSP included, with the same set of tools. If you are mixing stock and Hammer++ tools, use one set or the other for the entire compile rather than some of each.</p>"
+  },
+  {
+    "Pattern": "Error. Unable to load (file|model) ",
+    "Severity": 3,
+    "Title": "VRAD could not load a model",
+    "Html": "<h4>VRAD could not load a model</h4><p><strong>Description:</strong><br />vrad needs a model's geometry to light it and to cast its shadows, and could not read the file. The prop is still placed, but it will not shadow correctly and may be lit as though it were not there.</p><p><strong>Solution:</strong><br />Check the model exists in your content folders and that every file it needs is present - a .mdl on its own is not enough, the .vvd and .vtx files must be beside it. A model packed into the BSP of a <em>previous</em> compile is not visible to vrad in this one.</p>"
+  },
+  {
+    "Pattern": "Edge with too many vertices due to t-junctions",
+    "Severity": 5,
+    "Title": "Too many vertices on one edge",
+    "Html": "<h4>Too many vertices on one edge</h4><p><strong>Description:</strong><br />Where brush faces meet unevenly, vbsp inserts extra vertices along the shared edge so the seam does not crack visually. One edge has accumulated more of these than the format allows, and vbsp stops.</p><p>It is caused by many faces meeting along one long edge - typically a large floor or wall brush that a row of smaller brushes butts against at irregular intervals.</p><p><strong>Solution:</strong><br />Split the large brush so the joins line up, or tie the small brushes to func_detail so they no longer split the face they touch.</p>"
   }
 ]
