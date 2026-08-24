@@ -203,19 +203,31 @@ jobs:
       - name: Build
         env:
           TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
+          TELEMETRY_SIGNING_KEY: ${{ secrets.TELEMETRY_SIGNING_KEY }}
+          TELEMETRY_SIGNING_KEY_ID: ${{ vars.TELEMETRY_SIGNING_KEY_ID }}
         shell: pwsh
         run: |
-          $args = @("/p:PublishProfile=Publish$env:CONFIGURATION")
+          $buildArgs = @("/p:PublishProfile=Publish$env:CONFIGURATION")
 
           if ($env:TELEMETRY_ENDPOINT) {
-              # Passed as a separate argument, never interpolated into the command string.
-              $args += "/p:TelemetryEndpoint=$env:TELEMETRY_ENDPOINT"
+              # Passed as separate arguments, never interpolated into the command string.
+              $buildArgs += "/p:TelemetryEndpoint=$env:TELEMETRY_ENDPOINT"
               Write-Host "Telemetry endpoint injected."
           } else {
               Write-Host "No TELEMETRY_ENDPOINT secret set - this build will report nowhere."
           }
 
-          dotnet publish @args
+          # Signing is optional and independent of the endpoint: an unsigned build still
+          # reports, because the service accepts unsigned submissions until told otherwise.
+          if ($env:TELEMETRY_SIGNING_KEY -and $env:TELEMETRY_SIGNING_KEY_ID) {
+              $buildArgs += "/p:TelemetrySigningKey=$env:TELEMETRY_SIGNING_KEY"
+              $buildArgs += "/p:TelemetrySigningKeyId=$env:TELEMETRY_SIGNING_KEY_ID"
+              Write-Host "Release signing key injected as '$env:TELEMETRY_SIGNING_KEY_ID'."
+          } else {
+              Write-Host "No signing key set - submissions from this build will be unsigned."
+          }
+
+          dotnet publish @buildArgs
 
       - name: Package
         shell: pwsh

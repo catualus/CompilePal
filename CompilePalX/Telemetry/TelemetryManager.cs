@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -155,6 +156,44 @@ namespace CompilePalX
         }
 
         /// <summary>
+        /// Signs the submission, when this build was given a key.
+        ///
+        /// v1 = hex HMAC-SHA256(key, "&lt;unix seconds&gt;.&lt;body&gt;"). The timestamp is inside the MAC so
+        /// it cannot be edited to extend a captured request's life, and the service refuses
+        /// anything outside its skew window.
+        ///
+        /// Worth being plain about what this is for. The key ships inside a desktop application
+        /// handed to the public, so it is a published key to anyone who cares to look - this is
+        /// not authentication and does not make a submission trustworthy. It lets the service
+        /// separate our releases from scripted traffic, and lets a leaked release's key be
+        /// dropped server-side without shipping a new client to everyone.
+        /// </summary>
+        private static void Sign(StringContent content, string json)
+        {
+            if (string.IsNullOrEmpty(TelemetryEndpoints.SigningKey)
+                || string.IsNullOrEmpty(TelemetryEndpoints.SigningKeyId))
+                return;
+
+            try
+            {
+                var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(TelemetryEndpoints.SigningKey));
+                var mac = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{timestamp}.{json}"));
+
+                content.Headers.TryAddWithoutValidation("X-CP-Key-Id", TelemetryEndpoints.SigningKeyId);
+                content.Headers.TryAddWithoutValidation("X-CP-Timestamp", timestamp.ToString());
+                content.Headers.TryAddWithoutValidation("X-CP-Signature", "v1=" + Convert.ToHexString(mac).ToLowerInvariant());
+            }
+            catch (Exception e)
+            {
+                // An unsigned submission is still accepted, so failing to sign must not cost the
+                // send. Nothing about the key is logged.
+                CompilePalLogger.LogLineDebug($"Could not sign the telemetry submission: {e.Message}");
+            }
+        }
+
+        /// <summary>
         /// Throws away everything collected so far without sending it.
         ///
         /// Called when the user switches reporting off. Flushing already refuses to send while
@@ -251,8 +290,13 @@ namespace CompilePalX
             try
             {
                 using var cts = new CancellationTokenSource(timeout);
-                using var content = new StringContent(
-                    JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
+                // Serialised once and kept: the signature has to cover the exact bytes sent, so
+                // signing a second serialisation would produce a MAC over different text.
+                var json = JsonConvert.SerializeObject(payload);
+
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                Sign(content, json);
 
                 var response = await http.Value.PostAsync(Endpoint, content, cts.Token);
 
