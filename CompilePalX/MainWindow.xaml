@@ -1001,6 +1001,21 @@
                 <Button Name="SaveLogButton" Width="36" Height="32" Padding="0" MinWidth="0" MinHeight="0" Margin="4,0,0,0" Click="SaveLogButton_OnClick" ToolTip="Save Output To File" AutomationProperties.Name="Save Output To File">
                     <iconPacks:Material Height="15" Kind="ContentSave" />
                 </Button>
+
+                <!--
+                    What to do with the result. Disabled until something has been compiled, and the
+                    launch stays disabled after a failed or cancelled run - loading a map that did
+                    not finish building only wastes a load screen. Enabled state and tooltips are set
+                    in UpdateCompileResultButtons.
+                -->
+                <Button Name="OpenBspFolderButton" Width="36" Height="32" Padding="0" MinWidth="0" MinHeight="0" Margin="10,0,0,0" IsEnabled="False"
+                        Click="OpenBspFolderButton_OnClick" ToolTip="Show the compiled map (compile something first)" AutomationProperties.Name="Show the compiled map in Explorer">
+                    <iconPacks:Material Height="15" Kind="FolderOpen" />
+                </Button>
+                <Button Name="LaunchMapButton" Width="36" Height="32" Padding="0" MinWidth="0" MinHeight="0" Margin="4,0,0,0" IsEnabled="False"
+                        Click="LaunchMapButton_OnClick" ToolTip="Launch the compiled map (compile something first)" AutomationProperties.Name="Launch the compiled map in the game">
+                    <iconPacks:Material Height="15" Kind="Play" />
+                </Button>
             </StackPanel>
 
             <ui:Button Grid.Column="3" Name="CompileStartStopButton" Appearance="Primary" Content="Compile" Margin="10,0,0,0"

@@ -1208,6 +1208,141 @@ namespace CompilePalX
                 PaintProgressSegments(progressSegments.Count);
 
             ProgressManager.SetProgress(1);
+
+            RememberLastCompile(compiled, cancelled);
+
+            // There is already a completion sound, but it is missed with the machine muted and says
+            // nothing once it has finished playing. The taskbar button keeps asking until the window
+            // is looked at, and does nothing at all if it is already the one in front.
+            TaskbarFlash.Request(this);
+        }
+
+        // ------------------------------------------------------------------ after a compile
+
+        /// <summary>
+        /// The map the result buttons act on, and whether that result is worth launching.
+        ///
+        /// Held rather than read from the queue on demand, because the queue is editable the moment
+        /// a compile ends - a button that acts on "whatever is selected now" would open the wrong
+        /// folder for anyone who clicked away first.
+        /// </summary>
+        private Map? lastCompiledMap;
+        private bool lastCompileUsable;
+
+        private void RememberLastCompile(List<Map> compiled, bool cancelled)
+        {
+            // The last one that ran, not the selection. With several maps queued this is the one that
+            // just finished, which is what "open the result" means to somebody watching it end.
+            lastCompiledMap = compiled.LastOrDefault();
+
+            lastCompileUsable = lastCompiledMap is not null && !cancelled && LiveErrorCount == 0;
+
+            UpdateCompileResultButtons();
+        }
+
+        private void UpdateCompileResultButtons()
+        {
+            bool haveMap = lastCompiledMap is not null;
+
+            OpenBspFolderButton.IsEnabled = haveMap;
+            LaunchMapButton.IsEnabled = haveMap && lastCompileUsable;
+
+            if (!haveMap)
+            {
+                OpenBspFolderButton.ToolTip = "Show the compiled map (compile something first)";
+                LaunchMapButton.ToolTip = "Launch the compiled map (compile something first)";
+                return;
+            }
+
+            string name = lastCompiledMap!.FullMapName;
+
+            OpenBspFolderButton.ToolTip = $"Show {name}.bsp in Explorer";
+            LaunchMapButton.ToolTip = lastCompileUsable
+                ? $"Launch {name} in {GameConfigurationManager.GameConfiguration?.Name ?? "the game"}"
+                : "The last compile failed or was cancelled, so there is nothing worth launching";
+        }
+
+        private void OpenBspFolderButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (lastCompiledMap is not { } map)
+                return;
+
+            // Which of the two possible locations is the real one is CompiledMapLocator's problem;
+            // see there for why the maps folder copy is not simply preferred whenever it exists.
+            string? bsp = CompiledMapLocator.ResolveBsp(
+                map.File, map.IsBSP, GameConfigurationManager.GameConfiguration?.MapFolder);
+
+            if (bsp is null)
+            {
+                CompilePalLogger.LogLineColor(
+                    "Could not find the compiled map. It may not have got as far as writing one.",
+                    Error.GetSeverityBrush(3));
+                return;
+            }
+
+            // Selects the file inside its folder, and falls back to the folder alone if it has since
+            // been moved. Shared with the queue's own context menu.
+            RevealInExplorer(bsp);
+        }
+
+        private void LaunchMapButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (lastCompiledMap is not { } map)
+                return;
+
+            if (GameConfigurationManager.GameConfiguration is not { } configuration)
+                return;
+
+            try
+            {
+                string exe = GameExeResolver.Resolve(configuration.GameEXE);
+
+                if (!File.Exists(exe))
+                {
+                    CompilePalLogger.LogCompileError(
+                        $"Cannot launch the game: {exe} does not exist.\n",
+                        new Error($"Game executable not found: {exe}", "Game failed to launch", ErrorSeverity.Error));
+                    return;
+                }
+
+                /*
+                 * Deliberately not GameLauncher.Launch.
+                 *
+                 * That exists so the nav and cubemap steps can wait on the game Steam re-spawns, and
+                 * it blocks for up to twenty seconds working out which process that is. Called from
+                 * a click handler it would block the UI thread and freeze the window.
+                 *
+                 * Nothing here needs the handle - the map is launched and forgotten - so a plain
+                 * start is both correct and instant. The Steam warning is still worth borrowing,
+                 * because a cold Steam is the usual reason a launch appears to do nothing.
+                 */
+                GameLauncher.WarnIfSteamNotRunning();
+
+                var startInfo = new ProcessStartInfo(exe)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = false,
+                };
+
+                startInfo.ArgumentList.Add("-game");
+                startInfo.ArgumentList.Add(configuration.GameFolder);
+                startInfo.ArgumentList.Add("+map");
+
+                // FullMapName, not MapName. MapName strips version suffixes (_rc2, _final), which is
+                // right for packing lookups and wrong here: the BSP on disk keeps the suffix, so the
+                // stripped name would ask the game to load a map that does not exist.
+                startInfo.ArgumentList.Add(map.FullMapName);
+
+                Process.Start(startInfo);
+
+                CompilePalLogger.LogLine($"Launching {map.FullMapName} in {configuration.Name}.");
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogCompileError(
+                    $"Could not launch the game: {ex.Message}\n",
+                    new Error($"Game failed to launch: {ex.Message}", "Game failed to launch", ErrorSeverity.Error));
+            }
         }
 
         private void ComparePresetsButton_OnClick(object sender, RoutedEventArgs e)
