@@ -1,0 +1,114 @@
+<Window x:Class="CompilePalX.Crash.CrashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Compile Pal has stopped"
+        Height="520" Width="680"
+        MinHeight="380" MinWidth="520"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
+        ResizeMode="CanResize"
+        Background="#1C1F25"
+        Foreground="#E8EAEE"
+        FontFamily="Segoe UI"
+        FontSize="13">
+
+    <!--
+        Deliberately plain WPF, with every colour written out.
+
+        This window has to render when the application is broken, and the most likely thing to be
+        broken at startup is the part that loads settings, themes and resources - which is exactly
+        what a DynamicResource lookup or a WPF-UI control would depend on. A crash dialog that
+        needs the theming system to work is a crash dialog that disappears whenever theming is the
+        problem.
+    -->
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Compile Pal has stopped"
+                   FontSize="20"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,6" />
+
+        <TextBlock Grid.Row="1"
+                   x:Name="Summary"
+                   TextWrapping="Wrap"
+                   Foreground="#A2A9B6"
+                   Margin="0,0,0,14" />
+
+        <Border Grid.Row="2"
+                BorderBrush="#2B303A"
+                BorderThickness="1"
+                CornerRadius="4"
+                Background="#14161A">
+            <TextBox x:Name="ReportText"
+                     IsReadOnly="True"
+                     IsReadOnlyCaretVisible="True"
+                     AcceptsReturn="True"
+                     TextWrapping="NoWrap"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     Background="Transparent"
+                     Foreground="#C9CFDA"
+                     BorderThickness="0"
+                     FontFamily="Consolas, Courier New"
+                     FontSize="12"
+                     Padding="8" />
+        </Border>
+
+        <TextBlock Grid.Row="3"
+                   x:Name="PrivacyNote"
+                   TextWrapping="Wrap"
+                   Foreground="#868D9B"
+                   FontSize="12"
+                   Margin="0,10,0,0" />
+
+        <Grid Grid.Row="4" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0"
+                    x:Name="CopyButton"
+                    Content="Copy"
+                    Padding="14,7"
+                    Margin="0,0,8,0"
+                    Click="OnCopy" />
+
+            <Button Grid.Column="1"
+                    x:Name="OpenLogButton"
+                    Content="Open log folder"
+                    Padding="14,7"
+                    Click="OnOpenLogFolder" />
+
+            <Button Grid.Column="3"
+                    x:Name="DontSendButton"
+                    Content="Don't send"
+                    Padding="14,7"
+                    Margin="0,0,8,0"
+                    IsCancel="True"
+                    Click="OnDontSend" />
+
+            <Button Grid.Column="4"
+                    x:Name="SendButton"
+                    Content="Send report"
+                    Padding="18,7"
+                    IsDefault="True"
+                    Background="#3B6EA5"
+                    Foreground="White"
+                    BorderBrush="#3B6EA5"
+                    Click="OnSend" />
+        </Grid>
+    </Grid>
+</Window>

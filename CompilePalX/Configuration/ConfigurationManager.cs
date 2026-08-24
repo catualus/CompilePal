@@ -282,18 +282,54 @@ namespace CompilePalX
         #endregion
 
 
+        /// <summary>
+        /// Constructs one built-in compile step, reporting rather than throwing if it cannot.
+        ///
+        /// The name is passed separately because it is needed for the message when the constructor
+        /// is the thing that failed and there is no object to ask.
+        /// </summary>
+        private static void AddBuiltIn(string name, Func<CompileProcess> create)
+        {
+            try
+            {
+                CompileProcesses.Add(create());
+            }
+            catch (Exception e)
+            {
+                CompilePalLogger.LogLineColor(
+                    $"Could not load the {name} step: {e.Message}", Error.GetSeverityBrush(3));
+                CompilePalLogger.LogLineDebug(e.ToString());
+            }
+        }
+
         public static void AssembleParameters()
         {
             CompileProcesses.Clear();
 
-            CompileProcesses.Add(new BSPPack());
-            CompileProcesses.Add(new VmfFixProcess());
-            CompileProcesses.Add(new CubemapProcess());
-            CompileProcesses.Add(new NavProcess());
-            CompileProcesses.Add(new EntityLumpProcess());
-            CompileProcesses.Add(new ShutdownProcess());
-            CompileProcesses.Add(new UtilityProcess());
-			CompileProcesses.Add(new CustomProcess());
+            /*
+             * The built-in steps, each one allowed to fail on its own.
+             *
+             * These construct by reading their own metadata and parameter files from disk, exactly
+             * as the discovered ones below do - and those have been wrapped in a try/catch since
+             * forever, so an unreadable VRAD folder logs "Failed to load Compile Process" and the
+             * application starts without it.
+             *
+             * These were not wrapped, so the same unreadable file threw out of AssembleParameters,
+             * out of the MainWindow constructor, and killed the application on startup. That is
+             * what 1.0.1 did when Windows denied a read on CUBEMAPS/parameters.json: one file the
+             * application does not need in order to run took the whole thing down.
+             *
+             * A missing step is a degraded application. A step that cannot load is not a reason to
+             * have no application at all.
+             */
+            AddBuiltIn("PACK", () => new BSPPack());
+            AddBuiltIn("VMFFIX", () => new VmfFixProcess());
+            AddBuiltIn("CUBEMAPS", () => new CubemapProcess());
+            AddBuiltIn("NAV", () => new NavProcess());
+            AddBuiltIn("ENTLUMP", () => new EntityLumpProcess());
+            AddBuiltIn("SHUTDOWN", () => new ShutdownProcess());
+            AddBuiltIn("UTILITY", () => new UtilityProcess());
+            AddBuiltIn("CUSTOM", () => new CustomProcess());
 
             //collect new metadatas
             var metadatas = Directory.GetDirectories(ParametersFolder).Concat(Directory.GetDirectories(PluginFolder)).ToArray();

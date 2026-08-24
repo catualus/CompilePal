@@ -106,6 +106,17 @@ namespace CompilePalX
         private static readonly string Endpoint = TelemetryEndpoints.Default;
 
         /// <summary>
+        /// The crash route, derived from the events route rather than injected separately.
+        ///
+        /// One value is compiled in, so there is one thing to configure and no way for a build to
+        /// end up able to report usage but not crashes, or the reverse.
+        /// </summary>
+        private static readonly string CrashEndpoint =
+            Endpoint.EndsWith("/events", StringComparison.OrdinalIgnoreCase)
+                ? Endpoint[..^"/events".Length] + "/crash"
+                : Endpoint;
+
+        /// <summary>
         /// Whether this build has anywhere to report to at all.
         ///
         /// Empty in any build that did not have the endpoint AND a signing key injected - a local
@@ -335,6 +346,63 @@ namespace CompilePalX
         /// the shutdown path: a slow or unreachable endpoint must delay closing the app by a
         /// visible moment at most, and dropping the submission is always preferable to hanging.
         /// </summary>
+        /// <summary>
+        /// Sends one crash report, because the user asked for it to be sent.
+        ///
+        /// Deliberately separate from FlushAsync and deliberately NOT gated on the usage reporting
+        /// setting. The two are different questions and both are asked: usage reporting is a
+        /// standing preference about routine counters, while this is a one-off answer to a dialog
+        /// showing the exact text about to leave the machine. Someone who leaves usage reporting
+        /// off has not refused to report a crash they were shown and chose to send, and someone who
+        /// left it on has not agreed in advance to send a stack trace.
+        ///
+        /// It still requires a configured build. A fork with no endpoint sends nothing, and the
+        /// dialog hides the send button rather than offering one that does nothing.
+        /// </summary>
+        public static async Task SendCrashAsync(CompilePalX.Crash.CrashReport report)
+        {
+            if (!IsConfigured) return;
+
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+                /*
+                 * The version is normalised by the service against a closed set, and the crash
+                 * route derives this release's signing key from it - the same arrangement as the
+                 * usage endpoint, so a release that can report usage can report a crash.
+                 */
+                var payload = new
+                {
+                    app = "compilepal",
+                    version = BuildInfo.Version,
+                    os = report.OsVersion,
+                    runtime = report.Runtime,
+                    fatal = report.Fatal,
+                    kind = report.Kind,
+                    message = report.Message,
+                    stack = report.Stack,
+                };
+
+                var json = JsonConvert.SerializeObject(payload);
+
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                Sign(content, json);
+
+                var response = await http.Value
+                    .PostAsync(CrashEndpoint, content, cts.Token)
+                    .ConfigureAwait(false);
+
+                CompilePalLogger.LogLineDebug($"Crash report: {(int)response.StatusCode}");
+            }
+            catch (Exception e)
+            {
+                // The user asked for this to be sent and it could not be. Worth a line in the debug
+                // log, but not worth a second dialog on top of the crash one.
+                CompilePalLogger.LogLineDebug($"Crash report send failed: {e.Message}");
+            }
+        }
+
         public static async Task FlushAsync(TimeSpan timeout)
         {
             if (!Enabled) return;
