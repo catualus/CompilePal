@@ -2360,6 +2360,9 @@ namespace CompilePalX
             base.OnSourceInitialized(e);
         }
 
+        /// <summary>How long the closing path will wait for the usage report to go out.</summary>
+        private static readonly TimeSpan TelemetryFlushTimeout = TimeSpan.FromSeconds(3);
+
         protected override void OnClosing(CancelEventArgs e)
         {
             // save size of map list box on window closing
@@ -2386,15 +2389,31 @@ namespace CompilePalX
              * carries the same totals as a stream of events without also describing when the user
              * was working. See TelemetryManager.
              *
-             * Waited on, but hard-bounded. This runs on the closing path, so an unreachable
-             * endpoint must cost a visible moment at most - GetAwaiter().GetResult() on a task
-             * that already carries its own timeout, and which swallows every failure internally,
-             * cannot hang the shutdown. Dropping the submission is always preferable to not
-             * closing.
+             * Started on the thread pool, then waited on with a bounded Wait.
+             *
+             * This previously called GetAwaiter().GetResult() directly on the task, on this
+             * thread, which is the UI thread. That deadlocks, and it did: FlushAsync awaits the
+             * POST, and the continuation after that await is posted back to the dispatcher this
+             * line has just blocked. The request goes out, the response arrives, and the
+             * continuation waits for a thread that is waiting for the continuation. The 3 second
+             * timeout inside FlushAsync cannot save it, because cancelling the request only makes
+             * the same continuation runnable on the same blocked thread.
+             *
+             * The observed symptom was an application that hung on close, having successfully sent
+             * the submission first - which is why the endpoint had already logged the request when
+             * the window would not shut.
+             *
+             * Task.Run moves the whole thing to a pool thread with no captured context, so nothing
+             * needs the dispatcher; ConfigureAwait(false) inside FlushAsync makes that true even if
+             * this is ever called back on the UI thread. The Wait then has a ceiling of its own, so
+             * even a flush that ignores its own timeout costs a moment and no more.
+             *
+             * Dropping the submission is always preferable to not closing.
              */
             try
             {
-                TelemetryManager.FlushAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+                Task.Run(() => TelemetryManager.FlushAsync(TelemetryFlushTimeout))
+                    .Wait(TelemetryFlushTimeout + TimeSpan.FromSeconds(1));
             }
             catch (Exception ex)
             {

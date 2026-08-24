@@ -361,7 +361,18 @@ namespace CompilePalX
 
                 Sign(content, json);
 
-                var response = await http.Value.PostAsync(Endpoint, content, cts.Token);
+                /*
+                 * ConfigureAwait(false), because this is called from the window's closing path.
+                 *
+                 * Without it the continuation is posted back to whatever SynchronizationContext
+                 * was current when the await was reached - the WPF dispatcher - and any caller
+                 * that blocks that thread waiting for this task deadlocks. MainWindow no longer
+                 * blocks the UI thread here, but a method whose correctness depends on every
+                 * caller knowing that is a method waiting to be called wrongly.
+                 */
+                var response = await http.Value
+                    .PostAsync(Endpoint, content, cts.Token)
+                    .ConfigureAwait(false);
 
                 CompilePalLogger.LogLineDebug($"Telemetry: {(int)response.StatusCode}");
             }
