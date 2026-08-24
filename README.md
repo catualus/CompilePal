@@ -82,9 +82,19 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
 
 ### Automatic fixes
 
-* **VMFFIX**, an optional compile step that repairs common map problems before compiling: light
-  falloff values the wrong way round, props that need `$staticprop`, and missing material
-  references. Supports a dry run, and backs the map up first.
+* **VMFFIX**, an optional compile step that repairs map problems before compiling, each one a
+  defect with a single correct answer rather than a guess:
+  * light falloff distances entered the wrong way round, which VRAD silently overrides;
+  * prop fade distances the wrong way round, which makes props vanish instead of fading;
+  * `prop_static` entities whose model lacks `$staticprop` — VBSP *deletes* these, so they are
+    converted to `prop_dynamic_override` instead (with a warning if enough are converted to matter
+    for the edict budget);
+  * a `skyname` written as a file path, which compiles a black sky;
+  * brush entities containing no brushes, which stop VBSP outright.
+
+  It can also report VMT faults it deliberately will not edit, since materials are usually shared
+  content. Every fixer can be turned off individually, there is a dry run, and the map is backed up
+  before anything is written.
 
 ### Presets
 
@@ -100,78 +110,47 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
   source's rate limit within a few launches and stop error descriptions loading at all.
 * Asset paths from a map can no longer escape your content folders when packing.
 
-### Privacy and updates
-
-* **Usage reporting is opt-in and off by default.** The original reported from every install with
-  no way to refuse. See [Privacy](#privacy).
-* **The update check points here**, not at the original — so it no longer tells you this build is
-  outdated whenever the original publishes a release.
-
-## What Compile Pal does
-
-* Packing
-* Error checking
-* Not freezing your computer while compiling
-* Cubemaps
-* Manifest generation
-* Nav file generation
-* Plugins and custom compile steps
-* Batch compiling
-
-## Versioning
-
-This is a fork of [ruarai/CompilePal](https://github.com/ruarai/CompilePal), and it numbers itself
-independently, starting at **1.0.0**. Upstream's scheme (`029`, `029.1`) is not continued.
-
-That is deliberate rather than cosmetic. Sharing a number line with upstream would leave "which
-build of Compile Pal 030 are you running?" with no answer. Upstream's scheme also has no minor
-version — the minor slot holds a prerelease counter — and orders prereleases *above* the release
-they precede, so `029.1` outranks `029` and a release-candidate user is never offered the finished
-build.
-
-Releases here follow [Semantic Versioning 2.0.0](https://semver.org): `1.2.0` for a release,
-`1.2.0-rc.1` for a candidate, which correctly sorts below it. Version numbers here therefore say
-nothing about upstream's — a fork at 1.4.0 is not "behind" upstream at 029.
-
-## Privacy
+### Privacy
 
 Compile Pal sends **nothing** unless you turn usage reporting on in Settings. It is off by
-default and there is no first-run prompt that quietly opts you in.
+default, and there is no first-run prompt that quietly opts you in.
 
-If you do turn it on, one summary is sent as the app closes:
+If you do turn it on, one summary goes out as the app closes: how many times you launched it and
+compiled, how many compiles succeeded, failed or were cancelled, how many errors were recognised,
+the app version and Windows build, and which of the supported games you used.
 
-* how many times you launched it, compiled, and how many compiles finished clean, failed or
-  were cancelled
-* how many compile errors were recognised
-* the Compile Pal version and Windows build number
-* which of the games Compile Pal ships a configuration for you used — anything else is
-  reported as `other`, so a renamed configuration never leaves your machine
+It carries **no identifier of any kind** — no account, no machine ID, no fingerprint, nothing that
+distinguishes your install from anyone else's. Map names, file paths, presets and compile output
+are never sent.
 
-There is **no identifier of any kind** in it: no account, no machine ID, no hardware
-fingerprint, nothing that distinguishes your install from anyone else's. Map names, file
-paths, presets and compile output are never sent. Nothing is written to disk waiting to be
-sent, and a failed send is dropped rather than retried.
+**Settings → Privacy → Show what is sent** prints the exact message before it goes anywhere, so
+you can check rather than take our word for it.
 
-**Settings → Privacy → Show what is sent** prints the exact message, generated from the same
-values the send uses, so you can check rather than take our word for it. The totals everyone
-contributes to are public at
-[/api/telemetry/v1/stats](https://telemetry.catualus.dev/api/telemetry/v1/stats).
+<details>
+<summary>Technical detail</summary>
 
-Those public figures are deliberately coarse. Compile Pal has a small user base, and "aggregate"
-stops meaning "anonymous" when a sum describes one person — a daily figure reading *1 install,
-version 029.1, Garry's Mod, 3 compiles* is somebody's working day. So the endpoint reports weeks
-rather than days, withholds any figure describing fewer than 5 installs, publishes nothing at all
-until a window covers 25 install-days, never reports your OS version in any form, and never
-combines those dimensions. Where rows are withheld it says how many, so you can see that
-something was omitted rather than being handed a quietly partial answer.
+Nothing is queued to disk; a failed send is dropped rather than retried. The destination is
+compiled into official builds rather than being a setting, so **a build that is not ours reports
+nowhere at all** — build from source and nothing is sent whatever the toggle says.
 
-The destination is compiled into official builds and is not a setting — a reporting endpoint
-read from a file on your disk would be an obvious thing for malware to repoint. It also means
-**builds that are not ours report nowhere at all**: if you build from source, or run a fork, the
-endpoint is absent and nothing is sent no matter what the toggle says.
+The game name is matched against the list of games Compile Pal ships a configuration for and
+reported as `other` otherwise, so a renamed configuration never leaves your machine.
 
-Upstream Compile Pal reports usage from every install with no way to refuse. This fork does
-not, and none of its data goes to upstream.
+Aggregate totals are public at
+[/api/telemetry/v1/stats](https://telemetry.catualus.dev/api/telemetry/v1/stats), and deliberately
+coarse. "Aggregate" stops meaning "anonymous" when a sum describes one person, so the endpoint
+reports weeks rather than days, withholds any figure covering fewer than 5 installs, publishes
+nothing until a window covers 25 install-days, never reports your OS version, and never combines
+those dimensions. Where rows are withheld it says how many.
+
+Distinct installs are counted without an identifier: the server derives a bucket from the
+connection address under a salt it replaces every midnight and never keeps, so yesterday's counts
+cannot be linked to today's by anyone, including us.
+
+</details>
+
+The original Compile Pal reports usage from every install with no way to refuse. This fork does
+not, and none of its data reaches the original's collectors.
 
 ## Guides
 * [Quick Start](Guides/QuickStart.md)
@@ -221,8 +200,11 @@ theirs to fix.
 - iMilo
 
 
-### Bug Testing
+### Bug testing, original Compile Pal
 - wareya
-- Gangleider 
-- Matt2468rv 
-- Sevin7 
+- Gangleider
+- Matt2468rv
+- Sevin7
+
+These people tested the original Compile Pal, not this fork. Bugs you find here are almost
+certainly ours.
