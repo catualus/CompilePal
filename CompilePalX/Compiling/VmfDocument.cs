@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -19,6 +19,7 @@ namespace CompilePalX.Compiling
     {
         private readonly List<string> lines;
         private readonly string newline;
+        private readonly HashSet<int> removedLines = [];
 
         public IReadOnlyList<VmfEntity> Entities { get; }
 
@@ -66,6 +67,8 @@ namespace CompilePalX.Compiling
                     continue;
 
                 var keys = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                var children = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string lastToken = "";
                 int depth = 1;
                 int j = open + 1;
 
@@ -73,14 +76,26 @@ namespace CompilePalX.Compiling
                 {
                     string t = lines[j].Trim();
 
-                    if (t == "{") { depth++; continue; }
+                    if (t == "{")
+                    {
+                        depth++;
+                        // A block's name is the bare word on the line before its brace, so a "solid"
+                        // opening here is one of this entity's own child blocks. Recorded because
+                        // "brush entity with no brushes" is visible only as an ABSENCE, and an absence
+                        // cannot be found by looking at the keys that are present.
+                        if (depth == 2 && lastToken.Length > 0)
+                            children.Add(lastToken);
+                        continue;
+                    }
                     if (t == "}") { depth--; continue; }
 
                     if (depth == 1 && TryReadKey(t, out string key))
                         keys[key] = j;   // last wins, matching how the engine reads duplicates
+                    else if (depth == 1 && t.Length > 0 && t[0] != '"')
+                        lastToken = t;
                 }
 
-                entities.Add(new VmfEntity(i, j - 1, keys));
+                entities.Add(new VmfEntity(i, j - 1, keys, children));
                 i = j - 1;
             }
 
@@ -133,7 +148,30 @@ namespace CompilePalX.Compiling
             return true;
         }
 
-        public void Save(string path) => File.WriteAllText(path, string.Join(newline, lines), new UTF8Encoding(false));
+        /// <summary>
+        /// Drops an entity from the file.
+        ///
+        /// Recorded as a set of suppressed line numbers rather than by removing them from the list,
+        /// because every VmfEntity holds absolute line indices into it. Deleting outright would shift
+        /// every entity after this one and silently corrupt the next edit - the second removal in a
+        /// run would cut the wrong lines.
+        /// </summary>
+        public void RemoveEntity(VmfEntity entity)
+        {
+            for (int i = entity.StartLine; i <= entity.EndLine && i < lines.Count; i++)
+                removedLines.Add(i);
+
+            Modified = true;
+        }
+
+        public void Save(string path)
+        {
+            var kept = removedLines.Count == 0
+                ? lines
+                : lines.Where((_, i) => !removedLines.Contains(i)).ToList();
+
+            File.WriteAllText(path, string.Join(newline, kept), new UTF8Encoding(false));
+        }
 
         /// <summary>
         /// All distinct brush face materials in the file.
@@ -173,11 +211,15 @@ namespace CompilePalX.Compiling
         public int EndLine { get; }
         public IReadOnlyDictionary<string, int> Keys { get; }
 
-        public VmfEntity(int startLine, int endLine, Dictionary<string, int> keys)
+        /// <summary>Names of this entity's own child blocks - "solid", "editor", "connections".</summary>
+        public IReadOnlySet<string> Children { get; }
+
+        public VmfEntity(int startLine, int endLine, Dictionary<string, int> keys, HashSet<string> children)
         {
             StartLine = startLine;
             EndLine = endLine;
             Keys = keys;
+            Children = children;
         }
     }
 }

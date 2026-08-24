@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -104,6 +104,149 @@ namespace CompilePalX.Compiling
                 .ToList();
 
             return new VmfFixResult(converted.Values.Sum(), descriptions);
+        }
+
+        /// <summary>
+        /// A prop whose fade distances are the wrong way round.
+        ///
+        /// fademindist is where a prop STARTS to fade and fademaxdist is where it has fully gone, so
+        /// the maximum has to be the larger. Reversed, the engine has the prop vanish the instant it
+        /// is beyond fademindist instead of fading out - so it pops out of existence close to the
+        /// camera, which reads as a missing prop rather than a fade setting.
+        ///
+        /// Both numbers are the mapper's own, transposed, so swapping them restores exactly what was
+        /// intended - the same reasoning as the light falloff fix above.
+        ///
+        /// -1 is left alone. It is the sentinel for "no minimum, use fademaxdist only", not a distance.
+        /// </summary>
+        public static VmfFixResult FixPropFadeDistances(VmfDocument vmf)
+        {
+            var applied = new List<string>();
+
+            foreach (var entity in vmf.Entities)
+            {
+                string? cls = vmf.Classname(entity);
+                if (cls == null || !cls.StartsWith("prop_", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string? minRaw = vmf.GetValue(entity, "fademindist");
+                string? maxRaw = vmf.GetValue(entity, "fademaxdist");
+                if (minRaw == null || maxRaw == null)
+                    continue;
+
+                if (!TryParse(minRaw, out double min) || !TryParse(maxRaw, out double max))
+                    continue;
+
+                if (min <= 0 || max <= 0 || max >= min)
+                    continue;
+
+                vmf.SetValue(entity, "fademindist", maxRaw);
+                vmf.SetValue(entity, "fademaxdist", minRaw);
+
+                string origin = vmf.GetValue(entity, "origin") ?? "?";
+                applied.Add($"{cls} ({origin}): swapped fade distances {minRaw}/{maxRaw} -> {maxRaw}/{minRaw}");
+            }
+
+            return new VmfFixResult(applied.Count, applied);
+        }
+
+        /// <summary>
+        /// A skybox named as a file path instead of a name.
+        ///
+        /// vbsp appends the six side suffixes and the .vmt itself, so worldspawn's skyname has to be
+        /// the bare name - "sky_day01_01". Hammer's texture browser and copying from a file manager
+        /// both produce "materials/skybox/sky_day01_01.vmt", and vbsp then looks for
+        /// "materials/skybox/materials/skybox/sky_day01_01.vmtup.vmt", finds nothing, and the map
+        /// compiles with a black or default sky.
+        ///
+        /// Mechanical: strip the directory and the extension. Nothing is guessed - the name is
+        /// already there, wrapped in text vbsp adds for itself.
+        /// </summary>
+        public static VmfFixResult FixSkyName(VmfDocument vmf)
+        {
+            var applied = new List<string>();
+
+            foreach (var entity in vmf.Entities)
+            {
+                if (!string.Equals(vmf.Classname(entity), "worldspawn", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string? sky = vmf.GetValue(entity, "skyname");
+                if (string.IsNullOrWhiteSpace(sky))
+                    continue;
+
+                string cleaned = sky.Replace('\\', '/').Trim();
+
+                int slash = cleaned.LastIndexOf('/');
+                if (slash >= 0)
+                    cleaned = cleaned[(slash + 1)..];
+
+                if (cleaned.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) ||
+                    cleaned.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase))
+                    cleaned = cleaned[..^4];
+
+                if (cleaned.Length == 0 || cleaned == sky)
+                    continue;
+
+                vmf.SetValue(entity, "skyname", cleaned);
+                applied.Add($"worldspawn: skyname \"{sky}\" -> \"{cleaned}\"");
+            }
+
+            return new VmfFixResult(applied.Count, applied);
+        }
+
+        /// <summary>
+        /// Classnames that are meaningless without brushes. Each is brush-only in the FGD: there is no
+        /// point-entity form, so one with no solid block is not a different usage, it is broken.
+        /// </summary>
+        private static readonly HashSet<string> BrushOnlyClasses = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "func_detail", "func_brush", "func_wall", "func_wall_toggle", "func_illusionary",
+            "func_areaportal", "func_areaportalwindow", "func_occluder", "func_viscluster",
+            "func_ladder", "func_lod", "func_water_analog", "func_conveyor", "func_breakable",
+            "func_door", "func_door_rotating", "func_movelinear", "func_rotating", "func_tracktrain",
+            "func_smokevolume", "func_precipitation", "func_dustcloud", "func_clip_vphysics",
+            "func_buyzone", "func_bomb_target", "func_hostage_rescue", "func_nobuild",
+        };
+
+        /// <summary>
+        /// A brush entity that has no brushes.
+        ///
+        /// vbsp stops on this: "bmodel N has no head node (class 'X', targetname 'Y')" - a fatal error,
+        /// so nothing compiles until it is gone. It happens when the brushes are tied to another entity
+        /// in "ignore groups" mode, or deleted while the entity survives, leaving a keyvalue block with
+        /// no geometry. It is invisible in Hammer's 3D view, which is what makes it hard to find.
+        ///
+        /// Removing it is what fixing it by hand amounts to: the entity has nothing to act on, cannot
+        /// be given geometry automatically, and its continued presence only prevents the map compiling.
+        ///
+        /// Restricted to classnames that are brush-only. A trigger_* or a func_* that also has a point
+        /// form would be a judgement call, and those are left alone.
+        /// </summary>
+        public static VmfFixResult RemoveEmptyBrushEntities(VmfDocument vmf)
+        {
+            var applied = new List<string>();
+
+            foreach (var entity in vmf.Entities)
+            {
+                string? cls = vmf.Classname(entity);
+                if (cls == null || !BrushOnlyClasses.Contains(cls))
+                    continue;
+
+                if (entity.Children.Contains("solid"))
+                    continue;
+
+                // An origin means Hammer is treating it as a point entity, which is a different
+                // problem and not one to solve by deleting the mapper's work.
+                if (vmf.GetValue(entity, "origin") != null)
+                    continue;
+
+                string name = vmf.GetValue(entity, "targetname") ?? "(no name)";
+                vmf.RemoveEntity(entity);
+                applied.Add($"{cls} {name}: removed - brush entity with no brushes (vbsp: \"has no head node\")");
+            }
+
+            return new VmfFixResult(applied.Count, applied);
         }
 
         private static bool TryParse(string s, out double value) =>

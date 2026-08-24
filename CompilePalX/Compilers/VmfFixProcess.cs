@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -31,6 +31,16 @@ namespace CompilePalX.Compilers
         private const string SkipLightsArg = "-nolights";
         private const string SkipStaticPropsArg = "-nostaticprops";
         private const string CheckMaterialsArg = "-materials";
+        private const string SkipFadesArg = "-nofades";
+        private const string SkipSkyNameArg = "-noskyname";
+        private const string SkipEmptyBrushEntitiesArg = "-noemptybrushents";
+
+        /// <summary>
+        /// Converting this many prop_static entities means adding that many edicts, and the engine's
+        /// budget is 8192 for everything in the map. Worth saying out loud rather than reporting a
+        /// large number as a success.
+        /// </summary>
+        private const int EdictWarningThreshold = 200;
 
         public override void Run(CompileContext context, CancellationToken cancellationToken)
         {
@@ -44,6 +54,9 @@ namespace CompilePalX.Compilers
             bool doLights = !args.Contains(SkipLightsArg);
             bool doStaticProps = !args.Contains(SkipStaticPropsArg);
             bool doMaterials = args.Contains(CheckMaterialsArg);
+            bool doFades = !args.Contains(SkipFadesArg);
+            bool doSkyName = !args.Contains(SkipSkyNameArg);
+            bool doEmptyBrushEntities = !args.Contains(SkipEmptyBrushEntitiesArg);
 
             try
             {
@@ -55,6 +68,11 @@ namespace CompilePalX.Compilers
                         new Error($"Could not find map file: {context.MapFile}", ErrorSeverity.Error));
                     return;
                 }
+
+                // Models can be recompiled between map compiles without restarting Compile Pal, and a
+                // cached "not compiled with $staticprop" would then keep converting props the mapper
+                // has since fixed. ClearCache existed for this and was never called.
+                StudioModelInfo.ClearCache();
 
                 var vmf = VmfDocument.Load(context.MapFile);
                 if (cancellationToken.IsCancellationRequested) return;
@@ -74,9 +92,36 @@ namespace CompilePalX.Compilers
                     if (contentDirs.Count == 0)
                         CompilePalLogger.LogLineDebug("No content directories resolved; skipping prop_static checks.");
                     else
-                        fixes += Apply(VmfFixes.FixStaticProps(vmf, contentDirs),
+                    {
+                        var staticProps = VmfFixes.FixStaticProps(vmf, contentDirs);
+                        fixes += Apply(staticProps,
                             n => $"Converted {n} prop_static entities that vbsp would have deleted.");
+
+                        // Each conversion turns a baked, edict-free static prop into a networked entity.
+                        // A few is nothing; a few thousand is a map that will not load, and reporting
+                        // that as a plain success would be actively misleading.
+                        if (staticProps.Count >= EdictWarningThreshold)
+                            CompilePalLogger.LogLineColor(
+                                $"{staticProps.Count} props were converted to prop_dynamic_override. Each one costs an " +
+                                "edict (the engine's limit is 8192 for the whole map) and is lit by the ambient cube " +
+                                "rather than baked lighting. Recompiling those models with $staticprop is the real fix.",
+                                Error.GetSeverityBrush(3));
+                    }
                 }
+
+                if (cancellationToken.IsCancellationRequested) return;
+
+                if (doFades)
+                    fixes += Apply(VmfFixes.FixPropFadeDistances(vmf),
+                        n => $"Fixed {n} prop(s) with reversed fade distances.");
+
+                if (doSkyName)
+                    fixes += Apply(VmfFixes.FixSkyName(vmf),
+                        n => $"Corrected {n} skybox name(s) written as a file path.");
+
+                if (doEmptyBrushEntities)
+                    fixes += Apply(VmfFixes.RemoveEmptyBrushEntities(vmf),
+                        n => $"Removed {n} brush entit(ies) that had no brushes and would have stopped vbsp.");
 
                 if (cancellationToken.IsCancellationRequested) return;
 

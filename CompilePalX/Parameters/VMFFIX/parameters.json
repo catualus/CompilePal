@@ -1,4 +1,4 @@
-[
+﻿[
   {
     "Name": "Dry Run",
     "Parameter": " -dryrun",
@@ -38,5 +38,29 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": "Reads every material used by the map, which adds time on large maps."
+  },
+  {
+    "Name": "Skip Prop Fade Distances",
+    "Parameter": " -nofades",
+    "Description": "Leave props whose fademindist is greater than their fademaxdist alone. Reversed, the engine makes the prop vanish instantly at close range instead of fading out.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  },
+  {
+    "Name": "Skip Sky Name",
+    "Parameter": " -noskyname",
+    "Description": "Leave a skyname written as a file path (materials/skybox/sky_day01_01.vmt) as it is. VBSP expects the bare name and compiles a black sky otherwise.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  },
+  {
+    "Name": "Skip Empty Brush Entities",
+    "Parameter": " -noemptybrushents",
+    "Description": "Leave brush entities that contain no brushes in the map. VBSP stops on these with 'bmodel N has no head node', so the map will not compile until they are removed.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "The map will not compile while one of these is present."
   }
 ]
