@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using CompilePalX.Compiling;
@@ -111,36 +111,9 @@ namespace CompilePalX.Tests
 
         // ------------------------------------------------------------------- skyname
 
-        [Theory]
-        [InlineData("materials/skybox/sky_day01_01.vmt", "sky_day01_01")]
-        [InlineData("materials\\skybox\\sky_day01_01.vmt", "sky_day01_01")]
-        [InlineData("skybox/sky_borealis01.vmt", "sky_borealis01")]
-        [InlineData("sky_day01_01.vtf", "sky_day01_01")]
-        public void ASkyNameWrittenAsAPathIsReducedToItsName(string written, string expected)
-        {
-            var vmf = Load(
-                "entity\r\n{\r\n\t\"id\" \"1\"\r\n\t\"classname\" \"worldspawn\"\r\n" +
-                $"\t\"skyname\" \"{written}\"\r\n}}\r\n");
-
-            Assert.Equal(1, VmfFixes.FixSkyName(vmf).Count);
-            Assert.Equal(expected, vmf.GetValue(vmf.Entities[0], "skyname"));
-        }
-
-        [Fact]
-        public void ASkyNameThatIsAlreadyCorrectIsNotRewritten()
-        {
-            var vmf = Load("""
-                entity
-                {
-                	"id" "1"
-                	"classname" "worldspawn"
-                	"skyname" "sky_day01_01"
-                }
-                """);
-
-            Assert.Equal(0, VmfFixes.FixSkyName(vmf).Count);
-            Assert.False(vmf.Modified);
-        }
+        // skyname now lives in VmfStructuralFixesTests, against a real world block. The fixtures
+        // here wrote worldspawn as an entity, which is not how Hammer stores it - so the tests
+        // passed while the fixer could never fire on an actual map.
 
         // ------------------------------------------------------------------- empty brush entities
 

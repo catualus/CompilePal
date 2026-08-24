@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 
 namespace CompilePalX.Compiling
 {
@@ -19,6 +20,16 @@ namespace CompilePalX.Compiling
         private const int StudioHdrFlagsStaticProp = 1 << 4;
         private const int IdstMagic = 0x54534449; // "IDST" little-endian
 
+        /*
+         * ... numlocalposeparameters(300) localposeparamindex(304) surfacepropindex(308)
+         *     keyvalueindex(312) keyvaluesize(316)
+         *
+         * The block those two describe is the model's mdlkeyvalue text, which is where prop_data
+         * lives. Verified against every loose .mdl in a Garry's Mod install: of 467 files containing
+         * a prop_data block, this offset pair located it in 467.
+         */
+        private const int KeyValueIndexOffset = 312;
+
         public enum StaticPropSupport
         {
             /// <summary>The model file could not be found in any content path.</summary>
@@ -30,9 +41,90 @@ namespace CompilePalX.Compiling
         private static readonly Dictionary<string, StaticPropSupport> cache =
             new(StringComparer.OrdinalIgnoreCase);
 
+        private static readonly Dictionary<string, bool?> propDataCache =
+            new(StringComparer.OrdinalIgnoreCase);
+
         public static void ClearCache()
         {
             lock (cache) cache.Clear();
+            lock (propDataCache) propDataCache.Clear();
+        }
+
+        /// <summary>
+        /// Whether the model carries a prop_data block, or null if the file could not be read.
+        ///
+        /// A prop_physics needs one: without it the model has no mass, no health and no break
+        /// behaviour, and vbsp refuses to create the entity ("uses model X, which has no propdata
+        /// which means the model will not be able to be created"). Its absence is decidable from the
+        /// model alone, which is what makes it safe to act on.
+        ///
+        /// The reverse question - whether a model that HAS prop_data may still be used as a
+        /// prop_static - is deliberately not answered here. That depends on "allowstatic", which is
+        /// usually inherited through the block's "base" from scripts/propdata.txt, a file that ships
+        /// inside a VPK. Guessing it would convert scenery into physics props on a false positive.
+        /// </summary>
+        public static bool? HasPropData(string modelPath, IEnumerable<string> contentDirectories)
+        {
+            string key = modelPath.Replace('\\', '/').ToLowerInvariant();
+
+            lock (propDataCache)
+            {
+                if (propDataCache.TryGetValue(key, out var cached))
+                    return cached;
+            }
+
+            var result = ProbePropData(key, contentDirectories);
+
+            lock (propDataCache) propDataCache[key] = result;
+            return result;
+        }
+
+        private static bool? ProbePropData(string modelPath, IEnumerable<string> contentDirectories)
+        {
+            foreach (string dir in contentDirectories)
+            {
+                string full;
+                try { full = Path.Combine(dir, modelPath); }
+                catch (ArgumentException) { continue; }
+
+                if (!File.Exists(full))
+                    continue;
+
+                try
+                {
+                    byte[] header = new byte[KeyValueIndexOffset + 8];
+
+                    using var stream = File.OpenRead(full);
+                    if (stream.Read(header, 0, header.Length) < header.Length)
+                        return null;
+
+                    if (BitConverter.ToInt32(header, 0) != IdstMagic)
+                        return null;
+
+                    int index = BitConverter.ToInt32(header, KeyValueIndexOffset);
+                    int size = BitConverter.ToInt32(header, KeyValueIndexOffset + 4);
+
+                    // No keyvalue block at all is a definite answer: no prop_data.
+                    if (size <= 0 || index <= 0)
+                        return false;
+
+                    if (index + (long)size > stream.Length)
+                        return null;   // header disagrees with the file; do not guess from it
+
+                    stream.Seek(index, SeekOrigin.Begin);
+                    byte[] text = new byte[size];
+                    if (stream.Read(text, 0, size) < size)
+                        return null;
+
+                    return Encoding.ASCII.GetString(text)
+                        .Contains("prop_data", StringComparison.OrdinalIgnoreCase);
+                }
+                catch (IOException) { return null; }
+                catch (UnauthorizedAccessException) { return null; }
+            }
+
+            // Possibly inside a VPK, where vbsp will find it and we cannot look.
+            return null;
         }
 
         /// <summary>

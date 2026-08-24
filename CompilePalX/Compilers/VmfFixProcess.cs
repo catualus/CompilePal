@@ -34,6 +34,11 @@ namespace CompilePalX.Compilers
         private const string SkipFadesArg = "-nofades";
         private const string SkipSkyNameArg = "-noskyname";
         private const string SkipEmptyBrushEntitiesArg = "-noemptybrushents";
+        private const string SkipDisplacementsArg = "-nodisplacements";
+        private const string SkipAreaportalsArg = "-noareaportals";
+        private const string SkipOverlaysArg = "-nooverlays";
+        private const string SkipPhysicsPropsArg = "-nophysicsprops";
+        private const string SkipReportArg = "-noreport";
 
         /// <summary>
         /// Converting this many prop_static entities means adding that many edicts, and the engine's
@@ -57,6 +62,11 @@ namespace CompilePalX.Compilers
             bool doFades = !args.Contains(SkipFadesArg);
             bool doSkyName = !args.Contains(SkipSkyNameArg);
             bool doEmptyBrushEntities = !args.Contains(SkipEmptyBrushEntitiesArg);
+            bool doDisplacements = !args.Contains(SkipDisplacementsArg);
+            bool doAreaportals = !args.Contains(SkipAreaportalsArg);
+            bool doOverlays = !args.Contains(SkipOverlaysArg);
+            bool doPhysicsProps = !args.Contains(SkipPhysicsPropsArg);
+            bool doReport = !args.Contains(SkipReportArg);
 
             try
             {
@@ -119,6 +129,36 @@ namespace CompilePalX.Compilers
                     fixes += Apply(VmfFixes.FixSkyName(vmf),
                         n => $"Corrected {n} skybox name(s) written as a file path.");
 
+                if (doOverlays)
+                    fixes += Apply(VmfFixes.FixOverlayRenderOrder(vmf),
+                        n => $"Clamped {n} overlay render order(s) into the valid 0-3 range.");
+
+                if (doPhysicsProps)
+                {
+                    if (contentDirs.Count != 0)
+                        fixes += Apply(VmfFixes.FixPhysicsPropsWithoutPropData(vmf, contentDirs),
+                            n => $"Converted {n} prop_physics entities whose models have no propdata.");
+                }
+
+                if (cancellationToken.IsCancellationRequested) return;
+
+                /*
+                 * The structural fixers run before RemoveEmptyBrushEntities, and that order matters:
+                 * moving a displacement out of a func_detail is itself a way of emptying one, and the
+                 * result would be a map that traded a displacement error for a "has no head node".
+                 *
+                 * MoveDisplacementsToWorld removes an entity it empties completely, so the two only
+                 * overlap on entities that were already empty - but the ordering keeps that true if
+                 * either changes later.
+                 */
+                if (doDisplacements)
+                    fixes += Apply(VmfFixes.MoveDisplacementsToWorld(vmf),
+                        n => $"Moved {n} displacement brush(es) out of brush entities and into the world.");
+
+                if (doAreaportals)
+                    fixes += Apply(VmfFixes.SplitMultiBrushAreaportals(vmf),
+                        n => $"Split multi-brush areaportals into {n} additional single-brush areaportal(s).");
+
                 if (doEmptyBrushEntities)
                     fixes += Apply(VmfFixes.RemoveEmptyBrushEntities(vmf),
                         n => $"Removed {n} brush entit(ies) that had no brushes and would have stopped vbsp.");
@@ -127,6 +167,21 @@ namespace CompilePalX.Compilers
 
                 if (doMaterials)
                     MaterialChecks.Report(vmf, contentDirs);
+
+                /*
+                 * Faults that are real, are visible here, and are deliberately NOT repaired - each has
+                 * more than one reasonable answer, so choosing one would be changing the map on a guess.
+                 *
+                 * Reported anyway because this step runs before vbsp: hearing about an origin brush in
+                 * the world now beats hearing about it twenty minutes into a compile that then has to
+                 * be thrown away. They do not count toward the fix total, since nothing was fixed.
+                 */
+                if (doReport)
+                {
+                    var unfixable = VmfFixes.ReportUnfixableFaults(vmf);
+                    foreach (string line in unfixable.Descriptions)
+                        CompilePalLogger.LogLineColor($"  {line}", Error.GetSeverityBrush(3));
+                }
 
                 if (fixes == 0)
                 {

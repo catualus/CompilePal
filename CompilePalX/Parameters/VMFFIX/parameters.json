@@ -62,5 +62,45 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": "The map will not compile while one of these is present."
+  },
+  {
+    "Name": "Skip Displacements On Entities",
+    "Parameter": " -nodisplacements",
+    "Description": "Leave displacements that are tied to a brush entity where they are. VBSP stops on these: displacements are only valid on world brushes.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "The map will not compile while one of these is present."
+  },
+  {
+    "Name": "Skip Areaportal Splitting",
+    "Parameter": " -noareaportals",
+    "Description": "Leave func_areaportal entities that contain more than one brush alone. VBSP stops on these, since an areaportal must be a single brush.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "The map will not compile while one of these is present."
+  },
+  {
+    "Name": "Skip Overlay Render Order",
+    "Parameter": " -nooverlays",
+    "Description": "Leave overlays whose RenderOrder is outside the valid 0-3 range. VBSP stops on these.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  },
+  {
+    "Name": "Skip Physics Props",
+    "Parameter": " -nophysicsprops",
+    "Description": "Leave prop_physics entities alone even when their model has no propdata. VBSP cannot create those props and drops them from the map.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  },
+  {
+    "Name": "Skip Problem Report",
+    "Parameter": " -noreport",
+    "Description": "Do not report map faults that VMFFIX will not repair automatically, such as origin brushes in the world or displacements on non-quad faces. These stop VBSP but have no single correct fix.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
   }
 ]

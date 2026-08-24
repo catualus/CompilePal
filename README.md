@@ -82,19 +82,31 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
 
 ### Automatic fixes
 
-* **VMFFIX**, an optional compile step that repairs map problems before compiling, each one a
-  defect with a single correct answer rather than a guess:
+* **VMFFIX**, an optional compile step that repairs map problems before compiling. Every repair is
+  a defect with a single correct answer — nothing here guesses at what you meant.
+
+  *Stops the compile if left alone:*
+  * displacements tied to a brush entity — moved back into the world, and the entity removed if that
+    leaves it empty;
+  * `func_areaportal` with more than one brush — split into one areaportal per brush;
+  * overlays whose render order is outside the 0–3 the format allows;
+  * brush entities containing no brushes.
+
+  *Silently changes or deletes part of your map if left alone:*
+  * `prop_static` whose model lacks `$staticprop` — VBSP **deletes** these, so they become
+    `prop_dynamic_override` (with a warning if enough are converted to matter for the edict budget);
+  * `prop_physics` whose model has no propdata — VBSP cannot create these at all;
   * light falloff distances entered the wrong way round, which VRAD silently overrides;
   * prop fade distances the wrong way round, which makes props vanish instead of fading;
-  * `prop_static` entities whose model lacks `$staticprop` — VBSP *deletes* these, so they are
-    converted to `prop_dynamic_override` instead (with a warning if enough are converted to matter
-    for the edict budget);
-  * a `skyname` written as a file path, which compiles a black sky;
-  * brush entities containing no brushes, which stop VBSP outright.
+  * a `skyname` written as a file path, which compiles a black sky.
 
-  It can also report VMT faults it deliberately will not edit, since materials are usually shared
-  content. Every fixer can be turned off individually, there is a dry run, and the map is backed up
-  before anything is written.
+  It also **reports** faults it will not touch — origin brushes in the world, displacements on
+  non-quad faces, props with no model set, and VMT problems — because they have more than one
+  reasonable fix, and finding out now beats finding out twenty minutes into a compile.
+
+  Every check can be turned off individually, there is a dry run, and the map is backed up first.
+  The file is edited line by line rather than re-serialised, so a map that needs no changes saves
+  back byte for byte.
 
 ### Presets
 
