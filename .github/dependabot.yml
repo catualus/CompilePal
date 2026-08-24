@@ -1,0 +1,53 @@
+# Dependency updates.
+#
+# This exists because the workflows had drifted three major versions behind on every action they
+# used - checkout was on v4 against a current v7 - and nothing was going to notice. Actions are the
+# more important of the two ecosystems here: a workflow action runs with the workflow's own
+# permissions, and the release one holds contents: write.
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+    groups:
+      # One pull request for the routine bumps rather than five. A major version can change an
+      # action's inputs, so those are left separate and get read properly.
+      actions-minor:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+    labels:
+      - dependencies
+    groups:
+      nuget-minor:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Pinned by the target framework rather than chosen. Bumping these independently of the SDK
+      # produces a pull request that cannot build.
+      - dependency-name: Microsoft.Windows.Compatibility
+        update-types:
+          - version-update:semver-major
