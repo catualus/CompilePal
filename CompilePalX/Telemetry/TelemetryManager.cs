@@ -90,9 +90,22 @@ namespace CompilePalX
             return client;
         });
 
+        /// <summary>
+        /// Where a summary goes. A compile-time constant, and deliberately not a setting.
+        ///
+        /// This used to be user-editable, which was a mistake with a name: an endpoint read from
+        /// settings.json is an exfiltration primitive. Anything able to write that file - malware,
+        /// or a "fixed config" someone shares in a mapping Discord - repoints this client at a host
+        /// of its choosing and turns it into a beacon. And it bought the user nothing: nobody
+        /// running a map compiler wants to operate a telemetry collector.
+        ///
+        /// A fork that wants its own endpoint changes this line and rebuilds, which is the correct
+        /// amount of friction for the decision.
+        /// </summary>
+        private const string Endpoint = "https://telemetry.catualus.dev/api/telemetry/v1/events";
+
         private static bool Enabled =>
             ConfigurationManager.Settings.TelemetryEnabled
-            && !string.IsNullOrWhiteSpace(ConfigurationManager.Settings.TelemetryEndpoint)
             && !System.Diagnostics.Debugger.IsAttached;
 
         private static void Count(string metric, long amount = 1)
@@ -223,25 +236,15 @@ namespace CompilePalX
             if (payload.IsEmpty)
                 return;
 
-            var endpoint = ConfigurationManager.Settings.TelemetryEndpoint!.Trim();
-
-            // Plain HTTP would put the payload, and the fact that this machine runs Compile Pal,
-            // in front of every hop between here and the server. Refused rather than downgraded.
-            if (!endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            {
-                CompilePalLogger.LogLineDebug($"Telemetry endpoint is not https, not sending: {endpoint}");
-                return;
-            }
-
             try
             {
                 using var cts = new CancellationTokenSource(timeout);
                 using var content = new StringContent(
                     JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json");
 
-                var response = await http.Value.PostAsync(endpoint, content, cts.Token);
+                var response = await http.Value.PostAsync(Endpoint, content, cts.Token);
 
-                CompilePalLogger.LogLineDebug($"Telemetry: {(int)response.StatusCode} from {endpoint}");
+                CompilePalLogger.LogLineDebug($"Telemetry: {(int)response.StatusCode}");
             }
             catch (Exception e)
             {

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Net;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -82,15 +83,38 @@ namespace CompilePalX.Compiling
                     continue;
                 }
 
-                html = html.Replace($"[sub:{i}]", group.Value);
+                // Escaped. group.Value is captured out of compile output, which is derived from
+                // whatever map, material and model files were fed to the tools - so it is attacker
+                // controlled by anyone able to hand someone a .vmf. Substituted raw, as it was, this
+                // is markup injection into a page the app then renders.
+                html = html.Replace($"[sub:{i}]", WebUtility.HtmlEncode(group.Value));
                 i++;
             }
 
-            // Appended rather than prepended, and deliberately so. Entries cached in errors.txt were
-            // written with an older template that set its own body font and left the colours to the
-            // renderer; a stylesheet placed after that one wins on document order without having to
-            // out-specify it selector by selector.
-            return html + "\n<style>\n" + Style() + "\n</style>\n";
+            /*
+             * A policy forbidding every subresource, prepended so it is parsed before anything the
+             * entry itself contains.
+             *
+             * Script is already disabled on the WebView, so injected markup cannot execute - but
+             * that was never the whole exposure. NavigateToString gives the document `about:blank`
+             * as its base, which breaks relative URLs and stops nothing absolute: an injected
+             * `<img src="http://...">` would still have been fetched, turning "open an error
+             * description" into a beacon reporting the reader's address to whoever authored the map.
+             *
+             * Escaping the substitutions above closes the injection route. This closes the
+             * capability itself, which also covers a hostile entry that arrived through the
+             * catalogue legitimately. style-src permits the inline block appended below; img-src
+             * data: keeps embedded images working. Nothing else is allowed out.
+             */
+            const string policy =
+                "<meta http-equiv=\"Content-Security-Policy\" " +
+                "content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:\">";
+
+            // The stylesheet is appended rather than prepended, and deliberately so. Entries cached
+            // in errors.txt were written with an older template that set its own body font and left
+            // the colours to the renderer; a stylesheet placed after that one wins on document order
+            // without having to out-specify it selector by selector.
+            return policy + "\n" + html + "\n<style>\n" + Style() + "\n</style>\n";
         }
 
         private static string Style()

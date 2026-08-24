@@ -43,16 +43,6 @@ namespace CompilePalX.Configuration
         /// </summary>
         public bool TelemetryEnabled { get; set; } = false;
 
-        /// <summary>
-        /// Where a session summary is posted. Blank means nowhere, and nothing is sent even
-        /// when <see cref="TelemetryEnabled"/> is on.
-        ///
-        /// Must be https. TelemetryManager refuses a plain-http endpoint rather than
-        /// downgrading to it - the payload and the fact that this machine runs Compile Pal
-        /// would otherwise be visible to every hop along the way.
-        /// </summary>
-        public string TelemetryEndpoint { get; set; } = "https://telemetry.catualus.dev/api/telemetry/v1/events";
-
         public string ErrorSourceURL { get; set; } = "https://www.interlopers.net/includes/errorpage/errorChecker.txt";
         public int ErrorCacheExpirationDays { get; set; } = 7;
         public bool PlaySoundOnCompileCompletion { get; set; } = true;

@@ -23,17 +23,14 @@ namespace CompilePalX.Tests
     public class TelemetryPayloadTests : IDisposable
     {
         private readonly bool originalEnabled;
-        private readonly string originalEndpoint;
 
         public TelemetryPayloadTests()
         {
             originalEnabled = ConfigurationManager.Settings.TelemetryEnabled;
-            originalEndpoint = ConfigurationManager.Settings.TelemetryEndpoint;
 
             // DescribePayload deliberately says nothing while reporting is off, so the tests have
             // to turn it on to see the shape at all.
             ConfigurationManager.Settings.TelemetryEnabled = true;
-            ConfigurationManager.Settings.TelemetryEndpoint = "https://example.invalid/events";
 
             // The counters are process-wide, so without this each test would see whatever the
             // previous one recorded.
@@ -44,7 +41,6 @@ namespace CompilePalX.Tests
         {
             TelemetryManager.Discard();
             ConfigurationManager.Settings.TelemetryEnabled = originalEnabled;
-            ConfigurationManager.Settings.TelemetryEndpoint = originalEndpoint;
         }
 
         private static JObject Payload()
@@ -195,17 +191,18 @@ namespace CompilePalX.Tests
         }
 
         /// <summary>
-        /// A blank endpoint has to be as complete an off switch as the toggle. It is what a build
-        /// with no backend of its own ships with, and what a user clearing the box expects.
+        /// The endpoint must stay a compile-time constant.
+        ///
+        /// It was briefly a user setting, which made settings.json an exfiltration primitive -
+        /// anything that could write the file could repoint this client at a host of its choosing.
+        /// This test fails if the field comes back.
         /// </summary>
         [Fact]
-        public void AnEmptyEndpointDisablesCollectionEntirely()
+        public void TheEndpointIsNotConfigurable()
         {
-            ConfigurationManager.Settings.TelemetryEndpoint = "";
-
-            TelemetryManager.Launch();
-
-            Assert.DoesNotContain("compilepal", TelemetryManager.DescribePayload());
+            Assert.Null(typeof(Settings).GetProperty("TelemetryEndpoint"));
+            Assert.Null(typeof(Settings).GetProperty("AnalyticsHost"));
+            Assert.Null(typeof(Settings).GetProperty("AnalyticsWriteKey"));
         }
     }
 }

@@ -92,7 +92,6 @@ namespace CompilePalX
             // describes the settings as they were when the window opened.
             var pending = (Settings)this.DataContext;
             ConfigurationManager.Settings.TelemetryEnabled = pending.TelemetryEnabled;
-            ConfigurationManager.Settings.TelemetryEndpoint = pending.TelemetryEndpoint;
 
             await Theming.AppDialog.ShowAsync(
                 "What Compile Pal would send",

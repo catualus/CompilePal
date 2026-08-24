@@ -211,19 +211,6 @@
                     </DockPanel>
                 </Border>
 
-                <Border Style="{StaticResource SettingRow}">
-                    <DockPanel>
-                        <TextBox DockPanel.Dock="Right" MinWidth="260" VerticalAlignment="Center" Name="TelemetryEndpoint"
-                                 Text="{Binding Path=TelemetryEndpoint, Mode=TwoWay}"
-                                 IsEnabled="{Binding Path=TelemetryEnabled}"
-                                 AutomationProperties.Name="Usage statistics endpoint"/>
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource SettingTitle}" Text="Endpoint"/>
-                            <TextBlock Style="{StaticResource SettingHint}" Text="Where the summary is posted. Must be https, and clearing it stops anything being sent at all."/>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
-
                 <TextBlock Style="{StaticResource SectionHeading}" Text="NOTIFICATIONS"/>
 
                 <Border Style="{StaticResource SettingRow}">
