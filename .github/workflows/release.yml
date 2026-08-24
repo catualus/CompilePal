@@ -260,7 +260,9 @@ jobs:
               Write-Host "Release key derived for $env:VERSION (generation $env:TELEMETRY_SIGNING_KEY_GENERATION)."
           }
 
-          dotnet publish @buildArgs
+          # The project, not the solution: publishing the solution drags in the test project,
+          # which has no publish profile.
+          dotnet publish CompilePalX/CompilePalX.csproj @buildArgs
 
       - name: Package
         shell: pwsh

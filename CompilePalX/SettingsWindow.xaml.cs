@@ -93,9 +93,18 @@ namespace CompilePalX
             var pending = (Settings)this.DataContext;
             ConfigurationManager.Settings.TelemetryEnabled = pending.TelemetryEnabled;
 
+            // A build without an endpoint compiled in collects and then discards. Saying so is
+            // better than showing a payload it will never send and letting the toggle imply
+            // otherwise - this is what an unofficial build or a local clone will see.
+            var note = TelemetryManager.CanReport
+                ? ""
+                : "This build has no reporting endpoint compiled in, so nothing is sent no " +
+                  "matter what this setting says. Official releases do." + Environment.NewLine +
+                  Environment.NewLine + "It would otherwise send:" + Environment.NewLine + Environment.NewLine;
+
             await Theming.AppDialog.ShowAsync(
                 "What Compile Pal would send",
-                TelemetryManager.DescribePayload(),
+                note + TelemetryManager.DescribePayload(),
                 closeText: "Close");
         }
 

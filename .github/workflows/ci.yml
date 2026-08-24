@@ -63,4 +63,7 @@ jobs:
       # Publishing exercises the single-file/self-contained path that the release build uses, which
       # ordinary `dotnet build` does not. A failure here only ever showed up during a release.
       - name: Verify the release package builds
-        run: dotnet publish /p:PublishProfile=PublishRelease
+        # The project, not the solution. Publishing the solution also tries to publish the
+        # test project, which has no such profile - harmless but it emits NETSDK1198 and does
+        # pointless work.
+        run: dotnet publish CompilePalX/CompilePalX.csproj /p:PublishProfile=PublishRelease

@@ -123,17 +123,33 @@ namespace CompilePalX
             && TelemetryEndpoints.SigningKey.Length > 0
             && TelemetryEndpoints.SigningKeyGeneration.Length > 0;
 
-        private static bool Enabled =>
-            IsConfigured
-            && ConfigurationManager.Settings.TelemetryEnabled
+        /// <summary>
+        /// Whether the user has asked for reporting. Collection depends on this and nothing else.
+        ///
+        /// Deliberately separate from <see cref="IsConfigured"/>, which asks a different question -
+        /// whether this build has anywhere to send. Gating collection on both made the whole
+        /// subsystem inert in a build without an endpoint, which is right for production and wrong
+        /// for everything else: the payload's shape stopped being observable in exactly the
+        /// configuration CI builds, so the tests that pin what leaves the machine only passed
+        /// locally, where Debug injects development values. Tests should not depend on the build
+        /// configuration to see the behaviour they assert.
+        ///
+        /// Counters accumulated by a build that cannot send are held in memory and discarded at
+        /// exit, which costs a few integers and keeps the two questions honest.
+        /// </summary>
+        private static bool CollectionEnabled =>
+            ConfigurationManager.Settings.TelemetryEnabled
             && !System.Diagnostics.Debugger.IsAttached;
+
+        /// <summary>Whether a submission may actually be sent: opted in, and somewhere to send it.</summary>
+        private static bool Enabled => CollectionEnabled && IsConfigured;
 
         private static void Count(string metric, long amount = 1)
         {
-            // Recorded even while disabled costs nothing, and checking here rather than at each
-            // call site keeps the accounting in one place. Nothing leaves without Enabled, which
-            // Flush checks again immediately before sending.
-            if (!Enabled) return;
+            // Checked here rather than at each call site, so the accounting lives in one place.
+            // Nothing leaves on collection alone - FlushAsync checks Enabled, which additionally
+            // requires this build to have somewhere to send.
+            if (!CollectionEnabled) return;
 
             counters.AddOrUpdate(metric, amount, (_, existing) => existing + amount);
         }
@@ -156,7 +172,7 @@ namespace CompilePalX
 
         private static void NoteGame(string? game)
         {
-            if (!Enabled) return;
+            if (!CollectionEnabled) return;
 
             var name = game?.Trim() ?? "";
             games.TryAdd(KnownGames.Contains(name) ? name : "other", 0);
@@ -226,6 +242,16 @@ namespace CompilePalX
         }
 
         /// <summary>
+        /// Whether this build can report at all, for the settings window to say so plainly.
+        ///
+        /// False in anything built without an endpoint and signing key - a local build, a fork, a
+        /// clone of the public repository. Those collect while the user has the setting on and
+        /// then discard it, so telling them the toggle does nothing here is the honest thing to
+        /// show rather than letting the switch imply otherwise.
+        /// </summary>
+        public static bool CanReport => IsConfigured;
+
+        /// <summary>
         /// Throws away everything collected so far without sending it.
         ///
         /// Called when the user switches reporting off. Flushing already refuses to send while
@@ -245,10 +271,15 @@ namespace CompilePalX
         /// The settings window shows this so "we send anonymous usage counts" is something the
         /// user can check rather than take on faith. It is generated from the same state the
         /// send uses, so it cannot drift from the truth the way a hand-written description would.
+        ///
+        /// Reports the payload whenever the user has opted in, whether or not this particular
+        /// build has an endpoint - see <see cref="CanReport"/> for that half, which the settings
+        /// window states separately. Showing the shape either way is the honest answer to "what
+        /// would you send", and it keeps this observable in every build configuration.
         /// </summary>
         public static string DescribePayload()
         {
-            if (!Enabled)
+            if (!CollectionEnabled)
                 return "Nothing is sent while usage reporting is off.";
 
             return JsonConvert.SerializeObject(BuildPayload(), Formatting.Indented);

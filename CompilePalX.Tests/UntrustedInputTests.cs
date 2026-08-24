@@ -164,12 +164,21 @@ namespace CompilePalX.Tests
             Assert.Contains("TelemetryEndpoints.SigningKey.Length > 0", manager);
             Assert.Contains("TelemetryEndpoints.SigningKeyGeneration.Length > 0", manager);
 
-            // Enabled must depend on having a destination, not only on the setting - so
-            // IsConfigured has to be the first term of that expression.
+            // Sending must require a destination, not only the user setting. Asserted as a
+            // property of the expression rather than as word order: an earlier version of this
+            // demanded IsConfigured be the first term, which failed the moment the collection
+            // check was split out into its own name without changing the meaning at all.
             var enabled = Regex.Match(manager, @"bool Enabled\s*=>(.*?);", RegexOptions.Singleline);
 
             Assert.True(enabled.Success, "could not find the Enabled expression");
-            Assert.StartsWith("IsConfigured", enabled.Groups[1].Value.Trim());
+            Assert.Contains("IsConfigured", enabled.Groups[1].Value);
+
+            // And collection must NOT require it, or the payload stops being observable in any
+            // build without an endpoint - which is the configuration CI builds.
+            var collection = Regex.Match(manager, @"bool CollectionEnabled\s*=>(.*?);", RegexOptions.Singleline);
+
+            Assert.True(collection.Success, "could not find the CollectionEnabled expression");
+            Assert.DoesNotContain("IsConfigured", collection.Groups[1].Value);
         }
     }
 }
