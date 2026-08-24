@@ -55,6 +55,16 @@
       DNS and is dropped - which is exactly what TelemetryManager does with any failure.
     -->
     <TelemetryEndpoint Condition="'$(TelemetryEndpoint)' == '' And '$(Configuration)' == 'Debug'">https://telemetry.invalid/api/telemetry/v1/events</TelemetryEndpoint>
+
+    <!--
+      A Debug build needs a signing key as well as an endpoint, because the client now collects
+      nothing without both - the service refuses unsigned submissions, so a build with an endpoint
+      and no key could only ever be given a 401. These values are deliberately not secret: they
+      pair with the unroutable .invalid endpoint above so the real code path runs in development
+      and in the test suite without a secret and without touching production.
+    -->
+    <TelemetrySigningKeyGeneration Condition="'$(TelemetrySigningKeyGeneration)' == '' And '$(Configuration)' == 'Debug'">dev</TelemetrySigningKeyGeneration>
+    <TelemetrySigningKey Condition="'$(TelemetrySigningKey)' == '' And '$(Configuration)' == 'Debug'">development-only-not-a-secret</TelemetrySigningKey>
     <!-- Release builds report nowhere unless the endpoint is injected. A fork or an
          unofficial build therefore sends nothing, whatever the user toggles. -->
     <TelemetryEndpoint Condition="'$(TelemetryEndpoint)' == ''"></TelemetryEndpoint>

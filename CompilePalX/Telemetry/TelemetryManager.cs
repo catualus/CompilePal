@@ -108,13 +108,20 @@ namespace CompilePalX
         /// <summary>
         /// Whether this build has anywhere to report to at all.
         ///
-        /// Empty in any build that did not have the endpoint injected - a local build, a fork, a
-        /// clone of the public repository. Those send nothing regardless of the setting, which is
-        /// the intended behaviour rather than a limitation: a fork should not inherit somewhere to
-        /// send other people's usage data.
+        /// Empty in any build that did not have the endpoint AND a signing key injected - a local
+        /// build, a fork, a clone of the public repository. Those send nothing regardless of the
+        /// setting, which is intended rather than a limitation: a fork should not inherit somewhere
+        /// to send other people's usage data.
+        ///
+        /// Both halves are required because the service refuses unsigned submissions. A build with
+        /// an endpoint but no key could only ever collect a session's counters and then be given a
+        /// 401 for them - so it does not collect at all, which is the honest behaviour and keeps the
+        /// settings toggle from claiming something the build cannot do.
         /// </summary>
         internal static bool IsConfigured =>
-            Endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            Endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            && TelemetryEndpoints.SigningKey.Length > 0
+            && TelemetryEndpoints.SigningKeyGeneration.Length > 0;
 
         private static bool Enabled =>
             IsConfigured
@@ -158,9 +165,10 @@ namespace CompilePalX
         /// <summary>
         /// Signs the submission, when this build was given a key.
         ///
-        /// v1 = hex HMAC-SHA256(releaseKey, "&lt;unix seconds&gt;.&lt;body&gt;"). The timestamp is inside the
-        /// MAC so it cannot be edited to extend a captured request's life, and the service refuses
-        /// anything outside its skew window.
+        /// v1 = hex HMAC-SHA256(releaseKey, "&lt;nonce&gt;.&lt;unix seconds&gt;.&lt;body&gt;"). The timestamp is
+        /// inside the MAC so it cannot be edited to extend a captured request's life, and the
+        /// service refuses anything outside its skew window; the nonce lets it reject a resent
+        /// capture without rejecting a second genuine submission that happens to be identical.
         ///
         /// The key is specific to this release - the workflow derives it from a root secret and the
         /// version - so the service reproduces it from the version inside the signed body. Two
@@ -175,25 +183,44 @@ namespace CompilePalX
         /// </summary>
         private static void Sign(StringContent content, string json)
         {
+            // IsConfigured already guarantees both are present - Flush returns before reaching
+            // here otherwise. Checked again rather than assumed, because an unsigned request is
+            // refused and a silent 401 per session is a hard failure to notice.
             if (string.IsNullOrEmpty(TelemetryEndpoints.SigningKey)
                 || string.IsNullOrEmpty(TelemetryEndpoints.SigningKeyGeneration))
+            {
+                CompilePalLogger.LogLineDebug("Telemetry: no signing key in this build, not sending.");
                 return;
+            }
 
             try
             {
                 var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
+                /*
+                 * A fresh random value per submission, inside the MAC.
+                 *
+                 * Not an identifier: it is generated at send time, never stored, and never reused,
+                 * so it says nothing about this install. It exists so the service can reject a
+                 * captured submission that is resent without also rejecting a second genuine one
+                 * that happens to be byte-identical - two installs on the same Windows build and
+                 * app version, each reporting a single session, produce exactly that.
+                 */
+                var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+
                 using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(TelemetryEndpoints.SigningKey));
-                var mac = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{timestamp}.{json}"));
+                var mac = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{nonce}.{timestamp}.{json}"));
 
                 content.Headers.TryAddWithoutValidation("X-CP-Key-Gen", TelemetryEndpoints.SigningKeyGeneration);
+                content.Headers.TryAddWithoutValidation("X-CP-Nonce", nonce);
                 content.Headers.TryAddWithoutValidation("X-CP-Timestamp", timestamp.ToString());
                 content.Headers.TryAddWithoutValidation("X-CP-Signature", "v1=" + Convert.ToHexString(mac).ToLowerInvariant());
             }
             catch (Exception e)
             {
-                // An unsigned submission is still accepted, so failing to sign must not cost the
-                // send. Nothing about the key is logged.
+                // Nothing about the key is logged. The send goes ahead and will be refused, which
+                // is preferable to silently dropping it: a 401 in the debug log is a signal that
+                // something is wrong with the build, and an omission is not.
                 CompilePalLogger.LogLineDebug($"Could not sign the telemetry submission: {e.Message}");
             }
         }

@@ -157,6 +157,13 @@ namespace CompilePalX.Tests
 
             string manager = File.ReadAllText(Path.Combine(SourceDir(), "Telemetry", "TelemetryManager.cs"));
 
+            // Both an endpoint AND a signing key are required. The service refuses unsigned
+            // submissions, so a build with an endpoint and no key could only ever collect a
+            // session's counters and be handed a 401 for them - once per session, silently, for
+            // the life of the release.
+            Assert.Contains("TelemetryEndpoints.SigningKey.Length > 0", manager);
+            Assert.Contains("TelemetryEndpoints.SigningKeyGeneration.Length > 0", manager);
+
             // Enabled must depend on having a destination, not only on the setting - so
             // IsConfigured has to be the first term of that expression.
             var enabled = Regex.Match(manager, @"bool Enabled\s*=>(.*?);", RegexOptions.Singleline);
