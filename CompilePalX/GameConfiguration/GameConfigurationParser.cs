@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -39,30 +39,35 @@ namespace CompilePalX {
                         CompilePalLogger.LogLineDebug($"Gamedb: {gamedb}");
 
                         // use vbsp as a backup path for finding other compile executables if they are in a non standard location
-                        var vbsp = GetFullPath((hdb["BSP"] ?? hdb["bsp"]).ToString(), binFolder);
-                        var vbspPath = Path.GetDirectoryName(vbsp);
+                        var vbsp = GetFullPath(Required(name => hdb[name], gamedb.Name, "BSP", "bsp"), binFolder);
+                        var vbspPath = Path.GetDirectoryName(vbsp) ?? binFolder;
 
                         var bspzip = FindPath("bspzip.exe", binFolder, vbspPath);
                         var vbspinfo = FindPath("vbspinfo.exe", binFolder, vbspPath);
                         var vpk = FindPath("vpk.exe", binFolder, vbspPath);
 
-                        if (Path.GetDirectoryName(bspzip) != binFolder)
+                        // Only follow the compilers to their real location when we actually found
+                        // bspzip and can name its folder. GetDirectoryName returns null for a bare
+                        // filename, and assigning that to binFolder made every later Path.Combine
+                        // throw ArgumentNullException instead of reporting the missing tool.
+                        if (Path.GetDirectoryName(bspzip) is { Length: > 0 } compilerFolder
+                            && compilerFolder != binFolder)
                         {
-                            CompilePalLogger.LogLineDebug($"Bin folder \"{binFolder}\" differs from compiler location \"{Path.GetDirectoryName(bspzip)}\"");
-                            binFolder = Path.GetDirectoryName(bspzip);
+                            CompilePalLogger.LogLineDebug($"Bin folder \"{binFolder}\" differs from compiler location \"{compilerFolder}\"");
+                            binFolder = compilerFolder;
                         }
 
                         GameConfiguration game = new GameConfiguration
                         {
                             Name = gamedb.Name.Replace("\"", ""),
                             BinFolder = binFolder,
-                            GameFolder = GetFullPath((gamedb["GameDir"] ?? gamedb["gamedir"]).ToString(), binFolder),
-                            GameEXE = GetFullPath((hdb["GameExe"] ?? hdb["gamexe"]).ToString(), binFolder),
-                            SDKMapFolder = GetFullPath((hdb["MapDir"] ?? hdb["mapdir"]).ToString(), binFolder),
+                            GameFolder = GetFullPath(Required(name => gamedb[name], gamedb.Name, "GameDir", "gamedir"), binFolder),
+                            GameEXE = GetFullPath(Required(name => hdb[name], gamedb.Name, "GameExe", "gamexe"), binFolder),
+                            SDKMapFolder = GetFullPath(Required(name => hdb[name], gamedb.Name, "MapDir", "mapdir"), binFolder),
                             VBSP = vbsp,
-                            VVIS = GetFullPath((hdb["Vis"] ?? hdb["vis"]).ToString(), binFolder),
-                            VRAD = GetFullPath((hdb["Light"] ?? hdb["light"]).ToString(), binFolder),
-                            MapFolder = GetFullPath((hdb["BSPDir"] ?? hdb["bspdir"]).ToString(), binFolder),
+                            VVIS = GetFullPath(Required(name => hdb[name], gamedb.Name, "Vis", "vis"), binFolder),
+                            VRAD = GetFullPath(Required(name => hdb[name], gamedb.Name, "Light", "light"), binFolder),
+                            MapFolder = GetFullPath(Required(name => hdb[name], gamedb.Name, "BSPDir", "bspdir"), binFolder),
                             BSPZip = bspzip,
                             VBSPInfo = vbspinfo,
                             VPK = vpk,
@@ -72,7 +77,8 @@ namespace CompilePalX {
                         if (cpdb is not null)
                         {
                             CompilePalLogger.LogLineDebug($"Found CompilePal GameInfo block");
-                            var pluginFolder = cpdb["Plugins"].ToString();
+                            // Optional: a CompilePal block may exist without naming a plugin folder.
+                            var pluginFolder = cpdb["Plugins"]?.ToString();
                             if (!string.IsNullOrEmpty(pluginFolder))
                             {
                                 game.PluginFolder = pluginFolder;
@@ -81,6 +87,14 @@ namespace CompilePalX {
 
                         game.SteamAppID = GetSteamAppID(game);
                         gameInfos.Add(game);
+                    }
+                    catch (InvalidDataException ex)
+                    {
+                        // Raised by Required() and already says which game and which key. A
+                        // gameconfig written for a mod, or hand-edited, routinely omits keys the
+                        // stock one has - so this is a normal thing to hit and deserves a sentence
+                        // rather than a stack trace.
+                        CompilePalLogger.LogLineColor(ex.Message, Error.GetSeverityBrush(3));
                     }
                     catch (Exception ex)
                     {
@@ -92,13 +106,43 @@ namespace CompilePalX {
             return gameInfos;
         }
 
+        /// <summary>
+        /// Reads a key that the configuration must contain, trying each spelling in turn.
+        ///
+        /// These blocks are written by Hammer, by Hammer++, by mod authors and by hand, and the
+        /// casing varies between all of them - hence the alternatives. What they also do is omit
+        /// keys: a gameconfig for a mod frequently has no BSPDir, and a hand-trimmed one can be
+        /// missing almost anything.
+        ///
+        /// The previous form was `(block["Vis"] ?? block["vis"]).ToString()`, which throws a
+        /// NullReferenceException when neither spelling is present. That was caught by the loop's
+        /// handler and logged as a stack trace, so the visible symptom was a game quietly absent
+        /// from the list and a log entry that did not say which key caused it. Naming the game and
+        /// the key turns that into something a user can act on.
+        /// </summary>
+        private static string Required(Func<string, KVValue?> read, string gameName, params string[] names)
+        {
+            foreach (var name in names)
+            {
+                if (read(name) is { } value)
+                    return value.ToString() ?? "";
+            }
+
+            throw new InvalidDataException(
+                $"Game configuration for '{gameName}' is missing '{names[0]}', so it cannot be used. " +
+                "Check the Hammer block in your gameconfig.");
+        }
+
         private static string GetFullPath(string line, string gameInfoDir)
         {
-            if (!line.StartsWith("..") || !line.StartsWith(""))
+            // Only relative paths need resolving. The second half of this condition used to read
+            // `|| !line.StartsWith("")`, which is dead: every string starts with the empty string,
+            // so that operand was always false and contributed nothing. Removed rather than
+            // "fixed", because the behaviour it produced is the behaviour that is wanted.
+            if (!line.StartsWith(".."))
                 return line;
 
-            string fullPath = Path.GetFullPath(Path.Combine(gameInfoDir, line));
-            return fullPath;
+            return Path.GetFullPath(Path.Combine(gameInfoDir, line));
         }
 
         private static int? GetSteamAppID(GameConfiguration config)
