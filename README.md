@@ -1,7 +1,7 @@
 <p align="center">
 	<img
 		alt="Compile Pal"
-		src="http://i.imgur.com/jPEig83.png"
+		src="https://i.imgur.com/jPEig83.png"
 		width="400"
 	/>
 </p>
@@ -45,6 +45,8 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
 * **Every step says what it does** on its own row, instead of requiring you to know already.
 * **Searchable step and preset pickers**, rather than a long unordered list.
 * **The output font is yours to choose** from the monospace families you have installed.
+* **Reopens where you left it** - window size and position are remembered, and ignored if the
+  display they were on is no longer there.
 
 ### Setup
 
@@ -70,6 +72,10 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
 ### After compiling
 
 * **Compile history**, with the full log of previous runs kept and viewable.
+* **Show the finished map or launch it**, straight from the compile footer, without going to find
+  the BSP yourself.
+* **The taskbar button flashes** when a compile ends and the window is not the one in front, which
+  is when a long compile usually ends.
 
 ### Errors
 
@@ -124,8 +130,9 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
 
 ### Presets
 
-* **More presets out of the box** - Draft, Fast, Good, Best, Best (tools++), and Publish and Full
-  variants for LDR, HDR and both.
+* **More presets out of the box** - Draft, Fast, Normal, Good, Best and Best (tools++) for everyday
+  compiles; Full for LDR, HDR or both; Publish for HDR, both, or Best (tools++), which add packing
+  and cubemaps; and Pack, which packs an already-compiled BSP without recompiling it.
 * **Compare two presets side by side** to see exactly which parameters differ.
 
 ### Reliability
@@ -135,6 +142,9 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
 * The error catalogue is no longer re-downloaded on every shutdown, which used to exhaust the
   source's rate limit within a few launches and stop error descriptions loading at all.
 * Asset paths from a map can no longer escape your content folders when packing.
+* A settings or map-queue file left truncated by a crash or a full disk no longer stops the app
+  starting. The unreadable file is kept alongside and the defaults are used.
+* A crash now says so and offers to report it, rather than writing a file and exiting silently.
 
 ### Privacy
 
@@ -184,6 +194,20 @@ cannot be linked to today's by anyone, including us.
 The original Compile Pal reports usage from every install with no way to refuse. This fork does
 not, and none of its data reaches the original's collectors.
 
+## Versioning
+
+This fork numbers itself independently, starting at **1.0.0**. Upstream's scheme (`029`, `029.1`)
+is not continued.
+
+That is deliberate. Sharing a number line with upstream would leave "which build of Compile Pal 030
+are you running?" with no answer. Upstream's scheme also has no minor version - the minor slot holds
+a prerelease counter - and orders prereleases *above* the release they precede, so `029.1` outranks
+`029` and someone on a release candidate is never offered the finished build.
+
+Releases here follow [Semantic Versioning 2.0.0](https://semver.org): `1.2.0` for a release,
+`1.2.0-rc.1` for a candidate, which correctly sorts below it. A version here says nothing about
+upstream's - this fork at 1.4.0 is not "behind" upstream at 029.
+
 ## Guides
 * [Quick Start](Guides/QuickStart.md)
 * [Reporting An Issue](Guides/Issues.md)
@@ -196,22 +220,28 @@ not, and none of its data reaches the original's collectors.
 
 ## Building
 
-Compile Pal links [NavPal](../../../NavPal), the offline navigation mesh generator behind the NavPal
-compile step, which lives in its own repository. Clone with submodules so it comes along:
+Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download). Nothing else - there are no
+submodules and no external checkouts to line up.
 
 ```bash
-git clone --recurse-submodules <this repo>
+git clone https://github.com/catualus/CompilePal
+cd CompilePal
+dotnet build
 ```
 
-If you already cloned without them:
+To run the tests:
 
 ```bash
-git submodule update --init --recursive
+dotnet test
 ```
 
-A checkout of NavPal sitting beside this repository is also picked up automatically, which is
-convenient when working on both at once. If neither is present the build stops with a message saying
-so rather than a wall of unresolved-type errors.
+Compile steps that need a separate program are plugins rather than part of the build. A plugin is a
+folder holding a `meta.json`, a `parameters.json` and whatever it runs, dropped into `Plugins/` next
+to the executable; the app picks it up at startup. Games can also supply their own, and
+[Guides/Plugins.md](Guides/Plugins.md) has the format.
+
+Building from source disables usage reporting entirely, whatever the setting says. See
+[Privacy](#privacy).
 
 ## Contributing
 
