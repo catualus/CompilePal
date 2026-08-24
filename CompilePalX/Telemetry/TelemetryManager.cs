@@ -158,20 +158,25 @@ namespace CompilePalX
         /// <summary>
         /// Signs the submission, when this build was given a key.
         ///
-        /// v1 = hex HMAC-SHA256(key, "&lt;unix seconds&gt;.&lt;body&gt;"). The timestamp is inside the MAC so
-        /// it cannot be edited to extend a captured request's life, and the service refuses
+        /// v1 = hex HMAC-SHA256(releaseKey, "&lt;unix seconds&gt;.&lt;body&gt;"). The timestamp is inside the
+        /// MAC so it cannot be edited to extend a captured request's life, and the service refuses
         /// anything outside its skew window.
         ///
+        /// The key is specific to this release - the workflow derives it from a root secret and the
+        /// version - so the service reproduces it from the version inside the signed body. Two
+        /// consequences worth knowing: shipping a release needs no server-side change, and a key
+        /// lifted out of one build can only ever sign as that version.
+        ///
         /// Worth being plain about what this is for. The key ships inside a desktop application
-        /// handed to the public, so it is a published key to anyone who cares to look - this is
-        /// not authentication and does not make a submission trustworthy. It lets the service
-        /// separate our releases from scripted traffic, and lets a leaked release's key be
-        /// dropped server-side without shipping a new client to everyone.
+        /// handed to the public, so it is a published key to anyone who cares to look - this is not
+        /// authentication and does not make a submission trustworthy. It lets the service tell our
+        /// releases from scripted traffic, and lets one release be revoked server-side. A build
+        /// with no key still reports: the service never refuses a submission for being unsigned.
         /// </summary>
         private static void Sign(StringContent content, string json)
         {
             if (string.IsNullOrEmpty(TelemetryEndpoints.SigningKey)
-                || string.IsNullOrEmpty(TelemetryEndpoints.SigningKeyId))
+                || string.IsNullOrEmpty(TelemetryEndpoints.SigningKeyGeneration))
                 return;
 
             try
@@ -181,7 +186,7 @@ namespace CompilePalX
                 using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(TelemetryEndpoints.SigningKey));
                 var mac = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{timestamp}.{json}"));
 
-                content.Headers.TryAddWithoutValidation("X-CP-Key-Id", TelemetryEndpoints.SigningKeyId);
+                content.Headers.TryAddWithoutValidation("X-CP-Key-Gen", TelemetryEndpoints.SigningKeyGeneration);
                 content.Headers.TryAddWithoutValidation("X-CP-Timestamp", timestamp.ToString());
                 content.Headers.TryAddWithoutValidation("X-CP-Signature", "v1=" + Convert.ToHexString(mac).ToLowerInvariant());
             }

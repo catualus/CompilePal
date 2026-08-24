@@ -203,8 +203,8 @@ jobs:
       - name: Build
         env:
           TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
-          TELEMETRY_SIGNING_KEY: ${{ secrets.TELEMETRY_SIGNING_KEY }}
-          TELEMETRY_SIGNING_KEY_ID: ${{ vars.TELEMETRY_SIGNING_KEY_ID }}
+          TELEMETRY_SIGNING_ROOT: ${{ secrets.TELEMETRY_SIGNING_ROOT }}
+          TELEMETRY_SIGNING_KEY_GENERATION: ${{ vars.TELEMETRY_SIGNING_KEY_GENERATION }}
         shell: pwsh
         run: |
           $buildArgs = @("/p:PublishProfile=Publish$env:CONFIGURATION")
@@ -217,14 +217,34 @@ jobs:
               Write-Host "No TELEMETRY_ENDPOINT secret set - this build will report nowhere."
           }
 
-          # Signing is optional and independent of the endpoint: an unsigned build still
-          # reports, because the service accepts unsigned submissions until told otherwise.
-          if ($env:TELEMETRY_SIGNING_KEY -and $env:TELEMETRY_SIGNING_KEY_ID) {
-              $buildArgs += "/p:TelemetrySigningKey=$env:TELEMETRY_SIGNING_KEY"
-              $buildArgs += "/p:TelemetrySigningKeyId=$env:TELEMETRY_SIGNING_KEY_ID"
-              Write-Host "Release signing key injected as '$env:TELEMETRY_SIGNING_KEY_ID'."
+          # Signing is optional and independent of the endpoint. An unsigned build still reports
+          # for as long as it exists - the service never refuses a submission for being unsigned,
+          # it records it as unsigned and rate limits it more tightly.
+          #
+          # The key is DERIVED here rather than stored per release:
+          #
+          #     releaseKey = HMAC-SHA256(root, "compilepal/v1/" + version)
+          #
+          # which is the same value the service computes from the version in the signed body. So
+          # shipping a release needs no change on the server, and the root never leaves this step.
+          if ($env:TELEMETRY_SIGNING_ROOT -and $env:TELEMETRY_SIGNING_KEY_GENERATION) {
+              $hmac = [System.Security.Cryptography.HMACSHA256]::new(
+                  [System.Text.Encoding]::UTF8.GetBytes($env:TELEMETRY_SIGNING_ROOT))
+              try {
+                  $mac = $hmac.ComputeHash(
+                      [System.Text.Encoding]::UTF8.GetBytes("compilepal/v1/$env:VERSION"))
+                  $releaseKey = -join ($mac | ForEach-Object { $_.ToString("x2") })
+              } finally {
+                  $hmac.Dispose()
+              }
+
+              $buildArgs += "/p:TelemetrySigningKey=$releaseKey"
+              $buildArgs += "/p:TelemetrySigningKeyGeneration=$env:TELEMETRY_SIGNING_KEY_GENERATION"
+
+              # The derived key is not printed. Only that one was produced, and for which release.
+              Write-Host "Release key derived for $env:VERSION (generation $env:TELEMETRY_SIGNING_KEY_GENERATION)."
           } else {
-              Write-Host "No signing key set - submissions from this build will be unsigned."
+              Write-Host "No signing root set - submissions from this build will be unsigned."
           }
 
           dotnet publish @buildArgs
