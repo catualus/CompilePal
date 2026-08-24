@@ -35,6 +35,21 @@ namespace CompilePalX
         private static string ProgressTitle(double progress) =>
             $"{Math.Floor(progress * 100d)}% - {WindowTitle()}";
 
+        /// <summary>
+        /// Whether there is a taskbar item to talk to yet.
+        ///
+        /// `ready` alone was not enough, and the difference crashed the application on startup.
+        /// Every method below checked it INSIDE the dispatcher lambda, which meant dereferencing
+        /// taskbarInfo.Dispatcher to get there - and taskbarInfo is null until Init runs from
+        /// MainWindow's constructor.
+        ///
+        /// So any failure early enough to precede that constructor reached ErrorProgress through
+        /// the exception handler, threw a NullReferenceException out of the handler itself, and the
+        /// application died without ever showing the dialog that was supposed to explain it. The
+        /// only trace was a file in CrashLogs.
+        /// </summary>
+        private static bool Ready => ready && taskbarInfo is not null;
+
         static public void Init(TaskbarItemInfo _taskbarInfo)
         {
             taskbarInfo = _taskbarInfo;
@@ -49,14 +64,16 @@ namespace CompilePalX
         {
             get
             {
-                return taskbarInfo.Dispatcher.Invoke(() => { return ready ? taskbarInfo.ProgressValue : 0; });
+                if (!Ready) return 0;
+
+                return taskbarInfo.Dispatcher.Invoke(() => taskbarInfo.ProgressValue);
             }
             set { SetProgress(value); }
         }
 
         static public void SetProgress(double progress)
         {
-            if (ready)
+            if (Ready)
             {
                 taskbarInfo.Dispatcher.Invoke(() =>
                 {
@@ -89,23 +106,27 @@ namespace CompilePalX
             }
         }
 
+        /// <summary>
+        /// Marks the taskbar button as failed.
+        ///
+        /// Called from the exception handler, which is the reason the guard is at the top rather
+        /// than inside the lambda: this has to be safe to call when nothing has been initialised,
+        /// because that is exactly when a startup failure calls it.
+        /// </summary>
         static public void ErrorProgress()
         {
+            if (!Ready) return;
+
             taskbarInfo.Dispatcher.Invoke(() =>
-                                          {
-                                              if (ready)
-                                              {
-                                                  // Not SetProgress(1): that treats reaching 1 as a
-                                                  // successful finish, playing the completion sound and
-                                                  // showing "100%" in the title even though the compile
-                                                  // was cancelled or failed, not completed.
-                                                  taskbarInfo.ProgressValue = 1;
-                                                  ProgressChange(100);
-                                                  taskbarInfo.ProgressState = TaskbarItemProgressState.Error;
-                                                  TitleChange(
-	                                                  WindowTitle());
-                                              }
-                                          });
+            {
+                // Not SetProgress(1): that treats reaching 1 as a successful finish, playing the
+                // completion sound and showing "100%" in the title even though the compile was
+                // cancelled or failed, not completed.
+                taskbarInfo.ProgressValue = 1;
+                ProgressChange(100);
+                taskbarInfo.ProgressState = TaskbarItemProgressState.Error;
+                TitleChange(WindowTitle());
+            });
 
         }
 

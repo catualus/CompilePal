@@ -152,6 +152,12 @@ are never sent.
 **Settings → Privacy → Show what is sent** prints the exact message before it goes anywhere, so
 you can check rather than take our word for it.
 
+Crash reports are separate and are never automatic. If Compile Pal crashes it says so, shows the
+full report it would send, and sends it only if you press the button. That choice is per crash and
+is not tied to the setting above: leaving usage reporting off does not refuse a crash report you
+chose to send, and leaving it on does not agree in advance to send a stack trace. File paths and
+account names are removed from the report before you are shown it.
+
 <details>
 <summary>Technical detail</summary>
 
