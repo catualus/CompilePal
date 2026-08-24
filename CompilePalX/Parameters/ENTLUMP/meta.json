@@ -1,0 +1,13 @@
+{
+  "Name": "ENTLUMP",
+  "Path": "",
+  "Order": 11.5,
+  "DoRun": false,
+  "ReadOutput": false,
+  "Description": "Moves entities out of the BSP into a .lmp file beside it.",
+  "Warning": "The .lmp must ship alongside the .bsp. A map distributed without it loads with no entities.",
+  "PresetDefault": false,
+  "SupportsBSP": true,
+  "BasisString": "",
+  "WorkingDirectory": ""
+}

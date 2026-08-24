@@ -1,0 +1,26 @@
+[
+  {
+    "Name": "Keep Entities",
+    "Parameter": " -keepentities",
+    "Description": "Report what would be extracted without modifying the BSP or writing a lump file.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  },
+  {
+    "Name": "Remove Worldspawn",
+    "Parameter": " -noworldspawn",
+    "Description": "Also move worldspawn out of the BSP, leaving the entity lump completely empty. Worldspawn carries the map's own properties, such as the skybox name and detail material, and some tools expect to find it in the BSP.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Tools that read map properties straight from the BSP will find nothing."
+  },
+  {
+    "Name": "Do Not Copy To Map Folder",
+    "Parameter": " -nomirror",
+    "Description": "Write the lump file only next to the BSP that was processed, instead of also copying it beside the matching BSP in the other folder.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": ""
+  }
+]
