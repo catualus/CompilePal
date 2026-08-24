@@ -518,6 +518,21 @@ namespace CompilePalX
                             ?? KnownPresets.FirstOrDefault();
         }
 
+        /// <summary>
+        /// Reads settings.json, and never lets a bad one stop the application starting.
+        ///
+        /// This used to call DeserializeObject with no guard. That handles a file containing "null",
+        /// which is what the null check below is for, but it throws on anything malformed - and this
+        /// runs during startup, before a window exists. The result was an application that died on
+        /// launch with no way back except finding and deleting the file by hand.
+        ///
+        /// The file is rewritten in full on every close, so a crash, a power cut or a full disk
+        /// part-way through that write leaves exactly the truncated JSON that triggers it. It is not
+        /// a hypothetical.
+        ///
+        /// Same treatment as mapfiles.json in PersistenceManager: keep the unreadable file rather
+        /// than discarding whatever was in it, say so, and carry on with defaults.
+        /// </summary>
         public static void LoadSettings()
         {
             if (!File.Exists(SettingsFile))
@@ -526,14 +541,52 @@ namespace CompilePalX
                 return;
             }
 
-            var settings = JsonConvert.DeserializeObject<Settings>(File.ReadAllText(SettingsFile));
-            if (settings is null)
+            try
             {
-                CompilePalLogger.LogLine("Failed to load settings, falling back to default");
-                return;
-            }
+                var settings = JsonConvert.DeserializeObject<Settings>(File.ReadAllText(SettingsFile));
+                if (settings is null)
+                {
+                    CompilePalLogger.LogLine("Failed to load settings, falling back to default");
+                    return;
+                }
 
-            Settings = settings;
+                Settings = settings;
+            }
+            catch (Exception e)
+            {
+                string backup = SettingsFile + ".corrupt";
+                bool moved = false;
+
+                try
+                {
+                    File.Move(SettingsFile, backup, overwrite: true);
+                    moved = true;
+                }
+                catch (Exception moveFailure)
+                {
+                    CompilePalLogger.LogLineDebug($"Could not rename the unreadable settings file: {moveFailure}");
+                }
+
+                /*
+                 * Logged, not reported through ExceptionHandler.
+                 *
+                 * ExceptionHandler.LogException shows the crash dialog even when told the fault is
+                 * not fatal, and "Compile Pal has stopped" is simply untrue here: the file was set
+                 * aside, the defaults are in place and the application is about to start normally.
+                 * Telling somebody their application crashed, and then having it not crash, teaches
+                 * them to dismiss the dialog that matters.
+                 */
+                CompilePalLogger.LogLineDebug($"Could not read {SettingsFile}: {e}");
+
+                // Only claim the rename happened if it did, so nobody goes looking for a file that
+                // is not there while the real one still sits under its original name.
+                CompilePalLogger.LogLineColor(
+                    "Could not read your settings; starting with the defaults. " +
+                    (moved
+                        ? $"The unreadable file was kept as {backup}."
+                        : $"The unreadable file could not be renamed and is still at {SettingsFile}."),
+                    Error.GetSeverityBrush(3));
+            }
         }
 
         public static void SavePresets()
