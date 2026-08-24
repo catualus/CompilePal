@@ -196,8 +196,26 @@ jobs:
       - name: Test
         run: dotnet test CompilePalX.Tests --configuration ${{ env.CONFIGURATION }} --no-restore
 
+      # The telemetry endpoint is injected here rather than committed, so the public repository
+      # carries no reporting destination and an unofficial build has nowhere to report to. An
+      # empty secret is not an error: the build simply produces a binary with telemetry
+      # unavailable, which is the correct outcome for anyone building this without it.
       - name: Build
-        run: dotnet publish /p:PublishProfile=Publish${{ env.CONFIGURATION }}
+        env:
+          TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
+        shell: pwsh
+        run: |
+          $args = @("/p:PublishProfile=Publish$env:CONFIGURATION")
+
+          if ($env:TELEMETRY_ENDPOINT) {
+              # Passed as a separate argument, never interpolated into the command string.
+              $args += "/p:TelemetryEndpoint=$env:TELEMETRY_ENDPOINT"
+              Write-Host "Telemetry endpoint injected."
+          } else {
+              Write-Host "No TELEMETRY_ENDPOINT secret set - this build will report nowhere."
+          }
+
+          dotnet publish @args
 
       - name: Package
         shell: pwsh

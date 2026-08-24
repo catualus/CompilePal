@@ -102,10 +102,22 @@ namespace CompilePalX
         /// A fork that wants its own endpoint changes this line and rebuilds, which is the correct
         /// amount of friction for the decision.
         /// </summary>
-        private const string Endpoint = "https://telemetry.catualus.dev/api/telemetry/v1/events";
+        private static readonly string Endpoint = TelemetryEndpoints.Default;
+
+        /// <summary>
+        /// Whether this build has anywhere to report to at all.
+        ///
+        /// Empty in any build that did not have the endpoint injected - a local build, a fork, a
+        /// clone of the public repository. Those send nothing regardless of the setting, which is
+        /// the intended behaviour rather than a limitation: a fork should not inherit somewhere to
+        /// send other people's usage data.
+        /// </summary>
+        internal static bool IsConfigured =>
+            Endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
         private static bool Enabled =>
-            ConfigurationManager.Settings.TelemetryEnabled
+            IsConfigured
+            && ConfigurationManager.Settings.TelemetryEnabled
             && !System.Diagnostics.Debugger.IsAttached;
 
         private static void Count(string metric, long amount = 1)

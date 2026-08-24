@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -133,8 +133,36 @@ namespace CompilePalX.Tests
 
             string manager = File.ReadAllText(Path.Combine(SourceDir(), "Telemetry", "TelemetryManager.cs"));
 
-            Assert.Matches(@"private const string Endpoint\s*=\s*""https://", manager);
             Assert.DoesNotContain("Settings.TelemetryEndpoint", manager);
+
+            // Nor is it written in the source. The endpoint is injected at build time, so the
+            // public repository carries no reporting destination - a fork does not silently
+            // inherit one, and an unofficial build reports nowhere.
+            Assert.DoesNotContain("https://telemetry.", manager);
+            Assert.Contains("TelemetryEndpoints.Default", manager);
+        }
+
+        /// <summary>
+        /// A build with no endpoint injected must send nothing, whatever the user toggles.
+        ///
+        /// This is what makes the build-time injection meaningful rather than cosmetic: the
+        /// absence of a destination is itself the off switch for every unofficial build.
+        /// </summary>
+        [Fact]
+        public void ABuildWithNoEndpointReportsNowhere()
+        {
+            string csproj = File.ReadAllText(Path.Combine(SourceDir(), "CompilePalX.csproj"));
+
+            Assert.Contains("GenerateTelemetryEndpoint", csproj);
+
+            string manager = File.ReadAllText(Path.Combine(SourceDir(), "Telemetry", "TelemetryManager.cs"));
+
+            // Enabled must depend on having a destination, not only on the setting - so
+            // IsConfigured has to be the first term of that expression.
+            var enabled = Regex.Match(manager, @"bool Enabled\s*=>(.*?);", RegexOptions.Singleline);
+
+            Assert.True(enabled.Success, "could not find the Enabled expression");
+            Assert.StartsWith("IsConfigured", enabled.Groups[1].Value.Trim());
         }
     }
 }

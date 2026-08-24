@@ -59,6 +59,11 @@ values the send uses, so you can check rather than take our word for it. The tot
 contributes to are public at
 [/api/telemetry/v1/stats](https://telemetry.catualus.dev/api/telemetry/v1/stats).
 
+The destination is compiled into official builds and is not a setting — a reporting endpoint
+read from a file on your disk would be an obvious thing for malware to repoint. It also means
+**builds that are not ours report nowhere at all**: if you build from source, or run a fork, the
+endpoint is absent and nothing is sent no matter what the toggle says.
+
 Upstream Compile Pal reports usage from every install with no way to refuse. This fork does
 not, and none of its data goes to upstream.
 
