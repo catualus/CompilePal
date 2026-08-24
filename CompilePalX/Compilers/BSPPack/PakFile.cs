@@ -60,6 +60,24 @@ namespace CompilePalX.Compilers.BSPPack
                     return false;
                 }
 
+                // The response file handed to bspzip is line-oriented: alternating internal and
+                // external paths, one per line. A control character in either half - a newline
+                // above all - injects extra lines and therefore an extra (internal, external)
+                // pair, whose external half never passed the File.Exists check above because it
+                // never went through this method. That is the traversal problem again by a
+                // different route, and it is the file format that has to be defended rather than
+                // any one parser that might produce such a string.
+                //
+                // Refused rather than stripped: a path we would have to rewrite to make safe is
+                // not a path we understood, and silently packing a *different* file than the map
+                // asked for is worse than packing none.
+                if (HasControlCharacters(paths.Key) || HasControlCharacters(externalPath))
+                {
+                    CompilePalLogger.LogLineDebug(
+                        "Refusing an asset path containing control characters, which would corrupt the bspzip file list");
+                    return false;
+                }
+
                 Files.Add(paths);
                 return true;
             }
@@ -601,6 +619,16 @@ namespace CompilePalX.Compilers.BSPPack
             return externalDirs;
         }
 
+
+		/// <summary>
+		/// Whether a path contains anything that would break the line-oriented bspzip response file.
+		///
+		/// Path.GetInvalidPathChars() happens to include every control character on .NET today, but
+		/// that set has narrowed across versions - it was trimmed in .NET Core - so the guard on the
+		/// file format states what it needs rather than inheriting whatever the framework currently
+		/// considers invalid.
+		/// </summary>
+		private static bool HasControlCharacters(string path) => path.Any(char.IsControl);
 
 		private static readonly string invalidChars = Regex.Escape(new string(Path.GetInvalidPathChars()));
 		private static readonly string invalidRegString = $@"([{invalidChars}]*\.+$)|([{invalidChars}]+)";

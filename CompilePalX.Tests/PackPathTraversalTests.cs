@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Reflection;
 using Xunit;
@@ -145,6 +145,41 @@ namespace CompilePalX.Tests
             // Both map-derived resolvers go through the check.
             Assert.Contains("ResolveWithinRoot", source[findFile..(findFile + 900)]);
             Assert.Contains("ResolveWithinRoot", source[findDirs..(findDirs + 1200)]);
+        }
+
+        /// <summary>
+        /// The second route to the same outcome, closed separately.
+        ///
+        /// The bspzip response file is alternating internal/external paths, one per line. A newline
+        /// in an internal path injects an extra pair whose external half never passed AddFile's
+        /// File.Exists check, because it never went through AddFile at all - so bspzip would resolve
+        /// and pack whatever it named.
+        /// </summary>
+        [Theory]
+        [InlineData("materials/x.vmt\nmaterials/evil.vmt")]
+        [InlineData("materials/x.vmt\r\nC:/Users/someone/.ssh/id_rsa")]
+        [InlineData("materials/x\0.vmt")]
+        [InlineData("materials/x\tevil.vmt")]
+        public void APathThatWouldCorruptTheBspzipFileListIsRefused(string malicious)
+        {
+            var method = typeof(CompilePalX.Compilers.BSPPack.PakFile)
+                .GetMethod("HasControlCharacters", BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.NotNull(method);
+            Assert.True((bool)method!.Invoke(null, [malicious])!,
+                "a path carrying a control character must be recognised as unsafe for the file list");
+        }
+
+        [Theory]
+        [InlineData("materials/legit.vmt")]
+        [InlineData("models/props/chair.mdl")]
+        [InlineData("sound/ambient/wind loop.wav")]
+        public void OrdinaryAssetPathsAreNotRejectedByTheFileListGuard(string ordinary)
+        {
+            var method = typeof(CompilePalX.Compilers.BSPPack.PakFile)
+                .GetMethod("HasControlCharacters", BindingFlags.NonPublic | BindingFlags.Static);
+
+            Assert.False((bool)method!.Invoke(null, [ordinary])!, $"'{ordinary}' should be accepted");
         }
 
         private static string SourceDir()
