@@ -42,7 +42,7 @@ namespace CompilePalX.Configuration
 	public static class PresetDiff
 	{
 		/// <summary>Shown where a preset does not carry a parameter at all.</summary>
-		public const string Absent = "—";
+		public const string Absent = "-";
 
 		/// <summary>Shown for a flag: present, but with no value of its own.</summary>
 		public const string Flag = "on";

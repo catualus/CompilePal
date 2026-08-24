@@ -260,7 +260,7 @@
                                         <MenuItem Header="Clone" Click="ClonePresetButton_OnClick"/>
                                         <MenuItem Header="Delete" Click="RemovePresetButton_OnClick"/>
                                         <Separator/>
-                                        <MenuItem Header="Compare with…" Click="ComparePresetsButton_OnClick"/>
+                                        <MenuItem Header="Compare with..." Click="ComparePresetsButton_OnClick"/>
                                     </ContextMenu>
                                 </Button.ContextMenu>
                             </Button>

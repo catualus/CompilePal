@@ -28,7 +28,7 @@ namespace CompilePalX
         /// unanswerable.
         /// </summary>
         public static string WindowTitle(string? gameName = null) =>
-            $"{defaultTitle} {UpdateManager.CurrentVersion} — " +
+            $"{defaultTitle} {UpdateManager.CurrentVersion} - " +
             (gameName ?? GameConfigurationManager.GameConfiguration?.Name ?? "no game selected");
 
         /// <summary>The same title with a percentage in front, for the taskbar during a compile.</summary>

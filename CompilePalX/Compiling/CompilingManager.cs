@@ -118,7 +118,7 @@ namespace CompilePalX
                 if (segments.Count <= 2)
                     return directory;
 
-                return "…" + Path.DirectorySeparatorChar +
+                return "..." + Path.DirectorySeparatorChar +
                        string.Join(Path.DirectorySeparatorChar, segments.Skip(segments.Count - 2));
             }
         }
@@ -206,7 +206,7 @@ namespace CompilePalX
                     case MapCompileState.Queued:
                         return "queued";
                     case MapCompileState.Running:
-                        return "compiling…";
+                        return "compiling...";
                     case MapCompileState.None:
                         return "";
                 }
@@ -707,7 +707,7 @@ namespace CompilePalX
             CompileTimings.Save();
 
             // A map still marked Running or Queued when the run ends did not finish - either the cancel
-            // caught it mid-step, or the loop never reached it. Leaving it showing "compiling…" forever
+            // caught it mid-step, or the loop never reached it. Leaving it showing "compiling..." forever
             // would be the worst of the three states to be wrong about.
             foreach (var map in MapFiles)
             {

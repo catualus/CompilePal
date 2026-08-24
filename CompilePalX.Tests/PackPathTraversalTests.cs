@@ -6,8 +6,8 @@ using Xunit;
 namespace CompilePalX.Tests
 {
     /// <summary>
-    /// Asset paths come out of the map — entity keyvalues, material and model references, sound
-    /// names — and a .vmf is a file a mapper may well have been handed by somebody else. So every
+    /// Asset paths come out of the map - entity keyvalues, material and model references, sound
+    /// names - and a .vmf is a file a mapper may well have been handed by somebody else. So every
     /// one of those strings is attacker controlled.
     ///
     /// The packer joined them to a content root and packed whatever existed at the result.
