@@ -513,9 +513,64 @@ namespace CompilePalX.Compilers.BSPPack
 	        var sanitizedPath = SanitizePath(internalPath);
 
             foreach (string source in sourceDirs)
-                if (File.Exists(Path.Combine(source, sanitizedPath)))
+            {
+                // Resolved under the content root, not merely joined to it. See ResolveWithinRoot.
+                if (ResolveWithinRoot(source, sanitizedPath) is not { } resolved)
+                    continue;
+
+                if (File.Exists(resolved))
                     return Path.Combine(source, sanitizedPath.Replace("\\", "/"));
+            }
+
             return "";
+        }
+
+        /// <summary>
+        /// Joins an asset path to a content root, and refuses the result if it escapes that root.
+        ///
+        /// Asset paths come out of the map: entity keyvalues, material and model references, sound
+        /// names. A .vmf is a file a mapper may well have been handed by somebody else, so those
+        /// strings are attacker controlled.
+        ///
+        /// <see cref="SanitizePath"/> does not make them safe and was never meant to - it strips
+        /// characters the filesystem rejects, and '.' and '/' are both perfectly valid. So
+        /// "materials/../../../../Users/someone/.ssh/id_rsa" passed through it unchanged,
+        /// Path.Combine resolved it outside the game folder, File.Exists said yes, and the file was
+        /// packed into the BSP. The mapper then uploads the result. That is arbitrary file
+        /// exfiltration triggered by opening someone else's map, and it needs a boundary check
+        /// rather than a blocklist.
+        ///
+        /// The comparison is on the canonical paths, so it also covers the forms a blocklist would
+        /// miss: "..\", mixed separators, "foo/./../..", and a root given with or without a
+        /// trailing separator.
+        /// </summary>
+        private static string? ResolveWithinRoot(string root, string relativePath)
+        {
+            try
+            {
+                // Trailing separator guaranteed, so the StartsWith below cannot let "C:\gameEVIL"
+                // pass as being inside "C:\game".
+                var fullRoot = Path.GetFullPath(root);
+                if (!fullRoot.EndsWith(Path.DirectorySeparatorChar))
+                    fullRoot += Path.DirectorySeparatorChar;
+
+                var candidate = Path.GetFullPath(Path.Combine(fullRoot, relativePath));
+
+                if (!candidate.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    CompilePalLogger.LogLineDebug(
+                        $"Refusing an asset path that resolves outside the content root: {relativePath}");
+                    return null;
+                }
+
+                return candidate;
+            }
+            catch (Exception e)
+            {
+                // A path too long, or one with a malformed root, is simply not a file we will pack.
+                CompilePalLogger.LogLineDebug($"Could not resolve asset path '{relativePath}': {e.Message}");
+                return null;
+            }
         }
 
         private List<string> FindExternalDirectories(string internalPath)
@@ -533,8 +588,16 @@ namespace CompilePalX.Compilers.BSPPack
             var externalDirs = new List<string>();
 
             foreach (string source in sourceDirs)
-                if (Directory.Exists(Path.Combine(source, sanitizedPath)))
+            {
+                // Same boundary check as FindExternalFile - a directory reference that escapes the
+                // root would pull everything under it into the pack.
+                if (ResolveWithinRoot(source, sanitizedPath) is not { } resolved)
+                    continue;
+
+                if (Directory.Exists(resolved))
                     externalDirs.Add(Path.Combine(source, sanitizedPath.Replace("\\", "/")));
+            }
+
             return externalDirs;
         }
 
