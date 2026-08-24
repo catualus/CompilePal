@@ -1,4 +1,4 @@
-[
+﻿[
   {
     "Name": "Only Entities",
     "Parameter": " -onlyents",
@@ -77,7 +77,10 @@
     "Description": "Make all geometry func_detail to improve VVIS times. Use with a radius override of 2500 in VVIS.",
     "Value": null,
     "CanHaveValue": false,
-    "Warning": "Support varies between versions of source."
+    "Warning": "Support varies between versions of source.",
+    "IncompatibleGames": [
+      4000 // gmod - no such option in its vbsp
+    ]
   },
   {
     "Name": "Full Detail",
@@ -311,7 +314,10 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "RequiresToolsPlusPlus": true
+    "SupportedByToolsPlusPlus": true,
+    "CompatibleGames": [
+      4000 // gmod - its stock binaries carry this natively
+    ]
   },
   {
     "Name": "No Bevel",
@@ -410,7 +416,10 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "RequiresToolsPlusPlus": true
+    "SupportedByToolsPlusPlus": true,
+    "CompatibleGames": [
+      4000 // gmod - its stock binaries carry this natively
+    ]
   },
   {
     "Name": "Default Luxel Size",
@@ -419,7 +428,10 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "RequiresToolsPlusPlus": true
+    "SupportedByToolsPlusPlus": true,
+    "CompatibleGames": [
+      4000 // gmod - its stock binaries carry this natively
+    ]
   },
   {
     "Name": "Max Luxel Scale",

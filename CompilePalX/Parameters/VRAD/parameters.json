@@ -1,4 +1,4 @@
-[
+﻿[
   {
     "Name": "Bounces",
     "Parameter": " -bounce",
@@ -129,6 +129,7 @@
     "CanHaveValue": false,
     "Warning": "",
     "CompatibleGames": [
+      4000, // gmod - verified present in its vrad/vbsp
       730 // csgo
     ] 
   },
@@ -141,6 +142,7 @@
     "CanHaveValue": true,
     "Warning": "Note that adding -final is the same as having -StaticPropSampleScale 16.",
     "CompatibleGames": [
+      4000, // gmod - verified present in its vrad/vbsp
       730 // csgo
     ] 
   },
@@ -185,6 +187,7 @@
     "CanHaveValue": true,
     "Warning": "",
     "CompatibleGames": [
+      4000, // gmod - verified present in its vrad/vbsp
       730 // csgo
     ] 
   },
@@ -230,6 +233,7 @@
     "CanHaveValue": false,
     "Warning": "",
     "CompatibleGames": [
+      4000, // gmod - verified present in its vrad/vbsp
       240, // CSS
       300, // DODS
       320, // HL2DM
@@ -270,7 +274,10 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": "",
-    "RequiresToolsPlusPlus": true
+    "SupportedByToolsPlusPlus": true,
+    "CompatibleGames": [
+      4000 // gmod - its stock binaries carry this natively
+    ]
   },
   {
     "Name": "AO Radius",
@@ -288,7 +295,10 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "RequiresToolsPlusPlus": true
+    "SupportedByToolsPlusPlus": true,
+    "CompatibleGames": [
+      4000 // gmod - its stock binaries carry this natively
+    ]
   },
   {
     "Name": "AO Face Samples",
@@ -297,7 +307,10 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "RequiresToolsPlusPlus": true
+    "SupportedByToolsPlusPlus": true,
+    "CompatibleGames": [
+      4000 // gmod - its stock binaries carry this natively
+    ]
   },
   {
     "Name": "AO Debug",
@@ -423,7 +436,10 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": "",
-    "RequiresToolsPlusPlus": true
+    "SupportedByToolsPlusPlus": true,
+    "CompatibleGames": [
+      4000 // gmod - its stock binaries carry this natively
+    ]
   },
   {
     "Name": "Disp Sample Factor",
