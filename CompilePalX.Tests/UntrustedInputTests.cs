@@ -153,7 +153,14 @@ namespace CompilePalX.Tests
         {
             string csproj = File.ReadAllText(Path.Combine(SourceDir(), "CompilePalX.csproj"));
 
-            Assert.Contains("GenerateTelemetryEndpoint", csproj);
+            // Asserted as the mechanism, not the target's name. An earlier version of this pinned
+            // the literal "GenerateTelemetryEndpoint" and broke the moment the target was renamed
+            // for carrying the build version too - without anything about the behaviour changing.
+            Assert.Contains("TelemetryEndpoints", csproj);
+            Assert.Contains("WriteLinesToFile", csproj);
+
+            // And the value must come from a build property rather than being written in the file.
+            Assert.Contains("$(TelemetryEndpoint)", csproj);
 
             string manager = File.ReadAllText(Path.Combine(SourceDir(), "Telemetry", "TelemetryManager.cs"));
 

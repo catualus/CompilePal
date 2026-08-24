@@ -35,6 +35,21 @@ Get the latest features without having to wait. Experimental releases may be uns
 * Batch Compiling
 * Much More!
 
+## Versioning
+
+This is a fork of [ruarai/CompilePal](https://github.com/ruarai/CompilePal), and it numbers itself
+independently, starting at **1.0.0**. Upstream's scheme (`029`, `029.1`) is not continued.
+
+That is deliberate rather than cosmetic. Sharing a number line with upstream would leave "which
+build of Compile Pal 030 are you running?" with no answer. Upstream's scheme also has no minor
+version — the minor slot holds a prerelease counter — and orders prereleases *above* the release
+they precede, so `029.1` outranks `029` and a release-candidate user is never offered the finished
+build.
+
+Releases here follow [Semantic Versioning 2.0.0](https://semver.org): `1.2.0` for a release,
+`1.2.0-rc.1` for a candidate, which correctly sorts below it. Version numbers here therefore say
+nothing about upstream's — a fork at 1.4.0 is not "behind" upstream at 029.
+
 ## Privacy
 
 Compile Pal sends **nothing** unless you turn usage reporting on in Settings. It is off by

@@ -1,12 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Linq.Expressions;
-using System.Net;
 using System.Net.Http;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using CompilePalX.Compiling;
@@ -14,98 +7,147 @@ using CompilePalX.Compiling;
 namespace CompilePalX
 {
     internal delegate void UpdateFound();
+
+    /// <summary>
+    /// Checks whether a newer build of this fork exists.
+    ///
+    /// Versions are <see cref="SemanticVersion"/>, not the scheme inherited from upstream. That
+    /// one wrote a zero-padded integer for stable releases ("029") and used the minor component
+    /// as a prerelease counter ("029.1"), which left no minor version to use for anything and
+    /// made every prerelease sort *above* the stable release of the same line. It also meant this
+    /// fork's numbers were indistinguishable from upstream's, so "which 030 are you running" had
+    /// no answer.
+    /// </summary>
     static class UpdateManager
     {
         public static event UpdateFound OnUpdateFound;
 
-        private static Version currentVersion;
-        public static string CurrentVersion => currentVersion.ToString(isPrerelease ? 2 : 1);
-
-        private static Version latestVersion;
-        public static string LatestVersion => latestVersion.ToString(isPrerelease ? 2 : 1);
-
         /// <summary>
-        /// The repository releases are published to, and which the update check reads version.txt from.
+        /// The repository releases are published to, and which the update check reads from.
         ///
-        /// This is a fork. Pointed at ruarai/CompilePal - which is what it was - the check compares this
-        /// build against *upstream's* version file, so every upstream release makes this fork announce
-        /// itself as out of date and sends the user to a download that is not this program. Both the
-        /// version lookup and the "get the update" link have to follow whoever publishes the build.
+        /// This is a fork. Pointed at upstream - which is what it was - the check compares this
+        /// build against *their* version file, so every upstream release makes this fork announce
+        /// itself as out of date and sends the user to a download that is not this program.
         /// </summary>
         private const string Repository = "catualus/CompilePal";
 
-        /// <summary>Branch the version files are read from. Updated by the release workflow.</summary>
+        /// <summary>Branch the channel pointers are read from. Updated by the release workflow.</summary>
         private const string VersionBranch = "master";
 
-        private const string LatestVersionURL = $"https://raw.githubusercontent.com/{Repository}/{VersionBranch}/CompilePalX/version.txt";
-        private const string LatestPrereleaseVersionURL = $"https://raw.githubusercontent.com/{Repository}/{VersionBranch}/CompilePalX/version_prerelease.txt";
+        /*
+         * Two pointers, one per channel, rather than one file meaning several things.
+         *
+         * Each holds the newest version published on that channel. They are fetched from the raw
+         * file CDN rather than the releases API deliberately: the API rate limits to 60 requests
+         * an hour per address, which several users behind one connection would exhaust, and an
+         * update check that starts failing for a whole office is worse than no update check.
+         */
+        private const string StableVersionURL =
+            $"https://raw.githubusercontent.com/{Repository}/{VersionBranch}/CompilePalX/version.txt";
 
-        private static string MajorUpdateURL = $"https://github.com/{Repository}/releases/latest";
-        // Tags must be in form: v0major.minor
-        private static string PrereleaseUpdateURL => $"https://github.com/{Repository}/releases/tag/v0{LatestVersion}";
+        private const string PrereleaseVersionURL =
+            $"https://raw.githubusercontent.com/{Repository}/{VersionBranch}/CompilePalX/version_prerelease.txt";
 
         /// <summary>
-        /// Falls back to the releases page whenever a specific prerelease tag cannot be named. Building
-        /// the prerelease URL dereferences latestVersion, which is null until a check has succeeded -
-        /// so anything that reached for this link before then (or after a failed check) threw.
+        /// What this build reports as its own version, compiled in by the release workflow.
+        ///
+        /// Empty in anything not built by that workflow, which is reported as a development build
+        /// rather than being made to impersonate a release.
+        /// </summary>
+        public static SemanticVersion? Current { get; } =
+            SemanticVersion.TryParse(BuildInfo.Version, out var parsed) ? parsed : null;
+
+        public static string CurrentVersion => Current?.ToString() ?? "dev";
+
+        /// <summary>Whether this build is a prerelease, and so which channel it follows.</summary>
+        public static bool IsPreRelease => Current?.IsPreRelease ?? false;
+
+        private static SemanticVersion? latest;
+
+        public static string LatestVersion => latest?.ToString() ?? CurrentVersion;
+
+        /// <summary>
+        /// Where to send someone who wants the update.
+        ///
+        /// A prerelease is only reachable by its tag; the releases page shows the latest stable.
+        /// Falls back to the releases page whenever a specific tag cannot be named, which was
+        /// previously a null dereference waiting for anything that read this before a check had
+        /// succeeded.
         /// </summary>
         public static Uri UpdateURL =>
-            new Uri(isPrerelease && latestVersion is not null ? PrereleaseUpdateURL : MajorUpdateURL);
-
-        private static bool isPrerelease = false;
+            new(latest is { IsPreRelease: true }
+                ? $"https://github.com/{Repository}/releases/tag/v{latest}"
+                : $"https://github.com/{Repository}/releases/latest");
 
         static UpdateManager()
         {
-            // Trimmed. The files are written with a trailing newline by the release workflow, and
-            // while int.Parse happens to tolerate the whitespace either side of a '.', relying on that
-            // makes the whole static constructor - and so CompilePalLogger, which asks it for the
-            // version on first use - one formatting change away from taking the app down at startup.
-            string currentVersionString = GetValidVersionString(File.ReadAllText("./version.txt").Trim());
-            string currentPrereleaseVersionString = GetValidVersionString(File.ReadAllText("./version_prerelease.txt").Trim() + ".0.0");
+            CompilePalLogger.LogDebug($"Current version: {CurrentVersion}\n");
 
-            currentVersion = Version.Parse(currentVersionString);
-            Version currentPrereleaseVersion = Version.Parse(currentPrereleaseVersionString);
-
-            if (currentPrereleaseVersion > currentVersion)
-            {
-	            currentVersion = currentPrereleaseVersion;
-                isPrerelease = true;
-            }
-
-            CompilePalLogger.LogDebug($"Current version: {currentVersion}\n");
-
-            // store version info in registry
-            RegistryManager.Write("Version", currentVersionString);
-            RegistryManager.Write("PrereleaseVersion", currentPrereleaseVersionString);
+            RegistryManager.Write("Version", CurrentVersion);
         }
 
         public static void CheckVersion()
         {
-            // Background: nothing waits on this and an update check must not keep the process alive
-            // after the window has closed.
-            Thread updaterThread = new Thread(ThreadedCheck) { IsBackground = true };
-            updaterThread.Start();
+            // Background: nothing waits on this, and an update check must not keep the process
+            // alive after the window has closed.
+            new Thread(ThreadedCheck) { IsBackground = true }.Start();
         }
 
         static async void ThreadedCheck()
         {
             try
             {
+                if (Current is null)
+                {
+                    // A build with no version cannot meaningfully be compared against a release.
+                    CompilePalLogger.LogLineDebug("Development build, skipping the update check.");
+                    return;
+                }
+
                 CompilePalLogger.LogLine("Fetching update information...");
 
-                using var c = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                var version = c.GetStringAsync(new Uri(isPrerelease ? LatestPrereleaseVersionURL : LatestVersionURL));
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
 
-                // Trimmed: the version files end with a newline, and Version.Parse does not accept one.
-                string newVersion = GetValidVersionString((await version).Trim());
+                /*
+                 * A prerelease build checks the prerelease pointer, a stable build the stable one.
+                 *
+                 * A prerelease also checks stable, because SemVer puts 1.2.0 above 1.2.0-rc.1 -
+                 * so someone on a release candidate should be told when the finished release
+                 * arrives. Under the old scheme that could not happen: 029.1 outranked 029, so a
+                 * prerelease user was never offered the stable build of their own line.
+                 */
+                var candidates = IsPreRelease
+                    ? new[] { PrereleaseVersionURL, StableVersionURL }
+                    : new[] { StableVersionURL };
 
-                latestVersion = Version.Parse(newVersion);
+                SemanticVersion? newest = null;
 
-                if (currentVersion < latestVersion)
+                foreach (var url in candidates)
+                {
+                    var text = (await client.GetStringAsync(url)).Trim();
+
+                    if (!SemanticVersion.TryParse(text, out var candidate) || candidate is null)
+                    {
+                        CompilePalLogger.LogLineDebug($"Ignoring unparseable version '{text}' from {url}");
+                        continue;
+                    }
+
+                    if (newest is null || candidate > newest)
+                        newest = candidate;
+                }
+
+                if (newest is null)
+                {
+                    CompilePalLogger.LogLine("Could not read any published version.");
+                    return;
+                }
+
+                latest = newest;
+
+                if (newest > Current)
                 {
                     MainWindow.ActiveDispatcher.Invoke(OnUpdateFound);
-
-                    CompilePalLogger.LogLine("Updater found that Compile Pal is outdated.");
+                    CompilePalLogger.LogLine($"Updater found that Compile Pal is outdated. Latest is {newest}.");
                 }
                 else
                 {
@@ -117,19 +159,13 @@ namespace CompilePalX
             catch (Exception e)
             {
                 // Every exception, not just HttpRequestException. This is an async void method, so
-                // anything it does not catch is rethrown on the thread pool and takes the process down
-                // with it - and a request timeout (TaskCanceledException) or an unparseable version file
-                // are both entirely ordinary ways for an update check to fail.
+                // anything it does not catch is rethrown on the thread pool and takes the process
+                // down with it - and a request timeout is an entirely ordinary way for an update
+                // check to fail.
                 CompilePalLogger.LogLine("Failed to find update information as an error was returned:");
                 CompilePalLogger.LogLine(e.Message);
                 CompilePalLogger.LogLineDebug(e.ToString());
             }
-        }
-
-        private static string GetValidVersionString(string str)
-        {
-            // Ensures string is always in format: major.minor.build.revision
-            return str + string.Concat(Enumerable.Repeat(".0", 3 - str.Count(s => s == '.')));
         }
     }
 }

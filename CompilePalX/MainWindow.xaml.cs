@@ -1056,7 +1056,7 @@ namespace CompilePalX
 
         public void LoadGameConfiguration(GameConfiguration gameConfiguration)
         {
-            Title = $"Compile Pal {UpdateManager.CurrentVersion}X {gameConfiguration.Name}";
+            Title = ProgressManager.WindowTitle(gameConfiguration.Name);
             OnPropertyChanged(nameof(GameName));
 
             PresetConfigListBox.Items.Refresh();

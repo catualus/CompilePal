@@ -18,13 +18,30 @@ namespace CompilePalX
         private static bool ready;
         private static string defaultTitle = "Compile Pal";
 
+        /// <summary>
+        /// The window title, in one place.
+        ///
+        /// This string was written out six times across two files, which is how five of them kept
+        /// upstream's trailing "X" ("Compile Pal 029X") after the sixth was changed. The X is gone
+        /// deliberately: this fork numbers itself independently, and a shared decoration on
+        /// differently-numbered builds is exactly what makes "which one are you running"
+        /// unanswerable.
+        /// </summary>
+        public static string WindowTitle(string? gameName = null) =>
+            $"{defaultTitle} {UpdateManager.CurrentVersion} — " +
+            (gameName ?? GameConfigurationManager.GameConfiguration?.Name ?? "no game selected");
+
+        /// <summary>The same title with a percentage in front, for the taskbar during a compile.</summary>
+        private static string ProgressTitle(double progress) =>
+            $"{Math.Floor(progress * 100d)}% - {WindowTitle()}";
+
         static public void Init(TaskbarItemInfo _taskbarInfo)
         {
             taskbarInfo = _taskbarInfo;
             ready = true;
 
             TitleChange(
-	            $"{defaultTitle} {UpdateManager.CurrentVersion}X {GameConfigurationManager.GameConfiguration.Name}");
+	            WindowTitle());
         }
 
 
@@ -50,7 +67,7 @@ namespace CompilePalX
 
                     if (progress >= 1)
                     {
-                        TitleChange($"{Math.Floor(progress * 100d)}% - {defaultTitle} {UpdateManager.CurrentVersion}X {GameConfigurationManager.GameConfiguration.Name}");
+                        TitleChange(ProgressTitle(progress));
 
                         if (ConfigurationManager.Settings.PlaySoundOnCompileCompletion)
                         {
@@ -61,11 +78,11 @@ namespace CompilePalX
                     {
                         taskbarInfo.ProgressState = TaskbarItemProgressState.None;
                         TitleChange(
-	                        $"{defaultTitle} {UpdateManager.CurrentVersion}X {GameConfigurationManager.GameConfiguration.Name}");
+	                        WindowTitle());
                     }
                     else
                     {
-                        TitleChange($"{Math.Floor(progress * 100d)}% - {defaultTitle} {UpdateManager.CurrentVersion}X {GameConfigurationManager.GameConfiguration.Name}");
+                        TitleChange(ProgressTitle(progress));
                     }
                 });
 
@@ -86,7 +103,7 @@ namespace CompilePalX
                                                   ProgressChange(100);
                                                   taskbarInfo.ProgressState = TaskbarItemProgressState.Error;
                                                   TitleChange(
-	                                                  $"{defaultTitle} {UpdateManager.CurrentVersion}X {GameConfigurationManager.GameConfiguration.Name}");
+	                                                  WindowTitle());
                                               }
                                           });
 

@@ -21,12 +21,15 @@
 #
 # Now the version files in the repo are the source of truth and the next number comes from them:
 #
-#   release      version.txt holds the stable version as a zero-padded integer ("029").
-#                The next release is that plus one -> "030".
-#   prerelease   version_prerelease.txt holds "<stable>.<n>" ("029.1"). The next prerelease is
-#                n + 1 -> "029.2". If a stable release has since overtaken it (version.txt is
-#                higher than the prerelease's stable part) it restarts at .1 on the new stable
-#                number instead, so prereleases never appear to go backwards.
+#   patch/minor/major   advance version.txt, which holds the latest stable release (1.0.0).
+#   rc                  a release candidate for the next patch: 1.0.1-rc.1, then -rc.2, and so
+#                       on. If a stable release has been published since the last candidate, a
+#                       fresh candidate starts on the new line rather than continuing the old
+#                       counter - which SemVer would order below what users already have.
+#
+# Versions are Semantic Versioning 2.0.0. The scheme inherited from upstream ("029" / "029.1")
+# had no minor version, sorted prereleases above their own stable release, and produced numbers
+# indistinguishable from upstream's.
 #
 # The resolved version is written back to the version file and committed to the default branch as
 # part of the run, because that file is exactly what the in-app update check reads (see
@@ -35,9 +38,8 @@
 #
 # TAGS
 # ----
-# The tag is "v" + the version: v030, v029.2. UpdateManager builds the prerelease download link as
-# releases/tag/v0<major>.<minor>, so the leading zero in the version string is load-bearing - do not
-# publish a tag like "v30".
+# The tag is "v" + the version: v1.0.0, v1.2.0-rc.1. UpdateManager builds a prerelease download
+# link as releases/tag/v<version>, so the tag and the version must agree exactly.
 #
 # Pushing a tag by hand (git tag v029.2 && git push --tags) also runs this workflow, building and
 # releasing that exact version without the bump/commit step.
@@ -47,16 +49,18 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      channel:
-        description: "Which channel to publish to"
+      bump:
+        description: "Which part to advance"
         required: true
-        default: prerelease
+        default: patch
         type: choice
         options:
-          - prerelease
-          - release
+          - patch
+          - minor
+          - major
+          - rc
       version:
-        description: "Exact version (e.g. 030 or 029.4). Leave blank to advance from the last one."
+        description: "Exact version (e.g. 1.2.0 or 1.2.0-rc.1). Leave blank to advance from the last release."
         required: false
         type: string
       dry_run:
@@ -67,7 +71,7 @@ on:
 
   push:
     tags:
-      - "v0*"
+      - "v[0-9]*"
 
 # The run writes the bumped version file back to the default branch and creates a release.
 permissions:
@@ -103,67 +107,105 @@ jobs:
         # as script. Running this needs repo write access, which bounds who can reach it - but a
         # release workflow holding `contents: write` is the last place to leave that shape in.
         env:
-          IN_CHANNEL: ${{ inputs.channel }}
+          IN_BUMP: ${{ inputs.bump }}
           IN_VERSION: ${{ inputs.version }}
           IN_TAG: ${{ github.ref_name }}
           IN_EVENT: ${{ github.event_name }}
         run: |
           $ErrorActionPreference = 'Stop'
 
+          # Semantic Versioning 2.0.0. The scheme inherited from upstream ("029" stable, "029.1"
+          # prerelease) had no minor version - the minor slot was the prerelease counter - and
+          # sorted every prerelease ABOVE the stable release of the same line, so a release
+          # candidate user was never offered the finished release. It also produced numbers
+          # indistinguishable from upstream's own.
+          # The specification's own grammar, not a looser approximation of it. Each prerelease
+          # identifier is either a number without leading zeroes or something containing a letter
+          # or hyphen - so "rc.01" is rejected here exactly as SemanticVersion.TryParse rejects it
+          # in the app. A workflow that accepted a version the client cannot parse would ship a
+          # release whose own build could not read its version.
+          $ident  = '(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+          $semver = "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-($ident(?:\.$ident)*))?`$\"
+
+          function Split-Version([string] $text) {
+              if ($text -notmatch $semver) { throw "Version '$text' is not a semantic version." }
+              [pscustomobject]@{
+                  Major = [int]$Matches[1]
+                  Minor = [int]$Matches[2]
+                  Patch = [int]$Matches[3]
+                  Pre   = $Matches[4]
+              }
+          }
+
           if ($env:IN_EVENT -eq 'push') {
-              # Tag-driven run: the tag names the version outright. "029.2" has a minor part, so it
-              # is a prerelease; a bare "030" is a stable release.
+              # Tag-driven: the tag names the version outright.
               $version = $env:IN_TAG -replace '^v', ''
-              $channel = if ($version -match '\.') { 'prerelease' } else { 'release' }
               $bumped  = $false
           }
           else {
-              $channel = $env:IN_CHANNEL
-              $exact   = "$($env:IN_VERSION)".Trim()
-
-              $stable = (Get-Content 'CompilePalX/version.txt' -Raw).Trim()
+              $exact = "$($env:IN_VERSION)".Trim()
 
               if ($exact) {
-                  $version = $exact
-              }
-              elseif ($channel -eq 'release') {
-                  $version = '{0:000}' -f ([int]$stable + 1)
+                  $version = $exact -replace '^v', ''
               }
               else {
-                  $current = (Get-Content 'CompilePalX/version_prerelease.txt' -Raw).Trim()
-                  $parts   = $current -split '\.'
-                  $major   = [int]$parts[0]
-                  $minor   = if ($parts.Count -gt 1) { [int]$parts[1] } else { 0 }
+                  $stableText = (Get-Content 'CompilePalX/version.txt' -Raw).Trim()
+                  if (-not $stableText) { $stableText = '0.0.0' }
+                  $stable = Split-Version $stableText
 
-                  # A stable release published since the last prerelease has moved the line forward;
-                  # continuing to count up from the old stable number would produce a "new"
-                  # prerelease that the updater reads as older than what users already have.
-                  if ([int]$stable -gt $major) {
-                      $major = [int]$stable
-                      $minor = 1
-                  }
-                  else {
-                      $minor = $minor + 1
+                  $preText = ''
+                  if (Test-Path 'CompilePalX/version_prerelease.txt') {
+                      $preText = (Get-Content 'CompilePalX/version_prerelease.txt' -Raw).Trim()
                   }
 
-                  $version = ('{0:000}' -f $major) + '.' + $minor
+                  switch ($env:IN_BUMP) {
+                      'major' { $version = "$($stable.Major + 1).0.0" }
+                      'minor' { $version = "$($stable.Major).$($stable.Minor + 1).0" }
+                      'patch' { $version = "$($stable.Major).$($stable.Minor).$($stable.Patch + 1)" }
+                      'rc' {
+                          <#
+                            A release candidate for the next patch. If one is already open on a
+                            line at or above the current stable, its counter advances; otherwise a
+                            fresh one starts.
+
+                            The guard matters because a stable release published since the last
+                            candidate moves the line forward - continuing to count up from the old
+                            one would produce a "new" candidate that SemVer orders BELOW what users
+                            already have.
+                          #>
+                          $target = "$($stable.Major).$($stable.Minor).$($stable.Patch + 1)"
+
+                          if ($preText -and $preText -match $semver) {
+                              $pre = Split-Version $preText
+                              $preCore = "$($pre.Major).$($pre.Minor).$($pre.Patch)"
+
+                              if ($pre.Pre -and $preCore -eq $target -and $pre.Pre -match '^rc\.(\d+)$') {
+                                  $version = "$target-rc.$([int]$Matches[1] + 1)"
+                              }
+                          }
+
+                          if (-not $version) { $version = "$target-rc.1" }
+                      }
+                      default { throw "Unknown bump '$($env:IN_BUMP)'." }
+                  }
               }
 
               $bumped = $true
           }
 
-          if ($version -notmatch '^\d{3}(\.\d+)?$') {
-              throw "Version '$version' is not in the expected form: 3 digits, optionally .minor (e.g. 030, 029.4)"
-          }
+          # Validated whichever route produced it, including an exact override typed by hand.
+          $parsed = Split-Version $version
 
-          if ($channel -eq 'release') {
-              $configuration = 'Release'
-              $versionFile   = 'version.txt'
-              $prerelease    = 'false'
-          } else {
+          if ($parsed.Pre) {
+              $channel       = 'prerelease'
               $configuration = 'Debug'
               $versionFile   = 'version_prerelease.txt'
               $prerelease    = 'true'
+          } else {
+              $channel       = 'release'
+              $configuration = 'Release'
+              $versionFile   = 'version.txt'
+              $prerelease    = 'false'
           }
 
           Write-Host "channel=$channel version=$version tag=v$version configuration=$configuration"
@@ -210,7 +252,10 @@ jobs:
           TELEMETRY_SIGNING_KEY_GENERATION: ${{ secrets.TELEMETRY_SIGNING_KEY_GENERATION || vars.TELEMETRY_SIGNING_KEY_GENERATION }}
         shell: pwsh
         run: |
-          $buildArgs = @("/p:PublishProfile=Publish$env:CONFIGURATION")
+          # The build's own version is compiled in, not read from version.txt at runtime -
+          # that file is the channel pointer the update check fetches, and one file cannot
+          # honestly mean both "what I am" and "what is newest".
+          $buildArgs = @("/p:PublishProfile=Publish$env:CONFIGURATION", "/p:BuildVersion=$env:VERSION")
 
           # Endpoint and signing are all-or-nothing.
           #
