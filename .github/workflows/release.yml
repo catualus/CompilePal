@@ -125,7 +125,7 @@ jobs:
           # in the app. A workflow that accepted a version the client cannot parse would ship a
           # release whose own build could not read its version.
           $ident  = '(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
-          $semver = "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-($ident(?:\.$ident)*))?`$\"
+          $semver = "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-($ident(?:\.$ident)*))?`$"
 
           function Split-Version([string] $text) {
               if ($text -notmatch $semver) { throw "Version '$text' is not a semantic version." }
@@ -149,14 +149,28 @@ jobs:
                   $version = $exact -replace '^v', ''
               }
               else {
-                  $stableText = (Get-Content 'CompilePalX/version.txt' -Raw).Trim()
+                  <#
+                    Get-Content -Raw returns $null for an EMPTY file, not '', and .Trim() on null
+                    throws. That is exactly the state version_prerelease.txt is in between a
+                    stable release and the first candidate after it - which is to say, right now.
+                    Test-Path does not help: the file exists, it is simply empty.
+
+                    Checked explicitly rather than cast. [string]$null is not reliably '' across
+                    PowerShell editions, and a rule this load-bearing should not rest on which
+                    host happens to run it.
+                  #>
+                  function Read-VersionFile([string] $path) {
+                      if (-not (Test-Path $path)) { return '' }
+                      $raw = Get-Content $path -Raw
+                      if ($null -eq $raw) { return '' }
+                      return $raw.Trim()
+                  }
+
+                  $stableText = Read-VersionFile 'CompilePalX/version.txt'
                   if (-not $stableText) { $stableText = '0.0.0' }
                   $stable = Split-Version $stableText
 
-                  $preText = ''
-                  if (Test-Path 'CompilePalX/version_prerelease.txt') {
-                      $preText = (Get-Content 'CompilePalX/version_prerelease.txt' -Raw).Trim()
-                  }
+                  $preText = Read-VersionFile 'CompilePalX/version_prerelease.txt'
 
                   switch ($env:IN_BUMP) {
                       'major' { $version = "$($stable.Major + 1).0.0" }
