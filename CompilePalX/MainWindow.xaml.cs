@@ -1208,6 +1208,141 @@ namespace CompilePalX
                 PaintProgressSegments(progressSegments.Count);
 
             ProgressManager.SetProgress(1);
+
+            RememberLastCompile(compiled, cancelled);
+
+            // There is already a completion sound, but it is missed with the machine muted and says
+            // nothing once it has finished playing. The taskbar button keeps asking until the window
+            // is looked at, and does nothing at all if it is already the one in front.
+            TaskbarFlash.Request(this);
+        }
+
+        // ------------------------------------------------------------------ after a compile
+
+        /// <summary>
+        /// The map the result buttons act on, and whether that result is worth launching.
+        ///
+        /// Held rather than read from the queue on demand, because the queue is editable the moment
+        /// a compile ends - a button that acts on "whatever is selected now" would open the wrong
+        /// folder for anyone who clicked away first.
+        /// </summary>
+        private Map? lastCompiledMap;
+        private bool lastCompileUsable;
+
+        private void RememberLastCompile(List<Map> compiled, bool cancelled)
+        {
+            // The last one that ran, not the selection. With several maps queued this is the one that
+            // just finished, which is what "open the result" means to somebody watching it end.
+            lastCompiledMap = compiled.LastOrDefault();
+
+            lastCompileUsable = lastCompiledMap is not null && !cancelled && LiveErrorCount == 0;
+
+            UpdateCompileResultButtons();
+        }
+
+        private void UpdateCompileResultButtons()
+        {
+            bool haveMap = lastCompiledMap is not null;
+
+            OpenBspFolderButton.IsEnabled = haveMap;
+            LaunchMapButton.IsEnabled = haveMap && lastCompileUsable;
+
+            if (!haveMap)
+            {
+                OpenBspFolderButton.ToolTip = "Show the compiled map (compile something first)";
+                LaunchMapButton.ToolTip = "Launch the compiled map (compile something first)";
+                return;
+            }
+
+            string name = lastCompiledMap!.FullMapName;
+
+            OpenBspFolderButton.ToolTip = $"Show {name}.bsp in Explorer";
+            LaunchMapButton.ToolTip = lastCompileUsable
+                ? $"Launch {name} in {GameConfigurationManager.GameConfiguration?.Name ?? "the game"}"
+                : "The last compile failed or was cancelled, so there is nothing worth launching";
+        }
+
+        private void OpenBspFolderButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (lastCompiledMap is not { } map)
+                return;
+
+            // Which of the two possible locations is the real one is CompiledMapLocator's problem;
+            // see there for why the maps folder copy is not simply preferred whenever it exists.
+            string? bsp = CompiledMapLocator.ResolveBsp(
+                map.File, map.IsBSP, GameConfigurationManager.GameConfiguration?.MapFolder);
+
+            if (bsp is null)
+            {
+                CompilePalLogger.LogLineColor(
+                    "Could not find the compiled map. It may not have got as far as writing one.",
+                    Error.GetSeverityBrush(3));
+                return;
+            }
+
+            // Selects the file inside its folder, and falls back to the folder alone if it has since
+            // been moved. Shared with the queue's own context menu.
+            RevealInExplorer(bsp);
+        }
+
+        private void LaunchMapButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            if (lastCompiledMap is not { } map)
+                return;
+
+            if (GameConfigurationManager.GameConfiguration is not { } configuration)
+                return;
+
+            try
+            {
+                string exe = GameExeResolver.Resolve(configuration.GameEXE);
+
+                if (!File.Exists(exe))
+                {
+                    CompilePalLogger.LogCompileError(
+                        $"Cannot launch the game: {exe} does not exist.\n",
+                        new Error($"Game executable not found: {exe}", "Game failed to launch", ErrorSeverity.Error));
+                    return;
+                }
+
+                /*
+                 * Deliberately not GameLauncher.Launch.
+                 *
+                 * That exists so the nav and cubemap steps can wait on the game Steam re-spawns, and
+                 * it blocks for up to twenty seconds working out which process that is. Called from
+                 * a click handler it would block the UI thread and freeze the window.
+                 *
+                 * Nothing here needs the handle - the map is launched and forgotten - so a plain
+                 * start is both correct and instant. The Steam warning is still worth borrowing,
+                 * because a cold Steam is the usual reason a launch appears to do nothing.
+                 */
+                GameLauncher.WarnIfSteamNotRunning();
+
+                var startInfo = new ProcessStartInfo(exe)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = false,
+                };
+
+                startInfo.ArgumentList.Add("-game");
+                startInfo.ArgumentList.Add(configuration.GameFolder);
+                startInfo.ArgumentList.Add("+map");
+
+                // FullMapName, not MapName. MapName strips version suffixes (_rc2, _final), which is
+                // right for packing lookups and wrong here: the BSP on disk keeps the suffix, so the
+                // stripped name would ask the game to load a map that does not exist.
+                startInfo.ArgumentList.Add(map.FullMapName);
+
+                Process.Start(startInfo);
+
+                CompilePalLogger.LogLine($"Launching {map.FullMapName} in {configuration.Name}.");
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogCompileError(
+                    $"Could not launch the game: {ex.Message}\n",
+                    new Error($"Game failed to launch: {ex.Message}", "Game failed to launch", ErrorSeverity.Error));
+            }
         }
 
         private void ComparePresetsButton_OnClick(object sender, RoutedEventArgs e)
@@ -2357,7 +2492,97 @@ namespace CompilePalX
                 CompilePalLogger.LogLineDebug($"Failed to load settings on startup: {ex}");
             }
 
+            RestoreWindowPlacement();
+
             base.OnSourceInitialized(e);
+        }
+
+        /// <summary>
+        /// Puts the window back where it was last closed, if that is still somewhere it can be seen.
+        ///
+        /// The check is the whole point of this method. A window saved on a second monitor that has
+        /// since been unplugged, or on a display whose resolution has dropped, restores to
+        /// coordinates that no longer exist - and an off-screen window cannot be dragged back,
+        /// because there is nothing to grab. The remedy is a settings file the user has to find and
+        /// delete, which is a worse experience than never having remembered the position.
+        ///
+        /// So the saved rectangle has to overlap the desktop as it is right now. Overlap rather than
+        /// containment: a window hanging slightly off the right edge is normal and worth restoring.
+        /// </summary>
+        private void RestoreWindowPlacement()
+        {
+            try
+            {
+                var settings = ConfigurationManager.Settings;
+
+                if (settings.WindowLeft is not { } left || settings.WindowTop is not { } top
+                    || settings.WindowWidth is not { } width || settings.WindowHeight is not { } height)
+                    return;
+
+                // Nonsense values, from a hand-edited file or a minimised window saved by an older
+                // build. MinWidth/MinHeight from XAML are the floor worth honouring.
+                if (double.IsNaN(width) || double.IsNaN(height) || width < MinWidth || height < MinHeight)
+                    return;
+
+                var saved = new Rect(left, top, width, height);
+
+                var desktop = new Rect(
+                    SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                    SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+
+                if (!desktop.IntersectsWith(saved))
+                {
+                    CompilePalLogger.LogLineDebug(
+                        $"Saved window position {saved} is not on any current display; using the default.");
+                    return;
+                }
+
+                // Manual placement, so WindowStartupLocation does not overwrite it afterwards.
+                WindowStartupLocation = WindowStartupLocation.Manual;
+
+                Left = left;
+                Top = top;
+                Width = width;
+                Height = height;
+
+                if (settings.WindowMaximised)
+                    WindowState = WindowState.Maximized;
+            }
+            catch (Exception ex)
+            {
+                // Never fatal. A window that will not open is a far worse bug than one that opens at
+                // the wrong size, and this runs before anything is on screen to report it with.
+                CompilePalLogger.LogLineDebug($"Failed to restore the window position: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Records where the window is, for the next launch.
+        ///
+        /// RestoreBounds rather than Left/Top/Width/Height, because those describe the maximised
+        /// rectangle while the window is maximised. Saving those would mean unmaximising after a
+        /// restart snapped the window to full screen size in a restored state, which is not where
+        /// the user left it.
+        /// </summary>
+        private void SaveWindowPlacement()
+        {
+            var settings = ConfigurationManager.Settings;
+
+            // Minimised has no useful geometry of its own, and RestoreBounds covers both the other
+            // states, so it is read in every case.
+            var bounds = RestoreBounds;
+
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                return;
+
+            settings.WindowLeft = bounds.Left;
+            settings.WindowTop = bounds.Top;
+            settings.WindowWidth = bounds.Width;
+            settings.WindowHeight = bounds.Height;
+
+            // A window closed while minimised should reopen the way it was before it was minimised,
+            // not minimised, so only maximised is worth carrying across.
+            settings.WindowMaximised = WindowState == WindowState.Maximized;
         }
 
         /// <summary>How long the closing path will wait for the usage report to go out.</summary>
@@ -2373,6 +2598,8 @@ namespace CompilePalX
 
                 // remember which preset was selected so the next launch reopens on it
                 ConfigurationManager.Settings.LastPreset = ConfigurationManager.CurrentPreset?.Name;
+
+                SaveWindowPlacement();
 
                 ConfigurationManager.SaveSettings();
             }

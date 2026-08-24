@@ -52,10 +52,19 @@ namespace CompilePalX
                     }
                     catch (Exception moveFailure)
                     {
-                        ExceptionHandler.LogException(moveFailure, false);
+                        CompilePalLogger.LogLineDebug($"Could not rename the unreadable map list: {moveFailure}");
                     }
 
-                    ExceptionHandler.LogException(e, false);
+                    /*
+                     * Logged, not reported through ExceptionHandler.
+                     *
+                     * ExceptionHandler.LogException shows the crash dialog even when told the fault
+                     * is not fatal, and nothing has crashed here: the file was set aside and the
+                     * queue starts empty, which is exactly what the message below says. A crash
+                     * dialog for a recovered condition teaches people to dismiss the one that
+                     * matters.
+                     */
+                    CompilePalLogger.LogLineDebug($"Could not read {mapFiles}: {e}");
 
                     // Only claim the rename happened if it did. Saying the file "was kept as
                     // mapfiles.json.corrupt" when the move failed sends the user looking for a file
