@@ -81,6 +81,23 @@ namespace CompilePalX.Configuration
         // not directly editable by user, restores the preset selected when the app was last closed
         public string? LastPreset { get; set; } = null;
 
+        /// <summary>
+        /// Where the window was when it was last closed, so it reopens there.
+        ///
+        /// Nullable throughout, and every one of them has to be present before any is used. A first
+        /// run, or a settings file written by a build that predates these, leaves them null and the
+        /// window falls back to the size declared in XAML.
+        ///
+        /// When the window is maximised these hold its restore bounds rather than the maximised
+        /// ones, so unmaximising after a restart lands where the user left it rather than filling a
+        /// quarter of the screen.
+        /// </summary>
+        public double? WindowLeft { get; set; } = null;
+        public double? WindowTop { get; set; } = null;
+        public double? WindowWidth { get; set; } = null;
+        public double? WindowHeight { get; set; } = null;
+        public bool WindowMaximised { get; set; } = false;
+
         public object Clone()
         {
             return MemberwiseClone();

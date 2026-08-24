@@ -2357,7 +2357,97 @@ namespace CompilePalX
                 CompilePalLogger.LogLineDebug($"Failed to load settings on startup: {ex}");
             }
 
+            RestoreWindowPlacement();
+
             base.OnSourceInitialized(e);
+        }
+
+        /// <summary>
+        /// Puts the window back where it was last closed, if that is still somewhere it can be seen.
+        ///
+        /// The check is the whole point of this method. A window saved on a second monitor that has
+        /// since been unplugged, or on a display whose resolution has dropped, restores to
+        /// coordinates that no longer exist - and an off-screen window cannot be dragged back,
+        /// because there is nothing to grab. The remedy is a settings file the user has to find and
+        /// delete, which is a worse experience than never having remembered the position.
+        ///
+        /// So the saved rectangle has to overlap the desktop as it is right now. Overlap rather than
+        /// containment: a window hanging slightly off the right edge is normal and worth restoring.
+        /// </summary>
+        private void RestoreWindowPlacement()
+        {
+            try
+            {
+                var settings = ConfigurationManager.Settings;
+
+                if (settings.WindowLeft is not { } left || settings.WindowTop is not { } top
+                    || settings.WindowWidth is not { } width || settings.WindowHeight is not { } height)
+                    return;
+
+                // Nonsense values, from a hand-edited file or a minimised window saved by an older
+                // build. MinWidth/MinHeight from XAML are the floor worth honouring.
+                if (double.IsNaN(width) || double.IsNaN(height) || width < MinWidth || height < MinHeight)
+                    return;
+
+                var saved = new Rect(left, top, width, height);
+
+                var desktop = new Rect(
+                    SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                    SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+
+                if (!desktop.IntersectsWith(saved))
+                {
+                    CompilePalLogger.LogLineDebug(
+                        $"Saved window position {saved} is not on any current display; using the default.");
+                    return;
+                }
+
+                // Manual placement, so WindowStartupLocation does not overwrite it afterwards.
+                WindowStartupLocation = WindowStartupLocation.Manual;
+
+                Left = left;
+                Top = top;
+                Width = width;
+                Height = height;
+
+                if (settings.WindowMaximised)
+                    WindowState = WindowState.Maximized;
+            }
+            catch (Exception ex)
+            {
+                // Never fatal. A window that will not open is a far worse bug than one that opens at
+                // the wrong size, and this runs before anything is on screen to report it with.
+                CompilePalLogger.LogLineDebug($"Failed to restore the window position: {ex}");
+            }
+        }
+
+        /// <summary>
+        /// Records where the window is, for the next launch.
+        ///
+        /// RestoreBounds rather than Left/Top/Width/Height, because those describe the maximised
+        /// rectangle while the window is maximised. Saving those would mean unmaximising after a
+        /// restart snapped the window to full screen size in a restored state, which is not where
+        /// the user left it.
+        /// </summary>
+        private void SaveWindowPlacement()
+        {
+            var settings = ConfigurationManager.Settings;
+
+            // Minimised has no useful geometry of its own, and RestoreBounds covers both the other
+            // states, so it is read in every case.
+            var bounds = RestoreBounds;
+
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                return;
+
+            settings.WindowLeft = bounds.Left;
+            settings.WindowTop = bounds.Top;
+            settings.WindowWidth = bounds.Width;
+            settings.WindowHeight = bounds.Height;
+
+            // A window closed while minimised should reopen the way it was before it was minimised,
+            // not minimised, so only maximised is worth carrying across.
+            settings.WindowMaximised = WindowState == WindowState.Maximized;
         }
 
         /// <summary>How long the closing path will wait for the usage report to go out.</summary>
@@ -2373,6 +2463,8 @@ namespace CompilePalX
 
                 // remember which preset was selected so the next launch reopens on it
                 ConfigurationManager.Settings.LastPreset = ConfigurationManager.CurrentPreset?.Name;
+
+                SaveWindowPlacement();
 
                 ConfigurationManager.SaveSettings();
             }
