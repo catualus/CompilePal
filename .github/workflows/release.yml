@@ -204,7 +204,10 @@ jobs:
         env:
           TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
           TELEMETRY_SIGNING_ROOT: ${{ secrets.TELEMETRY_SIGNING_ROOT }}
-          TELEMETRY_SIGNING_KEY_GENERATION: ${{ vars.TELEMETRY_SIGNING_KEY_GENERATION }}
+          # Accepted as either a secret or a variable. It is not sensitive - it names a key
+          # generation, typically "k1" - so it is reasonable to keep in either place, and reading
+          # only one of them means a value set in the other looks like nothing was set at all.
+          TELEMETRY_SIGNING_KEY_GENERATION: ${{ secrets.TELEMETRY_SIGNING_KEY_GENERATION || vars.TELEMETRY_SIGNING_KEY_GENERATION }}
         shell: pwsh
         run: |
           $buildArgs = @("/p:PublishProfile=Publish$env:CONFIGURATION")
