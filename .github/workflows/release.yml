@@ -321,7 +321,11 @@ jobs:
 
           # The project, not the solution: publishing the solution drags in the test project,
           # which has no publish profile.
-          dotnet publish CompilePalX/CompilePalX.csproj @buildArgs
+          #
+          # --no-restore, because the restore step above already ran and the project declares its
+          # own RuntimeIdentifier, so there are no runtime-specific assets left to fetch. Without
+          # it this re-resolves the whole graph a second time in every release.
+          dotnet publish CompilePalX/CompilePalX.csproj --no-restore @buildArgs
 
       - name: Package
         shell: pwsh
@@ -346,11 +350,14 @@ jobs:
 
       # Always uploaded, dry run or not, so the build is inspectable from the run page either way.
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compile-pal-${{ env.VERSION }}
           path: ${{ env.ASSET }}
           if-no-files-found: error
+          # The asset is already a zip. The default compression level spends time re-compressing
+          # compressed data for no gain.
+          compression-level: 0
 
       # Only for a workflow_dispatch run that actually chose the version. A tag-driven run releases
       # whatever is already committed and must not rewrite history behind the tag.
@@ -373,19 +380,57 @@ jobs:
               git push
           }
 
+      # Published with the GitHub CLI rather than a third-party action.
+      #
+      # This step needs contents: write, which is the power to rewrite this repository, and it used
+      # a marketplace action to exercise it. GitHub's own guidance is to pin any third-party action
+      # to a full commit SHA, precisely because a tag can be moved under you - but the simpler
+      # answer here is not to need one. gh is preinstalled on every runner, it is GitHub's own
+      # tool, and it does everything this step was using the action for.
       - name: Publish release
         if: ${{ inputs.dry_run != true }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          name: Compile Pal ${{ env.VERSION }}
-          prerelease: ${{ env.PRERELEASE == 'true' }}
-          # The tag is created here rather than beforehand, so it has to point at the commit the
-          # version bump just produced.
-          target_commitish: ${{ github.sha }}
-          generate_release_notes: true
-          files: ${{ env.ASSET }}
-          fail_on_unmatched_files: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (-not (Test-Path $env:ASSET)) {
+              throw "Asset not found: $env:ASSET"
+          }
+
+          # Idempotent, because the rest of this job already is.
+          #
+          # The action this replaced updated an existing release rather than failing on one, and a
+          # re-run after a partial failure depends on that - the Package step explicitly handles
+          # finding its own previous output in place. `gh release create` refuses a tag that already
+          # has a release, so the existing case is handled rather than left to fail on the second
+          # attempt at publishing a version.
+          gh release view $env:TAG *> $null
+          $exists = $LASTEXITCODE -eq 0
+          $global:LASTEXITCODE = 0
+
+          if ($exists) {
+              Write-Host "Release $env:TAG already exists, updating it."
+
+              gh release upload $env:TAG $env:ASSET --clobber
+              if ($LASTEXITCODE -ne 0) { throw "gh release upload failed with exit code $LASTEXITCODE" }
+          } else {
+              # The tag is created here rather than beforehand, so --target has to name the commit
+              # the version bump just produced. On a tag-driven run the tag already exists and gh
+              # attaches the release to it.
+              $ghArgs = @(
+                  'release', 'create', $env:TAG,
+                  '--title', "Compile Pal $env:VERSION",
+                  '--target', $env:GITHUB_SHA,
+                  '--generate-notes'
+              )
+
+              if ($env:PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
+
+              gh @ghArgs $env:ASSET
+              if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE" }
+          }
 
       - name: Summary
         shell: pwsh

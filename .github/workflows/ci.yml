@@ -1,9 +1,9 @@
 # Build and test on every push and pull request.
 #
-# Deliberately separate from release.yml, and deliberately does not publish anything: this is the
-# fast check that the tree still compiles and the tests still pass. Previously the only workflow in
-# the repo was the release one, so nothing ran until a release was cut - which meant a broken build
-# was found while publishing it.
+# Deliberately separate from release.yml, and deliberately publishes nothing: this is the fast
+# check that the tree still compiles and the tests still pass. Previously the only workflow in the
+# repo was the release one, so nothing ran until a release was cut, which meant a broken build was
+# found while publishing it.
 
 name: CI
 
@@ -11,39 +11,97 @@ on:
   push:
     branches:
       - master
-      - ui-redesign
     paths-ignore:
       - "**.md"
       - "Guides/**"
       - ".gitignore"
+  # Every pull request, whatever branch it comes from. The push trigger covers master only, so
+  # without this a feature branch would get no check until it was merged.
   pull_request:
-    branches:
-      - master
+  workflow_dispatch:
 
-permissions:
-  contents: read
+# Nothing by default, granted per job. GitHub's hardening guidance: a workflow that declares no
+# permissions at the top gets the repository default, which is usually more than any job needs.
+permissions: {}
 
-# A newer push supersedes an in-flight check of the same branch.
+# A newer push supersedes an in-flight check of the same branch. Including the workflow name keeps
+# this group distinct from any other workflow that keys on the same ref.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Quieter logs, and no first-run banner on every step.
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # Nothing here is interactive, and the CLI spends time on this otherwise.
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
 jobs:
+  # Cheap, and it guards the thing that just went wrong: the workflows had drifted three major
+  # versions behind on every action, and Dependabot will now be opening pull requests to bump them.
+  # actionlint checks each action's inputs against the version pinned, so a bump that renames or
+  # removes one fails here rather than in a release.
+  #
+  # Runs on Linux and takes seconds, so it does not hold up the build below.
+  workflows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Lint workflows
+        # Pinned rather than resolved to "latest" at run time. A linter that silently changes
+        # version is a linter that can start failing a build nobody touched, and this job exists
+        # to make dependency bumps trustworthy rather than to be one.
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | tar -xz actionlint
+          ./actionlint -color
+
   build:
     # WPF, so this cannot run on Linux regardless of what the rest of the toolchain supports.
+    #
+    # Pinned rather than windows-latest: that label moved to Server 2025 and a runner image
+    # changing under a build is exactly the kind of failure that wastes an afternoon. 2022 is
+    # still generally available.
     runs-on: windows-2022
     timeout-minutes: 30
 
+    permissions:
+      contents: read
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          # This job never pushes, so the token has no business being left in .git/config where
+          # any later step, or anything those steps run, could pick it up.
+          persist-credentials: false
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+          # Caches the NuGet global-packages folder, keyed on the hash of the lock files. This is
+          # why the lock files exist: the action fails outright when it cannot find one. Restoring
+          # Microsoft.Windows.Compatibility and the WPF-UI stack from scratch is most of what this
+          # job used to spend its time on.
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
 
+      # --locked-mode, so a restore that would need to change the lock file fails instead of
+      # quietly resolving something different from what was committed. Without it the lock files
+      # would be documentation rather than a constraint.
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore --locked-mode
 
       - name: Build
         run: dotnet build --configuration Release --no-restore
@@ -54,16 +112,21 @@ jobs:
       # Kept even when the tests fail - that is the run whose results are worth reading.
       - name: Upload test results
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: "**/TestResults/*.trx"
           if-no-files-found: ignore
+          # These are only useful while the run is fresh. The default is 90 days.
+          retention-days: 7
 
-      # Publishing exercises the single-file/self-contained path that the release build uses, which
+      # Publishing exercises the single-file, self-contained path that the release build uses and
       # ordinary `dotnet build` does not. A failure here only ever showed up during a release.
+      #
+      # --no-restore is safe because the project declares its RuntimeIdentifier, so the restore
+      # above already covered the runtime-specific assets this needs.
       - name: Verify the release package builds
-        # The project, not the solution. Publishing the solution also tries to publish the
-        # test project, which has no such profile - harmless but it emits NETSDK1198 and does
-        # pointless work.
-        run: dotnet publish CompilePalX/CompilePalX.csproj /p:PublishProfile=PublishRelease
+        # The project, not the solution. Publishing the solution also tries to publish the test
+        # project, which has no such profile - harmless, but it emits NETSDK1198 and does pointless
+        # work.
+        run: dotnet publish CompilePalX/CompilePalX.csproj -p:PublishProfile=PublishRelease --no-restore

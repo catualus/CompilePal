@@ -1,0 +1,72 @@
+# CodeQL analysis.
+#
+# GitHub's own static analysis, free on public repositories. Kept off the pull request path on
+# purpose: it needs a full build of a WPF application, which is the slowest thing in this repo, and
+# CI already gives a pull request its answer in a few minutes. Findings here are the kind that are
+# worth knowing about within a week rather than within a minute.
+#
+# Run it by hand from the Actions tab when a change deserves it sooner.
+
+name: CodeQL
+
+on:
+  schedule:
+    # Mondays, early. No particular reason beyond wanting it off the hour, which is when every
+    # scheduled workflow on GitHub starts at once and the queue is longest.
+    - cron: "37 5 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  analyse:
+    # Same runner as CI. C# analysis needs the project to build, and this one only builds on
+    # Windows.
+    runs-on: windows-2022
+    timeout-minutes: 60
+
+    permissions:
+      # Writing the results back to the Security tab is the whole point.
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/packages.lock.json"
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          # security-and-quality adds maintainability rules on top of the security ones. On an
+          # inherited codebase that is a lot of noise for little gain, so this stays on the
+          # security set until the existing findings have been read.
+          queries: security-extended
+
+      # Built explicitly rather than left to autobuild: autobuild guesses, and what it guesses for
+      # a solution containing a test project is not necessarily what ships.
+      - name: Build
+        run: |
+          dotnet restore --locked-mode
+          dotnet build CompilePalX/CompilePalX.csproj --configuration Release --no-restore
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:csharp"

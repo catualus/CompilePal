@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    Applies to every project in the repository. MSBuild imports the nearest one of these walking up
+    from each project file, so this is the place for settings that must not drift between the app
+    and its tests.
+  -->
+  <PropertyGroup>
+    <!--
+      Write a packages.lock.json next to each project and restore against it.
+
+      Two things follow, and both are the point:
+
+        - Restores are reproducible. Without a lock file the exact transitive graph is resolved
+          fresh every time, so a transitive dependency can change under a build that touched
+          nothing. The direct versions in the csproj were already pinned; their dependencies
+          were not.
+
+        - CI can cache NuGet. actions/setup-dotnet keys its package cache on the hash of these
+          files and fails outright when they do not exist, so this is what makes caching
+          available at all rather than an optimisation on top of it.
+
+      The files are committed. A lock file that is not in the repository locks nothing.
+    -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+</Project>
