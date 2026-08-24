@@ -17,7 +17,9 @@
 
 ## Downloads
 
-Windows only. Self-contained - no .NET install required.
+64-bit Windows. One executable with the .NET runtime bundled inside it, so **nothing needs
+installing** - download it and run it. ([Building](#building) from source is the only thing that
+needs a .NET SDK.)
 
 #### Latest release
 
@@ -220,8 +222,10 @@ upstream's - this fork at 1.4.0 is not "behind" upstream at 029.
 
 ## Building
 
-Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download). Nothing else - there are no
-submodules and no external checkouts to line up.
+Only needed if you are building from source; a downloaded release needs nothing installed.
+
+Get the [.NET 10 SDK](https://dotnet.microsoft.com/download). Nothing else - there are no submodules
+and no external checkouts to line up.
 
 ```bash
 git clone https://github.com/catualus/CompilePal
