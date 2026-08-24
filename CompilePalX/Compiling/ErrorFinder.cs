@@ -60,6 +60,20 @@ namespace CompilePalX
         private static readonly TimeSpan FailureBackoff = TimeSpan.FromHours(6);
 
         /// <summary>
+        /// Ceiling on how long a single pattern may spend on a single line of output.
+        ///
+        /// Every pattern in the catalogue is compiled from data fetched over the network, from a
+        /// URL that is itself a user setting - and <see cref="GetError"/> runs all of them against
+        /// every line a compile tool prints. A pattern with catastrophic backtracking is therefore
+        /// enough to wedge a compile solidly, with no way out but killing the process.
+        ///
+        /// Without a timeout, .NET will backtrack for as long as it takes. 100ms is far more than
+        /// any sane pattern needs against one line, and small enough that even a hostile one costs
+        /// only that much per line before being abandoned.
+        /// </summary>
+        private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
+
+        /// <summary>
         /// Shared. A fresh HttpClient per fetch strands a socket every time one is collected; a single
         /// fetch at startup never made that visible, but a fetch on every settings save and every
         /// shutdown did.
@@ -394,7 +408,7 @@ namespace CompilePalX
                     {
                         into.Add(new Error
                         {
-                            RegexTrigger = new Regex(entry.Pattern, RegexOptions.IgnoreCase),
+                            RegexTrigger = new Regex(entry.Pattern, RegexOptions.IgnoreCase, MatchTimeout),
                             Severity = entry.Severity,
                             ShortDescription = entry.Title,
                             Message = style.Replace("%content%", entry.Html),
@@ -458,7 +472,7 @@ namespace CompilePalX
                 var data = lines[i].Split('|', 2);
 
                 error.Severity = int.Parse(data[0]);
-                error.RegexTrigger = new Regex(data[1]);
+                error.RegexTrigger = new Regex(data[1], RegexOptions.None, MatchTimeout);
                 i++;
 
                 var shortDesc = errorDescriptionPattern.Match(lines[i]);
@@ -478,7 +492,21 @@ namespace CompilePalX
 
             foreach (var error in errors)
             {
-                if (error.RegexTrigger.IsMatch(line))
+                bool matched;
+
+                try
+                {
+                    matched = error.RegexTrigger.IsMatch(line);
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    // A pattern that cannot decide within MatchTimeout is skipped for this line
+                    // rather than allowed to stall the compile. Not logged: it would fire for
+                    // every line and the log is the compile output the user is reading.
+                    continue;
+                }
+
+                if (matched)
                 {
 	                var err = error.Clone() as Error;
 					// remove all control chars

@@ -29,7 +29,7 @@ namespace CompilePalX
             }
 
             try {
-                AnalyticsManager.Error();//risky, but /interesting/
+                TelemetryManager.Error();//risky, but /interesting/
             } catch (Exception) {}
 
             if (crash)

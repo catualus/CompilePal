@@ -37,29 +37,11 @@ namespace CompilePalX.Configuration
         /// Opt-in usage reporting. Off by default and deliberately so.
         ///
         /// Upstream shipped this on for everyone, with no setting to refuse and two hardcoded
-        /// destinations - one of which the code could not name the owner of. A fork cannot inherit
-        /// that: nobody downloading this build agreed to send anything anywhere. See AnalyticsManager.
+        /// Segment destinations - one of which the code could not name the owner of. A fork
+        /// cannot inherit that: nobody downloading this build agreed to send anything anywhere.
+        /// See TelemetryManager for what a submission actually contains.
         /// </summary>
-        public bool AnalyticsEnabled { get; set; } = false;
-
-        /// <summary>
-        /// Segment-compatible write key for usage reporting. Blank means there is nowhere to send to,
-        /// so nothing is sent even when <see cref="AnalyticsEnabled"/> is on.
-        /// </summary>
-        public string AnalyticsWriteKey { get; set; } = "";
-
-        /// <summary>
-        /// Collector the events go to. Blank uses Segment's own endpoint; set it to a self-hosted
-        /// RudderStack, Jitsu or any other service speaking the same batch API to keep the data
-        /// entirely under your control.
-        /// </summary>
-        public string AnalyticsHost { get; set; } = "";
-
-        /// <summary>
-        /// Random per-install identifier, generated on first report. Not derived from the machine -
-        /// clearing it here is all it takes to start over as a new install.
-        /// </summary>
-        public string? AnalyticsInstallId { get; set; } = null;
+        public bool TelemetryEnabled { get; set; } = false;
 
         public string ErrorSourceURL { get; set; } = "https://www.interlopers.net/includes/errorpage/errorChecker.txt";
         public int ErrorCacheExpirationDays { get; set; } = 7;

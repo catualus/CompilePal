@@ -79,6 +79,35 @@ namespace CompilePalX
             return Math.Abs(glyphs.AdvanceWidths[narrow] - glyphs.AdvanceWidths[wide]) < 0.0001;
         }
 
+        /// <summary>
+        /// Prints the exact submission that would be sent right now.
+        ///
+        /// Generated from the same state the send uses rather than written out by hand, so it
+        /// cannot drift from the truth - which is the entire point of offering it.
+        /// </summary>
+        private async void ShowTelemetryPayload_Click(object sender, RoutedEventArgs e)
+        {
+            // Save first: the toggle and endpoint are bound to the DataContext copy, and the
+            // payload is built from ConfigurationManager.Settings. Without this the dialog
+            // describes the settings as they were when the window opened.
+            var pending = (Settings)this.DataContext;
+            ConfigurationManager.Settings.TelemetryEnabled = pending.TelemetryEnabled;
+
+            // A build without an endpoint compiled in collects and then discards. Saying so is
+            // better than showing a payload it will never send and letting the toggle imply
+            // otherwise - this is what an unofficial build or a local clone will see.
+            var note = TelemetryManager.CanReport
+                ? ""
+                : "This build has no reporting endpoint compiled in, so nothing is sent no " +
+                  "matter what this setting says. Official releases do." + Environment.NewLine +
+                  Environment.NewLine + "It would otherwise send:" + Environment.NewLine + Environment.NewLine;
+
+            await Theming.AppDialog.ShowAsync(
+                "What Compile Pal would send",
+                note + TelemetryManager.DescribePayload(),
+                closeText: "Close");
+        }
+
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
             var settings = (Settings)this.DataContext;
@@ -89,7 +118,16 @@ namespace CompilePalX
             if (string.IsNullOrWhiteSpace(settings.OutputFontFamily))
                 settings.OutputFontFamily = "Cascadia Mono, Cascadia Code, Consolas, Courier New";
 
+            // Read before the save replaces Settings, so "was it on a moment ago" is still answerable.
+            bool wasEnabled = ConfigurationManager.Settings.TelemetryEnabled;
+
             ConfigurationManager.SaveSettings(settings);
+
+            // Switching reporting off discards this session's counters rather than leaving them
+            // in memory. They would not have been sent - the flush checks the setting too - but
+            // holding onto them after the user has just declined is not the right answer.
+            if (wasEnabled && !settings.TelemetryEnabled)
+                TelemetryManager.Discard();
 
             // the tools++ override may have changed, so cached verdicts are no longer valid
             ToolsPlusPlusDetector.Invalidate();

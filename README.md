@@ -35,6 +35,46 @@ Get the latest features without having to wait. Experimental releases may be uns
 * Batch Compiling
 * Much More!
 
+## Privacy
+
+Compile Pal sends **nothing** unless you turn usage reporting on in Settings. It is off by
+default and there is no first-run prompt that quietly opts you in.
+
+If you do turn it on, one summary is sent as the app closes:
+
+* how many times you launched it, compiled, and how many compiles finished clean, failed or
+  were cancelled
+* how many compile errors were recognised
+* the Compile Pal version and Windows build number
+* which of the games Compile Pal ships a configuration for you used — anything else is
+  reported as `other`, so a renamed configuration never leaves your machine
+
+There is **no identifier of any kind** in it: no account, no machine ID, no hardware
+fingerprint, nothing that distinguishes your install from anyone else's. Map names, file
+paths, presets and compile output are never sent. Nothing is written to disk waiting to be
+sent, and a failed send is dropped rather than retried.
+
+**Settings → Privacy → Show what is sent** prints the exact message, generated from the same
+values the send uses, so you can check rather than take our word for it. The totals everyone
+contributes to are public at
+[/api/telemetry/v1/stats](https://telemetry.catualus.dev/api/telemetry/v1/stats).
+
+Those public figures are deliberately coarse. Compile Pal has a small user base, and "aggregate"
+stops meaning "anonymous" when a sum describes one person — a daily figure reading *1 install,
+version 029.1, Garry's Mod, 3 compiles* is somebody's working day. So the endpoint reports weeks
+rather than days, withholds any figure describing fewer than 5 installs, publishes nothing at all
+until a window covers 25 install-days, never reports your OS version in any form, and never
+combines those dimensions. Where rows are withheld it says how many, so you can see that
+something was omitted rather than being handed a quietly partial answer.
+
+The destination is compiled into official builds and is not a setting — a reporting endpoint
+read from a file on your disk would be an obvious thing for malware to repoint. It also means
+**builds that are not ours report nowhere at all**: if you build from source, or run a fork, the
+endpoint is absent and nothing is sent no matter what the toggle says.
+
+Upstream Compile Pal reports usage from every install with no way to refuse. This fork does
+not, and none of its data goes to upstream.
+
 ## Guides
 * [Quick Start](Guides/QuickStart.md)
 * [Reporting An Issue](Guides/Issues.md)

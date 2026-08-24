@@ -60,6 +60,24 @@ namespace CompilePalX.Compilers.BSPPack
                     return false;
                 }
 
+                // The response file handed to bspzip is line-oriented: alternating internal and
+                // external paths, one per line. A control character in either half - a newline
+                // above all - injects extra lines and therefore an extra (internal, external)
+                // pair, whose external half never passed the File.Exists check above because it
+                // never went through this method. That is the traversal problem again by a
+                // different route, and it is the file format that has to be defended rather than
+                // any one parser that might produce such a string.
+                //
+                // Refused rather than stripped: a path we would have to rewrite to make safe is
+                // not a path we understood, and silently packing a *different* file than the map
+                // asked for is worse than packing none.
+                if (HasControlCharacters(paths.Key) || HasControlCharacters(externalPath))
+                {
+                    CompilePalLogger.LogLineDebug(
+                        "Refusing an asset path containing control characters, which would corrupt the bspzip file list");
+                    return false;
+                }
+
                 Files.Add(paths);
                 return true;
             }
@@ -513,9 +531,64 @@ namespace CompilePalX.Compilers.BSPPack
 	        var sanitizedPath = SanitizePath(internalPath);
 
             foreach (string source in sourceDirs)
-                if (File.Exists(Path.Combine(source, sanitizedPath)))
+            {
+                // Resolved under the content root, not merely joined to it. See ResolveWithinRoot.
+                if (ResolveWithinRoot(source, sanitizedPath) is not { } resolved)
+                    continue;
+
+                if (File.Exists(resolved))
                     return Path.Combine(source, sanitizedPath.Replace("\\", "/"));
+            }
+
             return "";
+        }
+
+        /// <summary>
+        /// Joins an asset path to a content root, and refuses the result if it escapes that root.
+        ///
+        /// Asset paths come out of the map: entity keyvalues, material and model references, sound
+        /// names. A .vmf is a file a mapper may well have been handed by somebody else, so those
+        /// strings are attacker controlled.
+        ///
+        /// <see cref="SanitizePath"/> does not make them safe and was never meant to - it strips
+        /// characters the filesystem rejects, and '.' and '/' are both perfectly valid. So
+        /// "materials/../../../../Users/someone/.ssh/id_rsa" passed through it unchanged,
+        /// Path.Combine resolved it outside the game folder, File.Exists said yes, and the file was
+        /// packed into the BSP. The mapper then uploads the result. That is arbitrary file
+        /// exfiltration triggered by opening someone else's map, and it needs a boundary check
+        /// rather than a blocklist.
+        ///
+        /// The comparison is on the canonical paths, so it also covers the forms a blocklist would
+        /// miss: "..\", mixed separators, "foo/./../..", and a root given with or without a
+        /// trailing separator.
+        /// </summary>
+        private static string? ResolveWithinRoot(string root, string relativePath)
+        {
+            try
+            {
+                // Trailing separator guaranteed, so the StartsWith below cannot let "C:\gameEVIL"
+                // pass as being inside "C:\game".
+                var fullRoot = Path.GetFullPath(root);
+                if (!fullRoot.EndsWith(Path.DirectorySeparatorChar))
+                    fullRoot += Path.DirectorySeparatorChar;
+
+                var candidate = Path.GetFullPath(Path.Combine(fullRoot, relativePath));
+
+                if (!candidate.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    CompilePalLogger.LogLineDebug(
+                        $"Refusing an asset path that resolves outside the content root: {relativePath}");
+                    return null;
+                }
+
+                return candidate;
+            }
+            catch (Exception e)
+            {
+                // A path too long, or one with a malformed root, is simply not a file we will pack.
+                CompilePalLogger.LogLineDebug($"Could not resolve asset path '{relativePath}': {e.Message}");
+                return null;
+            }
         }
 
         private List<string> FindExternalDirectories(string internalPath)
@@ -533,11 +606,29 @@ namespace CompilePalX.Compilers.BSPPack
             var externalDirs = new List<string>();
 
             foreach (string source in sourceDirs)
-                if (Directory.Exists(Path.Combine(source, sanitizedPath)))
+            {
+                // Same boundary check as FindExternalFile - a directory reference that escapes the
+                // root would pull everything under it into the pack.
+                if (ResolveWithinRoot(source, sanitizedPath) is not { } resolved)
+                    continue;
+
+                if (Directory.Exists(resolved))
                     externalDirs.Add(Path.Combine(source, sanitizedPath.Replace("\\", "/")));
+            }
+
             return externalDirs;
         }
 
+
+		/// <summary>
+		/// Whether a path contains anything that would break the line-oriented bspzip response file.
+		///
+		/// Path.GetInvalidPathChars() happens to include every control character on .NET today, but
+		/// that set has narrowed across versions - it was trimmed in .NET Core - so the guard on the
+		/// file format states what it needs rather than inheriting whatever the framework currently
+		/// considers invalid.
+		/// </summary>
+		private static bool HasControlCharacters(string path) => path.Any(char.IsControl);
 
 		private static readonly string invalidChars = Regex.Escape(new string(Path.GetInvalidPathChars()));
 		private static readonly string invalidRegString = $@"([{invalidChars}]*\.+$)|([{invalidChars}]+)";

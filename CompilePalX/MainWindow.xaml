@@ -948,7 +948,7 @@
                                    Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
                         <Label Name="UpdateLabel" Visibility="Collapsed" Padding="0" Margin="10,0,0,0" FontSize="11"
                                VerticalAlignment="Center" MouseLeftButtonUp="UpdateLabel_MouseLeftButtonUp">
-                            <Hyperlink Name="UpdateHyperLink" NavigateUri="https://github.com/ruarai/CompilePal/releases/latest" RequestNavigate="UpdateHyperLink_OnRequestNavigate" Foreground="{DynamicResource CompilePal.Brushes.Link}"/>
+                            <Hyperlink Name="UpdateHyperLink" NavigateUri="https://github.com/catualus/CompilePal/releases/latest" RequestNavigate="UpdateHyperLink_OnRequestNavigate" Foreground="{DynamicResource CompilePal.Brushes.Link}"/>
                         </Label>
                     </StackPanel>
 

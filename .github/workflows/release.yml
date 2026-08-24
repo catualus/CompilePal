@@ -97,19 +97,29 @@ jobs:
       - name: Resolve version
         id: version
         shell: pwsh
+        # Inputs arrive as environment variables, not as ${{ }} substitutions into the script
+        # body. GitHub expands those before PowerShell ever parses the file, so a version string
+        # containing a quote breaks out of the literal it was pasted into and the rest of it runs
+        # as script. Running this needs repo write access, which bounds who can reach it - but a
+        # release workflow holding `contents: write` is the last place to leave that shape in.
+        env:
+          IN_CHANNEL: ${{ inputs.channel }}
+          IN_VERSION: ${{ inputs.version }}
+          IN_TAG: ${{ github.ref_name }}
+          IN_EVENT: ${{ github.event_name }}
         run: |
           $ErrorActionPreference = 'Stop'
 
-          if ('${{ github.event_name }}' -eq 'push') {
+          if ($env:IN_EVENT -eq 'push') {
               # Tag-driven run: the tag names the version outright. "029.2" has a minor part, so it
               # is a prerelease; a bare "030" is a stable release.
-              $version = '${{ github.ref_name }}' -replace '^v', ''
+              $version = $env:IN_TAG -replace '^v', ''
               $channel = if ($version -match '\.') { 'prerelease' } else { 'release' }
               $bumped  = $false
           }
           else {
-              $channel = '${{ inputs.channel }}'
-              $exact   = '${{ inputs.version }}'.Trim()
+              $channel = $env:IN_CHANNEL
+              $exact   = "$($env:IN_VERSION)".Trim()
 
               $stable = (Get-Content 'CompilePalX/version.txt' -Raw).Trim()
 
@@ -186,8 +196,73 @@ jobs:
       - name: Test
         run: dotnet test CompilePalX.Tests --configuration ${{ env.CONFIGURATION }} --no-restore
 
+      # The telemetry endpoint is injected here rather than committed, so the public repository
+      # carries no reporting destination and an unofficial build has nowhere to report to. An
+      # empty secret is not an error: the build simply produces a binary with telemetry
+      # unavailable, which is the correct outcome for anyone building this without it.
       - name: Build
-        run: dotnet publish /p:PublishProfile=Publish${{ env.CONFIGURATION }}
+        env:
+          TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
+          TELEMETRY_SIGNING_ROOT: ${{ secrets.TELEMETRY_SIGNING_ROOT }}
+          # Accepted as either a secret or a variable. It is not sensitive - it names a key
+          # generation, typically "k1" - so it is reasonable to keep in either place, and reading
+          # only one of them means a value set in the other looks like nothing was set at all.
+          TELEMETRY_SIGNING_KEY_GENERATION: ${{ secrets.TELEMETRY_SIGNING_KEY_GENERATION || vars.TELEMETRY_SIGNING_KEY_GENERATION }}
+        shell: pwsh
+        run: |
+          $buildArgs = @("/p:PublishProfile=Publish$env:CONFIGURATION")
+
+          # Endpoint and signing are all-or-nothing.
+          #
+          # The service refuses unsigned submissions, so a build with an endpoint and no signing
+          # root would collect a session's counters and be handed a 401 for them - silently, once
+          # per session, for the life of the release. And a signing root with no endpoint is
+          # pointless. Either configure both or neither; a half-configured release fails here
+          # rather than shipping broken.
+          $haveEndpoint = [bool]$env:TELEMETRY_ENDPOINT
+          $haveSigning  = [bool]$env:TELEMETRY_SIGNING_ROOT -and [bool]$env:TELEMETRY_SIGNING_KEY_GENERATION
+
+          if ($haveEndpoint -ne $haveSigning) {
+              throw ("Telemetry is half configured: endpoint=$haveEndpoint signing=$haveSigning. " +
+                     "Set TELEMETRY_ENDPOINT, TELEMETRY_SIGNING_ROOT and TELEMETRY_SIGNING_KEY_GENERATION " +
+                     "together, or none of them.")
+          }
+
+          if ($haveEndpoint) {
+              # Passed as separate arguments, never interpolated into the command string.
+              $buildArgs += "/p:TelemetryEndpoint=$env:TELEMETRY_ENDPOINT"
+              Write-Host "Telemetry endpoint injected."
+          } else {
+              Write-Host "Telemetry not configured - this build collects and reports nothing."
+          }
+
+          # The key is DERIVED here rather than stored per release:
+          #
+          #     releaseKey = HMAC-SHA256(root, "compilepal/v1/" + version)
+          #
+          # which is the same value the service computes from the version in the signed body. So
+          # shipping a release needs no change on the server, and the root never leaves this step.
+          if ($haveSigning) {
+              $hmac = [System.Security.Cryptography.HMACSHA256]::new(
+                  [System.Text.Encoding]::UTF8.GetBytes($env:TELEMETRY_SIGNING_ROOT))
+              try {
+                  $mac = $hmac.ComputeHash(
+                      [System.Text.Encoding]::UTF8.GetBytes("compilepal/v1/$env:VERSION"))
+                  $releaseKey = -join ($mac | ForEach-Object { $_.ToString("x2") })
+              } finally {
+                  $hmac.Dispose()
+              }
+
+              $buildArgs += "/p:TelemetrySigningKey=$releaseKey"
+              $buildArgs += "/p:TelemetrySigningKeyGeneration=$env:TELEMETRY_SIGNING_KEY_GENERATION"
+
+              # The derived key is not printed. Only that one was produced, and for which release.
+              Write-Host "Release key derived for $env:VERSION (generation $env:TELEMETRY_SIGNING_KEY_GENERATION)."
+          }
+
+          # The project, not the solution: publishing the solution drags in the test project,
+          # which has no publish profile.
+          dotnet publish CompilePalX/CompilePalX.csproj @buildArgs
 
       - name: Package
         shell: pwsh

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -617,7 +617,7 @@ namespace CompilePalX
             UpdateManager.OnUpdateFound += UpdateManager_OnUpdateFound;
             UpdateManager.CheckVersion();
 
-            AnalyticsManager.Launch();
+            TelemetryManager.Launch();
             PersistenceManager.Init();
             CompileTimings.Init();
             RefreshHistory();
@@ -910,7 +910,76 @@ namespace CompilePalX
 
         private void Link_RequestNavigate(object sender, RequestNavigateEventArgs e)
         {
-            Process.Start("explorer", $"/select, \"{e.Uri}\"");
+            // The path here comes out of the compile: CompilingManager logs the copy location as a
+            // clickable link. Interpolating it into a single argument string, as this did, means a
+            // path containing a double quote closes the quoted argument and everything after it
+            // becomes further arguments to explorer.
+            //
+            // ArgumentList hands each argument to CreateProcess separately, so quotes in a path are
+            // just characters. The existence check keeps a link whose target has since been deleted
+            // from opening explorer on nothing.
+            RevealInExplorer(e.Uri.IsFile ? e.Uri.LocalPath : e.Uri.ToString());
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Selects a file in Explorer, or opens its folder if the file is gone.
+        ///
+        /// One place rather than three, and it takes the path as a real argument rather than as text
+        /// spliced into a command line. Refuses anything that is not an existing local path: this is
+        /// reached from a link built out of compile output, and "open whatever this string names" is
+        /// not a capability that belongs on that path.
+        /// </summary>
+        private static void RevealInExplorer(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var info = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
+                    info.ArgumentList.Add("/select,");
+                    info.ArgumentList.Add(Path.GetFullPath(path));
+                    Process.Start(info);
+                    return;
+                }
+
+                if (Path.GetDirectoryName(path) is { Length: > 0 } directory && Directory.Exists(directory))
+                {
+                    var info = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
+                    info.ArgumentList.Add(Path.GetFullPath(directory));
+                    Process.Start(info);
+                }
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Could not reveal {path}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Opens a link in the user's browser.
+        ///
+        /// Every caller passes a literal from this assembly, and this check is here so that stays
+        /// true. ProcessStartInfo with UseShellExecute resolves whatever the string names - a
+        /// protocol handler, a UNC path, an executable - so a URL that ever came from a file or the
+        /// network would be a way to launch arbitrary things.
+        /// </summary>
+        private static void OpenLink(string url)
+        {
+            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                CompilePalLogger.LogLineDebug($"Refusing to open a non-https link: {url}");
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Could not open {url}: {ex.Message}");
+            }
         }
 
         void UpdateManager_OnUpdateFound()
@@ -996,7 +1065,7 @@ namespace CompilePalX
 
             // reload parameters incase new game config has a plugin folder
             ConfigurationManager.AssembleParameters();
-            AnalyticsManager.SelectGameConfiguration(gameConfiguration.Name);
+            TelemetryManager.SelectGameConfiguration(gameConfiguration.Name);
         }
 
         void ProgressManager_ProgressChange(double progress)
@@ -1243,7 +1312,7 @@ namespace CompilePalX
 					}
 	            }
 
-                AnalyticsManager.ModifyPreset();
+                TelemetryManager.ModifyPreset();
 
                 step.NotifyParametersChanged();
             }
@@ -1278,7 +1347,7 @@ namespace CompilePalX
 
                 selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Add((ConfigItem)customArgumentItem.Clone());
             }
-            AnalyticsManager.ModifyPreset();
+            TelemetryManager.ModifyPreset();
 
             StepFor(sender)?.NotifyParametersChanged();
         }
@@ -1302,7 +1371,7 @@ namespace CompilePalX
                 ConfigurationManager.MarkProcessesDirty();
             }
 
-            AnalyticsManager.ModifyPreset();
+            TelemetryManager.ModifyPreset();
             ConfigurationManager.MarkDirty(ConfigurationManager.CurrentPreset);
 
             UpdateProcessList();
@@ -1333,7 +1402,7 @@ namespace CompilePalX
             var presetInfo = (Preset)dialog.DataContext;
             var preset = ConfigurationManager.NewPreset(presetInfo);
 
-            AnalyticsManager.NewPreset();
+            TelemetryManager.NewPreset();
 
             SetSources();
             CompileProcessesListBox.SelectedIndex = 0;
@@ -1356,7 +1425,7 @@ namespace CompilePalX
             var presetInfo = (Preset)dialog.DataContext;
             var preset = ConfigurationManager.ClonePreset(presetInfo);
 
-            AnalyticsManager.NewPreset();
+            TelemetryManager.NewPreset();
 
             SetSources();
             CompileProcessesListBox.SelectedIndex = 0;
@@ -1666,11 +1735,9 @@ namespace CompilePalX
                 return;
 
             // /select, highlights the map inside its folder rather than just opening the folder. Falls
-            // back to the folder alone when the file has since been moved or deleted.
-            if (File.Exists(map.File))
-                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{map.File}\"") { UseShellExecute = true });
-            else if (Path.GetDirectoryName(map.File) is { Length: > 0 } directory && Directory.Exists(directory))
-                Process.Start(new ProcessStartInfo(directory) { UseShellExecute = true });
+            // back to the folder alone when the file has since been moved or deleted. See
+            // RevealInExplorer for why the path is not spliced into a command line.
+            RevealInExplorer(map.File);
         }
 
         private void MapCopyPath_OnClick(object sender, RoutedEventArgs e)
@@ -1737,7 +1804,8 @@ namespace CompilePalX
 
         private void UpdateLabel_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-			Process.Start(new ProcessStartInfo("http://www.github.com/ruarai/CompilePal/releases/latest") { UseShellExecute = true });
+			// This fork's releases, not upstream's - and https, which the old link was not.
+			OpenLink("https://github.com/catualus/CompilePal/releases/latest");
         }
 
 	    /// <summary>
@@ -1880,7 +1948,7 @@ namespace CompilePalX
 
 		private void UpdateHyperLink_OnRequestNavigate(object sender, RequestNavigateEventArgs e)
 		{
-			Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+			OpenLink(e.Uri.AbsoluteUri);
 			e.Handled = true;
 		}
 
@@ -1899,7 +1967,8 @@ namespace CompilePalX
 
         private void BugReportButton_OnClick(object sender, RoutedEventArgs e)
         {
-			Process.Start(new ProcessStartInfo("https://github.com/ruarai/CompilePal/issues/") { UseShellExecute = true });
+			// Bug reports belong on the fork that produced the build.
+			OpenLink("https://github.com/catualus/CompilePal/issues/");
             e.Handled = true;
         }
 
@@ -2243,6 +2312,29 @@ namespace CompilePalX
                 // fail silently, worst case scenario is the height of the list box doesnt save
                 CompilePalLogger.LogLineDebug($"Failed while saving settings on shutdown: {ex}");
             }
+
+            /*
+             * The one and only telemetry send, if the user turned it on.
+             *
+             * Here rather than spread across the session on purpose: a single summary at the end
+             * carries the same totals as a stream of events without also describing when the user
+             * was working. See TelemetryManager.
+             *
+             * Waited on, but hard-bounded. This runs on the closing path, so an unreachable
+             * endpoint must cost a visible moment at most - GetAwaiter().GetResult() on a task
+             * that already carries its own timeout, and which swallows every failure internally,
+             * cannot hang the shutdown. Dropping the submission is always preferable to not
+             * closing.
+             */
+            try
+            {
+                TelemetryManager.FlushAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Telemetry flush failed on shutdown: {ex.Message}");
+            }
+
             base.OnClosing(e);
         }
     }

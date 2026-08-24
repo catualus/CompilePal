@@ -306,7 +306,7 @@ namespace CompilePalX
             // Tells windows to not go to sleep during compile
             NativeMethods.SetThreadExecutionState(NativeMethods.ES_CONTINUOUS | NativeMethods.ES_SYSTEM_REQUIRED);
 
-            AnalyticsManager.Compile();
+            TelemetryManager.Compile();
 
             IsCompiling = true;
 
@@ -541,6 +541,14 @@ namespace CompilePalX
                         x.State = errorCount > 0 ? MapCompileState.Failed : MapCompileState.Succeeded;
                     });
 
+                    // Counted per map rather than per run: "how often does a compile come out
+                    // clean" is the question worth answering, and a run of five maps where one
+                    // failed is not one failure.
+                    if (errorCount > 0)
+                        TelemetryManager.CompileFailed();
+                    else
+                        TelemetryManager.CompileSucceeded();
+
                     CompilePalLogger.LogLineFileLocation($"Compiled Map: {buildContext.CopyLocation}\n", buildContext.CopyLocation);
                     GameConfigurationManager.RestoreCurrentContext();
                 }
@@ -703,7 +711,7 @@ namespace CompilePalX
                         CompilePalLogger.LogLine();
 
                         if (error.Severity >= 3)
-                            AnalyticsManager.CompileError();
+                            TelemetryManager.CompileError();
                     }
                 }
             }
@@ -735,6 +743,8 @@ namespace CompilePalX
             ProgressManager.ErrorProgress();
 
             CompilePalLogger.LogLineColor("Compile forcefully ended.", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"));
+
+            TelemetryManager.CompileCancelled();
 
             postCompile(null, cancelled: true);
         }
