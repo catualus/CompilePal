@@ -59,6 +59,14 @@ values the send uses, so you can check rather than take our word for it. The tot
 contributes to are public at
 [/api/telemetry/v1/stats](https://telemetry.catualus.dev/api/telemetry/v1/stats).
 
+Those public figures are deliberately coarse. Compile Pal has a small user base, and "aggregate"
+stops meaning "anonymous" when a sum describes one person — a daily figure reading *1 install,
+version 029.1, Garry's Mod, 3 compiles* is somebody's working day. So the endpoint reports weeks
+rather than days, withholds any figure describing fewer than 5 installs, publishes nothing at all
+until a window covers 25 install-days, never reports your OS version in any form, and never
+combines those dimensions. Where rows are withheld it says how many, so you can see that
+something was omitted rather than being handed a quietly partial answer.
+
 The destination is compiled into official builds and is not a setting — a reporting endpoint
 read from a file on your disk would be an obvious thing for malware to repoint. It also means
 **builds that are not ours report nowhere at all**: if you build from source, or run a fork, the
