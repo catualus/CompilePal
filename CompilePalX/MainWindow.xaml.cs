@@ -396,6 +396,15 @@ namespace CompilePalX
         private double currentStepStart;
         private double currentStepEnd;
 
+        /// <summary>When the running step began, for interpolating between step boundaries.</summary>
+        private DateTime currentStepStartedAt;
+
+        /// <summary>How long the running step is expected to take, or null if never timed.</summary>
+        private TimeSpan? currentStepExpected;
+
+        /// <summary>The whole-run estimate as it stood when the running step began.</summary>
+        private TimeSpan? remainingAtStepStart;
+
         private List<Border> progressSegments = [];
         private int currentSegmentIndex = -1;
 
@@ -489,13 +498,15 @@ namespace CompilePalX
                 currentStepStart = mapsBefore + before;
                 currentStepEnd = currentStepStart + share;
 
+                currentStepStartedAt = DateTime.UtcNow;
+                currentStepExpected = info.Expected;
+                remainingAtStepStart = info.Remaining;
+
                 CompileStatusLine = info.MapCount > 1
                     ? $"{info.StepName} · step {info.StepNumber} of {info.StepCount} · map {info.MapNumber} of {info.MapCount}"
                     : $"{info.StepName} · step {info.StepNumber} of {info.StepCount}";
 
-                CompileRemainingText = info.Remaining is { } remaining && remaining.TotalSeconds >= 1
-                    ? $"~{FormatDuration(remaining)} left"
-                    : "";
+                UpdateEstimates();
             });
         }
 
@@ -1985,6 +1996,61 @@ namespace CompilePalX
         {
             var time = CompilingManager.GetTime().Elapsed;
             TimeElapsedLabel.Content = $"Time Elapsed: {(int) time.TotalHours:00}:{time:mm}:{time:ss}";
+
+            UpdateEstimates();
+        }
+
+        /// <summary>
+        /// Advances the running step's segment and the "time remaining" text between step boundaries.
+        ///
+        /// Both used to be written once, when a step began, and then left alone until the next one -
+        /// so on a real compile the bar and the estimate stood still for the whole of VVIS and VRAD,
+        /// which is where nearly all the time goes. The bar looked stuck and the estimate looked
+        /// wrong, and neither was: they simply were not being updated.
+        ///
+        /// The interpolation is against how long the step has taken before, which is the same figure
+        /// the estimate is built from. Where a step has no history there is nothing honest to
+        /// interpolate against, so the segment is left at its start rather than invented - an
+        /// unknown step is the one case where a still bar is the truthful answer.
+        /// </summary>
+        private void UpdateEstimates()
+        {
+            if (!IsCompiling)
+                return;
+
+            var inStep = DateTime.UtcNow - currentStepStartedAt;
+            if (inStep < TimeSpan.Zero)
+                inStep = TimeSpan.Zero;
+
+            if (currentStepExpected is { TotalSeconds: > 0 } expected)
+            {
+                /*
+                 * Held below 1 deliberately. A step that runs longer than its median would otherwise
+                 * fill its segment completely and sit there looking finished while it is still
+                 * working - and the next segment is not ours to start filling.
+                 */
+                double fraction = Math.Min(inStep.TotalSeconds / expected.TotalSeconds, 0.99);
+                double overall = currentStepStart + fraction * (currentStepEnd - currentStepStart);
+
+                UpdateCurrentSegmentFill(overall * 100d);
+            }
+
+            if (remainingAtStepStart is { } remaining)
+            {
+                // Counted down from what was estimated when the step began. An overrunning step
+                // reaches zero and stops there rather than going negative, which is the honest
+                // presentation of "longer than expected" without pretending to a new estimate the
+                // recorded timings cannot support.
+                var left = remaining - inStep;
+
+                CompileRemainingText = left.TotalSeconds >= 1
+                    ? $"~{FormatDuration(left)} left"
+                    : "";
+            }
+            else
+            {
+                CompileRemainingText = "";
+            }
         }
 
         /// <summary>

@@ -133,35 +133,22 @@ namespace CompilePalX
 
         }
 
-        /// <summary>
-        /// Where in the overall compile the running step starts, and how much of it the step accounts
-        /// for. Set by <c>CompilingManager</c> before each step so a step that knows its own progress
-        /// can report it without having to work out the arithmetic - or duplicate the definition of a
-        /// step's share, which only has one correct answer.
-        /// </summary>
-        private static double stepBase;
-        private static double stepShare;
+        /*
+         * A per-step progress hook lived here: BeginStepProgress stored where the running step
+         * started and how much of the bar it owned, and ReportStepProgress let a step report its
+         * own internal progress against that.
+         *
+         * Nothing ever called ReportStepProgress. The scaffolding was in place, the arithmetic was
+         * right, and no compile step ever reported anything - so the bar only ever moved when a
+         * step ended, and stood still through the whole of VVIS and VRAD.
+         *
+         * The footer now interpolates between step boundaries from how long the step has taken on
+         * previous runs (see MainWindow.UpdateEstimates), which needs nothing from the steps
+         * themselves. If a step is ever taught to report real progress - the Source tools do print
+         * "0...1...2..." lines that could drive it - it should override that interpolation rather
+         * than sit alongside it, and this is where that would go.
+         */
 
-        internal static void BeginStepProgress(double start, double share)
-        {
-            stepBase = start;
-            stepShare = share;
-        }
-
-        /// <summary>
-        /// Reports progress from inside a step, as a fraction of that step.
-        ///
-        /// Held just below 1 on purpose: <see cref="ProgressManager.SetProgress"/> treats reaching 1 as
-        /// the compile finishing and plays the completion sound, which the last step of a compile would
-        /// otherwise trigger while it was still working.
-        /// </summary>
-        protected static void ReportStepProgress(double fraction)
-        {
-            if (stepShare <= 0)
-                return;
-
-            ProgressManager.SetProgress(Math.Min(stepBase + stepShare * Math.Clamp(fraction, 0, 1), 0.999));
-        }
         public virtual void Cancel()
         {
             if (Process is null || Process.Id == 0 || Process.HasExited)

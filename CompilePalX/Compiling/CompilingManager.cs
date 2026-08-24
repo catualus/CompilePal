@@ -51,6 +51,17 @@ namespace CompilePalX
 
         /// <summary>Best guess at how much longer the whole run will take, or null with no history.</summary>
         public TimeSpan? Remaining { get; init; }
+
+        /// <summary>
+        /// How long this step is expected to take, or null if it has never been timed.
+        ///
+        /// Published so the footer can interpolate between step boundaries. Without it both the bar
+        /// and the "time remaining" text sat perfectly still for the whole of a step - which on a
+        /// real compile means motionless for the entire VVIS and VRAD, the two that actually take
+        /// the time. The bar appeared stuck and the estimate appeared wrong, because both were
+        /// only ever recomputed when a step ended.
+        /// </summary>
+        public TimeSpan? Expected { get; init; }
     }
 
     /// <summary>How a map's most recent compile turned out. Shown as a chip on its queue card.</summary>
@@ -467,8 +478,20 @@ namespace CompilePalX
                     var order = OrderManager.CurrentOrder.ToList();
 
                     var stepNames = order.Select(c => c.Name).ToList();
+                    /*
+                     * The fallback has to match the one the progress advance uses below, or the two
+                     * disagree by a factor of the map count.
+                     *
+                     * stepShares are already divided by the number of maps, so a step with no timing
+                     * history needs dividing too. It was not: the bar's segments were sized on a
+                     * whole-compile scale while the bar itself advanced on a per-map one, so any
+                     * multi-map compile containing an unrecognised step drew segments that did not
+                     * correspond to how far the bar moved.
+                     */
+                    double UnknownStepShare() => 1d / Math.Max(1, stepNames.Count) / Math.Max(1, queued.Count);
+
                     var stepWeights = stepNames
-                        .Select(n => stepShares.TryGetValue(n, out var w) ? w : 1d / Math.Max(1, stepNames.Count))
+                        .Select(n => stepShares.TryGetValue(n, out var w) ? w : UnknownStepShare())
                         .ToList();
 
 					int stepNumber = 0;
@@ -481,7 +504,7 @@ namespace CompilePalX
 
                         double share = stepShares.TryGetValue(compileProcess.Name, out var s)
                             ? s
-                            : 1d / Math.Max(1, order.Count) / Math.Max(1, queued.Count);
+                            : UnknownStepShare();
 
                         OnStepChanged?.Invoke(new CompileStepInfo
                         {
@@ -493,11 +516,10 @@ namespace CompilePalX
                             StepNames = stepNames,
                             StepWeights = stepWeights,
                             Remaining = EstimateRemaining(cleanMapName, stepNames, stepNumber, queued, mapNumber),
+                            Expected = CompileTimings.Median(cleanMapName, compileProcess.Name) is { } expectedSeconds
+                                ? TimeSpan.FromSeconds(expectedSeconds)
+                                : null,
                         });
-
-                        // Hand the step its own slice of the bar, so one that can report its internal
-                        // progress does not have to sit at whatever the previous step left behind.
-                        CompileProcess.BeginStepProgress(ProgressManager.Progress, share);
 
                         var stepStopwatch = Stopwatch.StartNew();
                         compileProcess.Run(buildContext, cancellationToken);
