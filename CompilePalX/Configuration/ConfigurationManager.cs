@@ -290,6 +290,7 @@ namespace CompilePalX
             CompileProcesses.Add(new VmfFixProcess());
             CompileProcesses.Add(new CubemapProcess());
             CompileProcesses.Add(new NavProcess());
+            CompileProcesses.Add(new EntityLumpProcess());
             CompileProcesses.Add(new ShutdownProcess());
             CompileProcesses.Add(new UtilityProcess());
 			CompileProcesses.Add(new CustomProcess());

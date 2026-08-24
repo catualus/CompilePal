@@ -1,4 +1,4 @@
-{
+﻿{
   "Name": "REPACK",
   "Path": "$bspZip$",
   "Order": 12.0,
@@ -7,6 +7,9 @@
   "Description": "BSPzip.exe's BSP Compression.",
   "Warning": "",
   "PresetDefault": false,
+  // -compress is a bspzip++ feature. Stock bspzip (Garry's Mod's included) exits 1 with no output
+  // when it is passed, which CheckExitCode below turns into a clear failure rather than a silent
+  // no-op. It also compresses the entity lump, which is why ENTLUMP is ordered before this step.
   "Arguments": " -game $game$ -repack",
   "BasisString": " $mapCopyLocation$",
   "SupportsBSP": true,

@@ -108,6 +108,20 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
   The file is edited line by line rather than re-serialised, so a map that needs no changes saves
   back byte for byte.
 
+### Map protection
+
+* **ENTLUMP**, an optional step that moves the compiled map's entities out of the BSP and into the
+  `mapname_l_0.lmp` override file the engine reads instead. The map loads normally from the pair,
+  while anything reading only the BSP finds no entities to decompile.
+
+  This is obfuscation rather than protection: the `.lmp` has to be readable by the engine, so it is
+  readable by anyone who has it. What it stops is the common case of a decompiler run over a
+  downloaded BSP.
+
+  It runs after packing and cubemaps, which both need the entity lump, and before repacking, which
+  would otherwise compress the lump beyond reach. The `.lmp` must be distributed next to the `.bsp`
+  and cannot be packed inside it.
+
 ### Presets
 
 * **More presets out of the box** - Draft, Fast, Good, Best, Best (tools++), and Publish and Full
