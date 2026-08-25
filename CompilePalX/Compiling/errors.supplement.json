@@ -94,5 +94,17 @@
     "Severity": 5,
     "Title": "Too many vertices on one edge",
     "Html": "<h4>Too many vertices on one edge</h4><p><strong>Description:</strong><br />Where brush faces meet unevenly, vbsp inserts extra vertices along the shared edge so the seam does not crack visually. One edge has accumulated more of these than the format allows, and vbsp stops.</p><p>It is caused by many faces meeting along one long edge - typically a large floor or wall brush that a row of smaller brushes butts against at irregular intervals.</p><p><strong>Solution:</strong><br />Split the large brush so the joins line up, or tie the small brushes to func_detail so they no longer split the face they touch.</p>"
+  },
+  {
+    "Pattern": "^warn\\s",
+    "Severity": 3,
+    "Title": "Warning from a compile step",
+    "Html": "<h4>Warning from a compile step</h4><p><strong>Description:</strong><br />The step that printed this line labelled it a warning itself. Tools that write a level in front of each line - Meshwright is one - are reporting something that did not stop the run but that changes the result, so the output is worth reading rather than skipping.</p><p><strong>Solution:</strong><br />The rest of the line is the whole message; there is no general fix, since what it means depends on the step. Meshwright's warnings are explained in its README, and its <em>inspection</em> commands (<strong>fit</strong>, <strong>shape</strong>, <strong>reachable</strong>) answer why a mesh came out the way it did.</p>"
+  },
+  {
+    "Pattern": "^error:\\s",
+    "Severity": 4,
+    "Title": "Error from a compile step",
+    "Html": "<h4>Error from a compile step</h4><p><strong>Description:</strong><br />The step that printed this line labelled it an error itself, so it did not produce what it was asked for. Steps that fail this way also exit non-zero, which Compile Pal reports separately as the step failing.</p><p><strong>Solution:</strong><br />The rest of the line is the reason. A missing file is the usual one - check that the step before it actually ran and wrote its output where this one is looking.</p>"
   }
 ]

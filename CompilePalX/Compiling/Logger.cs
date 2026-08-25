@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -172,6 +173,97 @@ namespace CompilePalX.Compiling
             errorsFound.Clear();
         }
 
+        /// <summary>
+        /// Labels a step prints in the column ahead of a message to say what kind of line it is.
+        /// Meshwright writes "bsp", "nav", "out" and "check" this way, alongside the "warn" and
+        /// "error:" that the error catalogue recognises as a warning and an error.
+        ///
+        /// These four are informational, so they are coloured and nothing else. Recognising them
+        /// through the catalogue - which is how the other two get their colour - would also file each
+        /// one as an issue, and so put four entries in the issues list, the footer's warning counter
+        /// and the map card on a compile where nothing at all was wrong.
+        ///
+        /// A fixed set rather than a shape. "Short lowercase word at the start of a line" also
+        /// describes vbsp's lump usage table - planes, vertexes, pakfile - which is data, not a level,
+        /// and "done" begins a line every time a vbsp step finishes.
+        /// </summary>
+        private static readonly Regex InfoLabel = new(@"^(?:bsp|nav|out|check)\s", RegexOptions.Compiled);
+
+        /// <summary>
+        /// The Info brush, resolved once and reused.
+        ///
+        /// <see cref="Error.GetSeverityBrush"/> reads Application.Resources, which belongs to the UI
+        /// thread, while this runs on the compile thread for every line of output - so it is resolved
+        /// through the dispatcher, the way every other severity colour in the app is. The theme
+        /// freezes its brushes, so the one instance is safe to hand back to any thread afterwards.
+        /// Null if there is no window yet, which logs the line plainly rather than failing.
+        /// </summary>
+        private static readonly Lazy<Brush?> infoBrush = new(() =>
+        {
+            try
+            {
+                return MainWindow.ActiveDispatcher.Invoke(() => Error.GetSeverityBrush(1));
+            }
+            catch
+            {
+                return null;
+            }
+        });
+
+        /// <summary>
+        /// Logs one finished line, separating progress text from a diagnostic printed onto the end of
+        /// it.
+        ///
+        /// The Source tools announce a step as "Building Faces..." and leave the line open, so the
+        /// "done (0)" that follows lands on the same line. Anything else printed in between lands
+        /// there too, and a warning raised while a step is running therefore reaches us glued to the
+        /// step's own text:
+        ///
+        ///     Building Faces...Water: $LightMapWaterFog doesn't work without $FlowMap
+        ///
+        /// Splitting on line endings cannot separate these - there is no line ending between them.
+        /// The message is still recognised, because the catalogue matches unanchored, but the whole
+        /// line is then coloured and hyperlinked as the warning, and the issues list takes its summary
+        /// from the whole line as well - listing the warning with an unrelated progress message stuck
+        /// to its front.
+        ///
+        /// So when a message is recognised part-way into a line, look back for the trailing dots the
+        /// tools use to hold a line open. Those dots are the boundary: what precedes them is progress
+        /// text and is logged plainly, and what follows is re-examined on its own, which is what puts
+        /// the colour and the hyperlink on the warning alone. With no such dots - the usual case of a
+        /// message that simply does not begin at column zero, "Light at (x y z) has ..." - the line is
+        /// left exactly as it was, since chopping it there would throw away the part that identifies
+        /// which light it means.
+        /// </summary>
+        private static void LogCompletedLine(string line)
+        {
+            Error? error = ErrorFinder.GetError(line, out int matchIndex);
+
+            if (error == null)
+            {
+                if (InfoLabel.IsMatch(line) && infoBrush.Value is { } brush)
+                    LogLineColor(line, brush);
+                else
+                    LogLine(line);
+                return;
+            }
+
+            if (matchIndex > 0)
+            {
+                int dots = line[..matchIndex].LastIndexOf("...", StringComparison.Ordinal);
+                if (dots >= 0)
+                {
+                    LogLine(line[..(dots + 3)]);
+
+                    // the remainder may itself be more than one message, so run it through again
+                    LogCompletedLine(line[(dots + 3)..]);
+                    return;
+                }
+            }
+
+            LogLineCompileError(line, error);
+        }
+
         public static void LogProgressive(string s)
         {
             lineBuffer.Append(s);
@@ -218,15 +310,7 @@ namespace CompilePalX.Compiling
             OnBacktrack(tempText);
 
             for (int i = 0; i < lines.Count - 1; i++)
-            {
-                string line = lines[i];
-                Error? error = ErrorFinder.GetError(line);
-
-                if (error == null)
-                    LogLine(line);
-                else
-                    LogLineCompileError(line, error);
-            }
+                LogCompletedLine(lines[i]);
 
             if (suffixText.Length > 0)
             {

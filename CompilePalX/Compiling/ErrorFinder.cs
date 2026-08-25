@@ -494,19 +494,32 @@ namespace CompilePalX
             }
         }
 
-        public static Error? GetError(string line)
+        public static Error? GetError(string line) => GetError(line, out _);
+
+        /// <summary>
+        /// As <see cref="GetError(string)"/>, but also reports where in the line the message starts.
+        ///
+        /// The compile tools do not end a line before printing a diagnostic: vbsp writes its progress
+        /// as "Building Faces..." with no newline, so a warning from another subsystem is appended to
+        /// it and arrives here as one line. <paramref name="matchIndex"/> lets the logger find that
+        /// boundary and log the progress text and the warning separately, instead of colouring and
+        /// hyperlinking both as though they were a single message.
+        /// </summary>
+        public static Error? GetError(string line, out int matchIndex)
         {
+            matchIndex = 0;
+
             // Read once. The field is replaced by a background refresh, and re-reading it inside the
             // loop could walk one list and then continue into another.
             var errors = errorList;
 
             foreach (var error in errors)
             {
-                bool matched;
+                Match match;
 
                 try
                 {
-                    matched = error.RegexTrigger.IsMatch(line);
+                    match = error.RegexTrigger.Match(line);
                 }
                 catch (RegexMatchTimeoutException)
                 {
@@ -516,11 +529,12 @@ namespace CompilePalX
                     continue;
                 }
 
-                if (matched)
+                if (match.Success)
                 {
 	                var err = error.Clone() as Error;
 					// remove all control chars
 	                err.ShortDescription = new string(line.Where(c => !char.IsControl(c)).ToArray());;
+                    matchIndex = match.Index;
                     return err;
                 }
             }

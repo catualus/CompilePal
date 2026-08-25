@@ -16,18 +16,13 @@
         "Name": "HDR"
       },
       {
-        "Name": "Static Prop Lighting Final"
+        "Name": "Static Prop Lighting"
       },
       {
         "Name": "Static Prop Polys"
       },
       {
-        "Name": "Static Prop Bounce",
-        "Value": "3"
-      },
-      {
-        "Name": "Static Prop Sample Scale",
-        "Value": "4"
+        "Name": "Static Prop Bounce"
       },
       {
         "Name": "Texture Shadows"

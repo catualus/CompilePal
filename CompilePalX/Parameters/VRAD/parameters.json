@@ -2,7 +2,7 @@
   {
     "Name": "Bounces",
     "Parameter": " -bounce",
-    "Description": "Set the maximum number of light ray bounces",
+    "Description": "Set the maximum number of light ray bounces. Default 100. Zero disables bouncing.",
     "Value": null,
     "CanHaveValue": true,
     "Warning": ""
@@ -61,7 +61,7 @@
     "Description": "Trace N times as many rays for indirect light and sky ambient.",
     "Value": null,
     "CanHaveValue": true,
-    "Warning": "Normal default is 1; -final default is 16"
+    "Warning": "Default 1. -final raises it to 16 on the stock VRAD but only to 8 on tools++ VRAD, so an explicit 16 still buys quality there."
   },
   {
     "Name": "Lights File",
@@ -137,10 +137,10 @@
     "Name": "Static Prop Sample Scale",
     "Parameter": " -StaticPropSampleScale",
     "SupportedByToolsPlusPlus": true,
-    "Description": "Controls quality of static prop lighting (16 = slow, high quality, 4 = default and 0.25 = fast, low quality).",
+    "Description": "Controls quality of static prop lighting. Higher is slower and better. Stock VRAD defaults to 4, tools++ VRAD to 1.",
     "Value": null,
     "CanHaveValue": true,
-    "Warning": "Note that adding -final is the same as having -StaticPropSampleScale 16.",
+    "Warning": "-final already sets this: 16 on the stock VRAD, 4 on tools++ VRAD. Setting a lower number alongside -final lowers quality instead of raising it.",
     "CompatibleGames": [
       4000, // gmod - verified present in its vrad/vbsp
       730 // csgo
@@ -182,7 +182,7 @@
     "Name": "AO Scale",
     "Parameter": " -aoscale",
     "SupportedByToolsPlusPlus": true,
-    "Description": "Scales the amount of baked AO",
+    "Description": "Scales the amount of baked AO. Stock VRAD defaults to 1.0, tools++ VRAD to 0.5.",
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
@@ -282,7 +282,7 @@
   {
     "Name": "AO Radius",
     "Parameter": " -aoradius",
-    "Description": "Radius of the ambient occlusion effect in units. Default 32.",
+    "Description": "Radius of the ambient occlusion effect in units. Default 40.",
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
@@ -291,7 +291,7 @@
   {
     "Name": "AO Prop Samples",
     "Parameter": " -aopropsamples",
-    "Description": "Number of ambient occlusion samples taken per static prop vertex. Higher is smoother and slower.",
+    "Description": "Number of ambient occlusion samples taken per static prop vertex. Higher is smoother and slower. Default 16, raised to 32 by -final and lowered to 12 by -fast.",
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
@@ -303,7 +303,7 @@
   {
     "Name": "AO Face Samples",
     "Parameter": " -aofacesamples",
-    "Description": "Number of ambient occlusion samples taken per world face luxel. Higher is smoother and slower.",
+    "Description": "Number of ambient occlusion samples taken per world face luxel. Higher is smoother and slower. Default 32, raised by -final and lowered to 16 by -fast.",
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
