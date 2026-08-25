@@ -574,6 +574,12 @@ namespace CompilePalX
                         CompilePalLogger.LogLine();
                     }
 
+                    // After every step for this map, so it sees the size the BSP finally has. Packing,
+                    // repacking and moving the entity lump out all change it, and all of them run
+                    // after a nav mesh is built, because a mesh has to be read from a BSP that still
+                    // has its entities. See NavStamp.
+                    NavStamp.Refresh(GameConfigurationManager.SubstituteValues("$mapCopyLocation$", mapFile, quote: false));
+
                     mapErrors.Add(new MapErrors { MapName = cleanMapName, Errors = compileErrors });
 
                     // Severity 4 and 5 are the levels the log calls errors; anything below is a warning.
