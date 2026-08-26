@@ -54,6 +54,7 @@ namespace CompilePalX.Compilers
 
             Process.StartInfo.FileName = GameConfigurationManager.SubstituteValues(Metadata.Path);
             Process.StartInfo.Arguments = string.Join(" ", args);
+            ExposeCompileState(Process.StartInfo);
             Process.StartInfo.WorkingDirectory = Metadata.WorkingDirectory != null ? GameConfigurationManager.SubstituteValues(Metadata.WorkingDirectory, quote: false) : ".";
 
             CompilePalLogger.LogLineDebug($"Running '{Process.StartInfo.FileName}' with args '{Process.StartInfo.Arguments}'");
@@ -115,6 +116,33 @@ namespace CompilePalX.Compilers
                         new Error(message, $"{Name} failed", ErrorSeverity.FatalError));
                 }
             }
+        }
+
+        /// <summary>
+        /// Tells the step how the compile is going, through the environment.
+        ///
+        /// A plugin can see its own arguments and nothing else. It cannot see that VBSP reported a
+        /// leak, that packing failed, or that the step before it logged six errors - and only a
+        /// non-zero exit code stops a run, so all of those reach a later step with the compile still
+        /// nominally in progress. For most steps that does not matter. For a step that publishes the
+        /// result somewhere public it is the difference between a bad map and a bad map that
+        /// everyone subscribed to now has.
+        ///
+        /// Set on the child's environment rather than passed as arguments because arguments are
+        /// written to the log verbatim and would differ between runs of the same preset, and because
+        /// a plugin that does not know about these simply does not read them.
+        ///
+        /// Only when the child is not being started through the shell: UseShellExecute means the
+        /// environment cannot be modified, and .NET throws rather than ignoring it.
+        /// </summary>
+        private static void ExposeCompileState(ProcessStartInfo startInfo)
+        {
+            if (startInfo.UseShellExecute)
+                return;
+
+            startInfo.Environment["COMPILE_PAL_ERRORS"] = CompilingManager.ErrorsThisMap.ToString();
+            startInfo.Environment["COMPILE_PAL_WARNINGS"] = CompilingManager.WarningsThisMap.ToString();
+            startInfo.Environment["COMPILE_PAL_VERSION"] = UpdateManager.CurrentVersion;
         }
 
         private void ReadOutput(CancellationToken cancellationToken)

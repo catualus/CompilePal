@@ -55,6 +55,8 @@ My Plugin/
 | CompatibleGames | Whitelist of Steam App IDs for games that this plugin is compatible with. Will override IncompatibleGames if both are set. (>=v27.29)
 | IncompatibleGames | Blacklist of Steam App IDs for games that this plugin is not compatible with. (>=v27.29)
 | WorkingDirectory | Working Directory of the plugin. Defaults to the Compile Pal folder. Can be templated, see [Variable Substitution](#Variable-Substitution). (>=v28.4)
+| Configure | A program to run when the user presses the step's settings button, for a plugin that needs to be told something a list of flags cannot express. Templated the same way `Path` is, and given the selected map. Compile Pal runs it, waits for it to close, and re-reads the step's rows; it does not read its output and does not know what it does. Omit it and the step has no button.
+| ConfigureLabel | What that button says. Defaults to `Configure`.
 
 ### Variable Substitution
 | Variable | Description |
@@ -108,6 +110,46 @@ My Plugin/
 | ValueIsFolder | Indicates that value is a folder. Adds a button that opens a Folder Picker dialog. Defaults to `false`.
 | CompatibleGames | Whitelist of Steam App IDs for games that this plugin parameter is compatible with. Will override IncompatibleGames if both are set. (>=v27.29)
 | IncompatibleGames | Blacklist of Steam App IDs for games that this plugin parameter is not compatible with. (>=v27.29)
+
+## Settings Windows
+
+A plugin that needs more than flags - which Workshop item to publish to, which account to use, which
+of something to pick from a list - can bring its own window and declare it in `meta.json`:
+
+```json
+{
+	"Configure": "Plugins\My Plugin\my-plugin-ui.exe -vmf $vmfFile$ -bin $binFolder$",
+	"ConfigureLabel": "Workshop"
+}
+```
+
+Compile Pal runs it and waits. What the window writes, and where, is the plugin's business - the same
+files it reads at compile time.
+
+**Pass it the map.** A parameter belongs to the preset, and a preset applies to every map in the
+queue, so anything that differs per map cannot live in one. `$vmfFile$` here is the map selected in
+the queue, and a window that stores its answer per map behaves correctly when several are queued.
+
+Two environment variables are set on the window's process:
+
+| Variable | Description |
+| ------ | ---- |
+| COMPILE_PAL_THEME | `dark` or `light`, so a window can match the application it was opened from. |
+
+## What A Step Is Told About The Compile
+
+Every external step's process is started with these set, so a step can see something about the run it
+is part of rather than only its own arguments:
+
+| Variable | Description |
+| ------ | ---- |
+| COMPILE_PAL_ERRORS | Errors logged so far for the map being compiled. A step that does something irreversible - publishing, uploading, deploying - should refuse when this is not `0`. |
+| COMPILE_PAL_WARNINGS | Warnings logged so far for the map being compiled. |
+| COMPILE_PAL_VERSION | The version of Compile Pal running the step. |
+
+These matter because a failing step does not necessarily stop a compile: only a non-zero exit code
+does. A leak, a failed pack or a missing texture all reach later steps with the compile still in
+progress, and without these a plugin has no way to know.
 
 ## Modifying The Current Game Configuration (>=v27.30)
 You can modify the current game configuration by sending `COMPILE_PAL_SET {variable} {value}` through stdout. These changes will persist until the next map is compiled.

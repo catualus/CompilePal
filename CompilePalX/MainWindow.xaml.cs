@@ -1426,6 +1426,87 @@ namespace CompilePalX
             ConfigurationManager.MarkDirty(ConfigurationManager.CurrentPreset);
         }
 
+        /// <summary>
+        /// Opens a step's own settings window and waits for it.
+        ///
+        /// WHAT THIS DOES NOT DO
+        ///
+        /// It does not know what the window is for. The step declares a command in its meta.json and
+        /// this runs it, which is the whole contract - a plugin that needs to be told something a
+        /// list of flags cannot express brings a window that knows how to ask, and Compile Pal stays
+        /// out of it.
+        ///
+        /// The map matters, because what such a window is usually being asked about is a property of
+        /// one map rather than of the preset. Presets are shared by every map in the queue, so
+        /// anything per-map that lived in a parameter would be the same value for all of them; the
+        /// selected map is passed instead, and the window writes wherever it keeps its own state.
+        ///
+        /// Awaited rather than fired and forgotten so the step's rows are re-read afterwards: the
+        /// window has probably just changed what the step will do, and a row still showing the old
+        /// answer is worse than no row at all.
+        /// </summary>
+        private async void ConfigureStepButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (StepFor(sender) is not { } step || !step.HasConfigure)
+                return;
+
+            if (GetCurrentMap() is not { } map)
+            {
+                MessageBox.Show(
+                    $"Select a map in the queue first. {step.Name} is set up per map, not per preset.",
+                    step.ConfigureLabel, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var button = (Button)sender;
+
+            try
+            {
+                button.IsEnabled = false;
+
+                string command = GameConfigurationManager.SubstituteValues(step.Metadata.Configure!, map.File, quote: false);
+                var (fileName, arguments) = CompilePalX.Configuration.PluginCommand.Split(command);
+
+                if (!File.Exists(fileName))
+                {
+                    MessageBox.Show(
+                        $"{step.Name} says its settings window is at:\n\n{fileName}\n\nThere is nothing there. " +
+                        "The plugin folder is probably incomplete - reinstalling the plugin is the usual fix.",
+                        step.ConfigureLabel, MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = arguments,
+                    WorkingDirectory = Path.GetDirectoryName(fileName) ?? ".",
+                    UseShellExecute = false,
+                };
+
+                // So a window can match the application it was opened from rather than guessing.
+                startInfo.Environment["COMPILE_PAL_THEME"] = CompilePalX.Theming.ThemeBridge.IsDarkTheme() ? "dark" : "light";
+
+                CompilePalLogger.LogLineDebug($"Running '{fileName}' with args '{arguments}'");
+
+                using var process = Process.Start(startInfo);
+
+                if (process != null)
+                    await process.WaitForExitAsync();
+            }
+            catch (Exception ex)
+            {
+                ExceptionHandler.LogException(ex, false);
+                MessageBox.Show($"{step.Name}'s settings window could not be opened: {ex.Message}",
+                    step.ConfigureLabel, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                button.IsEnabled = true;
+                step.NotifyParametersChanged();
+            }
+        }
+
         private void AddParameterButton_Click(object sender, RoutedEventArgs e)
         {
             var step = StepFor(sender) ?? selectedProcess;

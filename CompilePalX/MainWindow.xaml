@@ -435,6 +435,15 @@
                                                                 IsEnabled="{Binding SupportsCustomParameters}">
                                                             <iconPacks:Material Kind="PlaylistPlus" Height="10" Width="10"/>
                                                         </Button>
+                                                        <!-- A step that brings its own setup window gets a button for it,
+                                                             left of the parameter controls. Hidden entirely for the steps
+                                                             that do not, which is all of the built-in ones. -->
+                                                        <Button DockPanel.Dock="Right" MinHeight="25" Height="25" Padding="8,0" Margin="0,0,3,0"
+                                                                Click="ConfigureStepButton_Click"
+                                                                Content="{Binding ConfigureLabel}"
+                                                                ToolTip="Open this step's own settings"
+                                                                IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                                                Visibility="{Binding HasConfigure, Converter={StaticResource BoolToVisibility}}"/>
                                                         <TextBlock Text="Parameters" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                     </DockPanel>
 

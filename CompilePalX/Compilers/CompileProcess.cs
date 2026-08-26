@@ -93,6 +93,12 @@ namespace CompilePalX
 		public bool IsDraggable { get { return Draggable; } }
 		[UsedImplicitly] public bool SupportsBSP => Metadata.SupportsBSP;
 
+        /// <summary>Whether this step brings its own setup window. Shows or hides the button.</summary>
+        [UsedImplicitly] public bool HasConfigure => !string.IsNullOrWhiteSpace(Metadata.Configure);
+
+        [UsedImplicitly] public string ConfigureLabel =>
+            string.IsNullOrWhiteSpace(Metadata.ConfigureLabel) ? "Configure" : Metadata.ConfigureLabel!;
+
         [UsedImplicitly]
         public bool IsCompatible
         {
@@ -315,6 +321,23 @@ namespace CompilePalX
         public HashSet<int>? IncompatibleGames { get; set; }
         public HashSet<int>? CompatibleGames { get; set; }
         public string? WorkingDirectory { get; set; }
+
+        /// <summary>
+        /// A program this step can open to be set up, run from a button on the step's row.
+        ///
+        /// Some steps need more than a list of flags. A step that publishes to a Workshop needs to be
+        /// told which item, and the honest way to choose one is a window that lists them - not a
+        /// number typed into a parameter, where a mistyped digit is a different person's map.
+        ///
+        /// Compile Pal knows nothing about what the program does. It runs it, waits, and re-reads
+        /// whatever the step reads at compile time, which keeps everything the plugin understands
+        /// inside the plugin. Templated the same way <see cref="Path"/> is, so it can be handed the
+        /// map and the game's folders.
+        /// </summary>
+        public string? Configure { get; set; }
+
+        /// <summary>What the button says. "Configure" if the step does not care.</summary>
+        public string? ConfigureLabel { get; set; }
     }
 
     class CompileContext
