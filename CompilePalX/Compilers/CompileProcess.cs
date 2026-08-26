@@ -246,12 +246,22 @@ namespace CompilePalX
                     yield return (parameter.Name, parameter.Parameter.Trim(), parameter.RequiresToolsPlusPlus);
         }
 
-        public string GetParameterString()
+        public string GetParameterString() => GetParameterString(ConfigurationManager.CurrentPreset);
+
+        /// <summary>
+        /// The arguments this step would be given under one particular preset.
+        ///
+        /// The parameterless version reads whichever preset is being edited, which is the right
+        /// answer for the row the user is looking at and the wrong one for a queue where each map
+        /// carries its own preset. Anything asking "what will happen to that map" has to name the
+        /// preset rather than inherit it.
+        /// </summary>
+        public string GetParameterString(Preset? preset)
         {
             string parameters = Metadata.Arguments;
 
-            if (ConfigurationManager.CurrentPreset != null)
-                foreach (var parameter in PresetDictionary[ConfigurationManager.CurrentPreset])
+            if (preset != null && PresetDictionary.ContainsKey(preset))
+                foreach (var parameter in PresetDictionary[preset])
                 {
                     // A preset can outlive the game it was built for, and the parameter adder is the
                     // only thing that was consulting IsCompatible - so a preset saved against one game
@@ -338,6 +348,19 @@ namespace CompilePalX
 
         /// <summary>What the button says. "Configure" if the step does not care.</summary>
         public string? ConfigureLabel { get; set; }
+
+        /// <summary>
+        /// A program that says what this step makes of one queued map, run before any compile starts.
+        ///
+        /// Templated like <see cref="Path"/> and given the map. It must print one line of JSON -
+        /// label, detail, severity, confirm - and nothing else. Compile Pal shows the label on the
+        /// map's card, offers the detail before a run the step asks to confirm, and refuses to start
+        /// at all on a severity of "blocking".
+        ///
+        /// The point is timing. A step only speaks once it is running, which is after everything it
+        /// might have wanted to warn about has already been compiled.
+        /// </summary>
+        public string? MapStatus { get; set; }
     }
 
     class CompileContext

@@ -28,6 +28,8 @@
 
     <ui:FluentWindow.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <config:StatusSeverityBrushConverter x:Key="SeverityBrush" />
+        <config:EmptyToCollapsedConverter x:Key="EmptyToCollapsed" />
         <Style x:Key="GroupListBoxStyle" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
             <Setter Property="Margin" Value="-5,1,0,1" />
             <Setter Property="Padding" Value="10,3,0,3" />
@@ -186,6 +188,27 @@
                                       SelectionChanged="MapPresetCombo_OnSelectionChanged"
                                       ToolTip="Preset this map compiles with"
                                       AutomationProperties.Name="Preset for this map"/>
+
+                            <!-- What the steps in this map's preset say about it before anything is
+                                 compiled. Empty for every map until a plugin declares a MapStatus
+                                 command, so the card is unchanged unless something has an opinion. -->
+                            <ItemsControl ItemsSource="{Binding PluginStatuses}" Margin="0,5,0,0"
+                                          Visibility="{Binding PluginStatuses.Count, Converter={StaticResource EmptyToCollapsed}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="9" Padding="7,2" Margin="0,0,0,2"
+                                                HorizontalAlignment="Left"
+                                                BorderThickness="1"
+                                                BorderBrush="{Binding Severity, Converter={StaticResource SeverityBrush}}"
+                                                ToolTip="{Binding Detail}">
+                                            <TextBlock FontSize="10.5" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{Binding Severity, Converter={StaticResource SeverityBrush}}">
+                                                <Run Text="{Binding StepName, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Label, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
 
                             <TextBlock Text="{Binding StatusLine}" FontSize="10.5" Margin="0,4,0,0" x:Name="MapStatusBlock"
                                        Foreground="{DynamicResource TextFillColorTertiaryBrush}">

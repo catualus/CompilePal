@@ -57,6 +57,7 @@ My Plugin/
 | WorkingDirectory | Working Directory of the plugin. Defaults to the Compile Pal folder. Can be templated, see [Variable Substitution](#Variable-Substitution). (>=v28.4)
 | Configure | A program to run when the user presses the step's settings button, for a plugin that needs to be told something a list of flags cannot express. Templated the same way `Path` is, and given the selected map. Compile Pal runs it, waits for it to close, and re-reads the step's rows; it does not read its output and does not know what it does. Omit it and the step has no button.
 | ConfigureLabel | What that button says. Defaults to `Configure`.
+| MapStatus | A program run for every queued map, before any compile starts, that prints one line of JSON saying what this step makes of that map. Compile Pal shows it on the map's card and can refuse to start the run. See [Map Status](#map-status).
 
 ### Variable Substitution
 | Variable | Description |
@@ -135,6 +136,45 @@ The window's process is started with one extra environment variable:
 | Variable | Description |
 | ------ | ---- |
 | COMPILE_PAL_THEME | `dark` or `light`, so a window can match the application it was opened from. |
+
+## Map Status
+
+A step can say something about a queued map before anything is compiled:
+
+```json
+{
+	"MapStatus": "Plugins\My Plugin\my-plugin.exe status \"$vmfFile$\""
+}
+```
+
+It is run once per queued map whenever the queue, a map's preset, or which steps are ticked changes,
+and again for every map when Compile is pressed. It must print **one line of JSON and nothing else**:
+
+```json
+{ "label": "Atlas RP | Downtown", "detail": "Replaces it for everyone subscribed.", "severity": "warn", "confirm": true }
+```
+
+| Field | Description |
+| ----- | ----------- |
+| label | Short text for the chip on the map's card. Required - without one there is no chip. Trimmed to 60 characters. |
+| detail | A sentence, shown as the chip's tooltip and in the confirmation. Trimmed to 400 characters. |
+| severity | `ok`, `info`, `warn` or `blocking`. Colours the chip; `blocking` also stops the compile from starting. Anything unrecognised is `ok`. |
+| confirm | `true` to list this map in a confirmation shown before the run starts. |
+
+Keep it fast and offline: it runs in front of someone who is about to press Compile, and a step that
+does not answer within eight seconds is simply not shown. Anything it prints that cannot be read is
+no chip at all - never an error dialog, and never a reason someone cannot compile.
+
+The step's own process is given two extra environment variables, because "what will happen to this
+map" usually depends on how the step is configured for it:
+
+| Variable | Description |
+| ------ | ---- |
+| COMPILE_PAL_STEP_ARGS | The arguments this step would be given for this map, under that map's preset. |
+| COMPILE_PAL_STEP_ENABLED | `true` or `false` - whether the step is ticked. |
+
+**Only for maps it would actually run on.** A step that is not in a map's preset is never asked about
+that map, and an unticked map in the queue is not asked about before a compile.
 
 ## What A Step Is Told About The Compile
 

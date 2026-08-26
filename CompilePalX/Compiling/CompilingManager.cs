@@ -146,6 +146,16 @@ namespace CompilePalX
             set { preset = value; OnPropertyChanged(nameof(Preset));  }
         }
 
+        /// <summary>
+        /// What the steps in this map's preset say about it, before anything has been compiled.
+        ///
+        /// Filled by <see cref="CompilePalX.Configuration.PluginStatus"/> whenever the queue or a
+        /// preset changes. Empty for every map until a plugin declares a MapStatus command, which no
+        /// built-in step does - so the card looks exactly as it did unless something has an opinion.
+        /// </summary>
+        [JsonIgnore]
+        public ObservableCollection<CompilePalX.Configuration.PluginMapStatus> PluginStatuses { get; } = [];
+
         #region Last compile result
 
         // Deliberately not serialized: the queue file is written on every change, and a result from a
