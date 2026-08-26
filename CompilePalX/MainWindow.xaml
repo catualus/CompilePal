@@ -587,7 +587,10 @@
                                                                                       SelectionChanged="OnConfigChanged"
                                                                                       VerticalContentAlignment="Center" MinHeight="26" Padding="6,0" FontSize="12">
                                                                                 <ComboBox.Style>
-                                                                                    <Style TargetType="{x:Type ComboBox}">
+                                                                                    <!-- BasedOn, or the whole cell reverts to the classic grey Windows
+                                                                                         combo box: an explicit style with no base replaces the theme's
+                                                                                         implicit one rather than adding to it. -->
+                                                                                    <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource {x:Type ComboBox}}">
                                                                                         <Setter Property="Visibility" Value="Collapsed"/>
                                                                                         <Style.Triggers>
                                                                                             <MultiDataTrigger>
