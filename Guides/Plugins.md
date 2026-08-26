@@ -118,7 +118,7 @@ of something to pick from a list - can bring its own window and declare it in `m
 
 ```json
 {
-	"Configure": "Plugins\My Plugin\my-plugin-ui.exe -vmf $vmfFile$ -bin $binFolder$",
+	"Configure": "Plugins\\My Plugin\\my-plugin-ui.exe -vmf $vmfFile$ -bin $binFolder$",
 	"ConfigureLabel": "Workshop"
 }
 ```
@@ -130,7 +130,7 @@ files it reads at compile time.
 queue, so anything that differs per map cannot live in one. `$vmfFile$` here is the map selected in
 the queue, and a window that stores its answer per map behaves correctly when several are queued.
 
-Two environment variables are set on the window's process:
+The window's process is started with one extra environment variable:
 
 | Variable | Description |
 | ------ | ---- |
