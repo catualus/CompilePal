@@ -17,6 +17,7 @@ namespace CompilePalX
         private string value;
         private bool valueIsFile;
         private bool valueIsFolder;
+        private List<string>? options;
         private string value2;
         private bool value2IsFile;
         private bool value2IsFolder;
@@ -33,6 +34,23 @@ namespace CompilePalX
         public string Value { get => value; set => Set(ref this.value, value); }
         public bool ValueIsFile { get => valueIsFile; set => Set(ref valueIsFile, value); }
         public bool ValueIsFolder { get => valueIsFolder; set => Set(ref valueIsFolder, value); }
+
+        /// <summary>
+        /// The values this parameter accepts, when there is a fixed set of them.
+        ///
+        /// A parameter whose value is one of a handful of words - a tag, a quality level, a number of
+        /// minutes - is a text box today, which means every one of those words has to be remembered
+        /// and typed correctly, and a typo is only discovered by the compiler rejecting it. Declaring
+        /// them here turns the cell into a list to pick from.
+        ///
+        /// Absent for every parameter that does not have a fixed set, which is most of them: a path,
+        /// a change note and a map name are all free text and stay free text.
+        /// </summary>
+        public List<string>? Options { get => options; set => Set(ref options, value); }
+
+        /// <summary>Whether this parameter offers a list rather than a text box.</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public bool HasOptions => Options is { Count: > 0 };
         public string Value2 { get => value2; set => Set(ref value2, value); }
         public bool Value2IsFile { get => value2IsFile; set => Set(ref value2IsFile, value); }
         public bool Value2IsFolder { get => value2IsFolder; set => Set(ref value2IsFolder, value); }
@@ -128,7 +146,10 @@ namespace CompilePalX
         /// </summary>
         public object Clone()
         {
-            return new ConfigItem() {Name=Name,Parameter=Parameter,Description = Description,Value=Value, Value2 = Value2, CanHaveValue = CanHaveValue,Warning = Warning,CanBeUsedMoreThanOnce = CanBeUsedMoreThanOnce, ReadOutput = ReadOutput, ValueIsFile = ValueIsFile, Value2IsFile = Value2IsFile, ValueIsFolder = ValueIsFolder, Value2IsFolder = Value2IsFolder, WaitForExit = WaitForExit, CompatibleGames = CompatibleGames, IncompatibleGames = IncompatibleGames, RequiresToolsPlusPlus = RequiresToolsPlusPlus, IncompatibleWithToolsPlusPlus = IncompatibleWithToolsPlusPlus, SupportedByToolsPlusPlus = SupportedByToolsPlusPlus, OwningProcess = OwningProcess};
+            // Options is copied by reference on purpose: it is the parameter's declaration, read from
+            // the plugin's parameters.json and never edited, so every clone of a parameter shares the
+            // same list of choices. The Value each clone holds is its own.
+            return new ConfigItem() {Options=Options,Name=Name,Parameter=Parameter,Description = Description,Value=Value, Value2 = Value2, CanHaveValue = CanHaveValue,Warning = Warning,CanBeUsedMoreThanOnce = CanBeUsedMoreThanOnce, ReadOutput = ReadOutput, ValueIsFile = ValueIsFile, Value2IsFile = Value2IsFile, ValueIsFolder = ValueIsFolder, Value2IsFolder = Value2IsFolder, WaitForExit = WaitForExit, CompatibleGames = CompatibleGames, IncompatibleGames = IncompatibleGames, RequiresToolsPlusPlus = RequiresToolsPlusPlus, IncompatibleWithToolsPlusPlus = IncompatibleWithToolsPlusPlus, SupportedByToolsPlusPlus = SupportedByToolsPlusPlus, OwningProcess = OwningProcess};
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

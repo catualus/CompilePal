@@ -569,10 +569,40 @@
                                                                                             <DataTrigger Binding="{Binding CanHaveValue}" Value="False">
                                                                                                 <Setter Property="Visibility" Value="Collapsed"/>
                                                                                             </DataTrigger>
+                                                                                            <!-- A parameter that declares its values gets a list instead. -->
+                                                                                            <DataTrigger Binding="{Binding HasOptions}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            </DataTrigger>
                                                                                         </Style.Triggers>
                                                                                     </Style>
                                                                                 </TextBox.Style>
                                                                             </TextBox>
+
+                                                                            <!-- The same cell, for a parameter whose value is one of a fixed set:
+                                                                                 a tag, a quality level, a number of minutes. Typing those into a
+                                                                                 text box means remembering them exactly, and a typo only shows up
+                                                                                 when the compiler rejects it. -->
+                                                                            <ComboBox ItemsSource="{Binding Options}"
+                                                                                      SelectedItem="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      SelectionChanged="OnConfigChanged"
+                                                                                      VerticalContentAlignment="Center" MinHeight="26" Padding="6,0" FontSize="12">
+                                                                                <ComboBox.Style>
+                                                                                    <Style TargetType="{x:Type ComboBox}">
+                                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                        <Style.Triggers>
+                                                                                            <MultiDataTrigger>
+                                                                                                <MultiDataTrigger.Conditions>
+                                                                                                    <Condition Binding="{Binding HasOptions}" Value="True"/>
+                                                                                                    <Condition Binding="{Binding CanHaveValue}" Value="True"/>
+                                                                                                </MultiDataTrigger.Conditions>
+                                                                                                <MultiDataTrigger.Setters>
+                                                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                                                </MultiDataTrigger.Setters>
+                                                                                            </MultiDataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </ComboBox.Style>
+                                                                            </ComboBox>
                                                                             <local:FileInput Config="{Binding}" FileDialogTitle="Choose File" IsFolder="{Binding ValueIsFolder}">
                                                                                 <local:FileInput.Style>
                                                                                     <Style TargetType="{x:Type local:FileInput}">

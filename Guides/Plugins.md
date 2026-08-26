@@ -109,8 +109,33 @@ My Plugin/
 | Value | Default value for the parameter.
 | ValueIsFile | Indicates that value is a file. Adds a button that opens a File Picker dialog. Defaults to `false`.
 | ValueIsFolder | Indicates that value is a folder. Adds a button that opens a Folder Picker dialog. Defaults to `false`.
+| Options | The values this parameter accepts, when there is a fixed set of them. The value cell becomes a list to pick from instead of a text box. Ignored unless `CanHaveValue` is `true`. See [Choice Parameters](#choice-parameters).
 | CompatibleGames | Whitelist of Steam App IDs for games that this plugin parameter is compatible with. Will override IncompatibleGames if both are set. (>=v27.29)
 | IncompatibleGames | Blacklist of Steam App IDs for games that this plugin parameter is not compatible with. (>=v27.29)
+
+## Choice Parameters
+
+A parameter whose value is one of a handful of words - a tag, a quality level, a number of minutes -
+can declare them:
+
+```json
+{
+	"Name": "Minimum minutes between publishes",
+	"Parameter": " -mininterval",
+	"CanHaveValue": true,
+	"Value": "5",
+	"Options": ["0", "5", "15", "60"]
+}
+```
+
+The cell becomes a dropdown. Nothing else changes: the chosen value is appended to the command line
+exactly as a typed one would be, and a preset stores it the same way.
+
+Use it where the set is genuinely fixed. A path, a change note or a map name is free text and should
+stay a text box - a dropdown that does not contain what somebody needs is worse than typing it, since
+there is no way to type it.
+
+`Value` still sets the default, and should be one of the options.
 
 ## Settings Windows
 
