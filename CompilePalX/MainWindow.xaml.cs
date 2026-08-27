@@ -1504,6 +1504,15 @@ namespace CompilePalX
                 // So a window can match the application it was opened from rather than guessing.
                 startInfo.Environment["COMPILE_PAL_THEME"] = CompilePalX.Theming.ThemeBridge.IsDarkTheme() ? "dark" : "light";
 
+                /*
+                 * And so it can belong to this window rather than float as a second application: a
+                 * child process cannot be given an owner from here, but it can make itself owned once
+                 * it knows the handle. A window that does that stays above the one it was opened
+                 * from, minimises with it, and stops appearing in the taskbar as a program of its own.
+                 */
+                startInfo.Environment["COMPILE_PAL_HWND"] =
+                    new System.Windows.Interop.WindowInteropHelper(this).Handle.ToString();
+
                 CompilePalLogger.LogLineDebug($"Running '{fileName}' with args '{arguments}'");
 
                 using var process = Process.Start(startInfo);

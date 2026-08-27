@@ -161,6 +161,7 @@ The window's process is started with one extra environment variable:
 | Variable | Description |
 | ------ | ---- |
 | COMPILE_PAL_THEME | `dark` or `light`, so a window can match the application it was opened from. |
+| COMPILE_PAL_HWND | The main window's handle. A settings window that makes itself owned by it - `new WindowInteropHelper(window).Owner = handle`, with `ShowInTaskbar = false` - behaves like part of Compile Pal rather than a second application: it stays in front of it, minimises with it, and does not get a taskbar button of its own. |
 
 ## Map Status
 
