@@ -55,6 +55,9 @@ My Plugin/
 | CompatibleGames | Whitelist of Steam App IDs for games that this plugin is compatible with. Will override IncompatibleGames if both are set. (>=v27.29)
 | IncompatibleGames | Blacklist of Steam App IDs for games that this plugin is not compatible with. (>=v27.29)
 | WorkingDirectory | Working Directory of the plugin. Defaults to the Compile Pal folder. Can be templated, see [Variable Substitution](#Variable-Substitution). (>=v28.4)
+| Configure | A program to run when the user presses the step's settings button, for a plugin that needs to be told something a list of flags cannot express. Templated the same way `Path` is, and given the selected map. Compile Pal runs it, waits for it to close, and re-reads the step's rows; it does not read its output and does not know what it does. Omit it and the step has no button.
+| ConfigureLabel | What that button says. Defaults to `Configure`.
+| MapStatus | A program run for every queued map, before any compile starts, that prints one line of JSON saying what this step makes of that map. Compile Pal shows it on the map's card and can refuse to start the run. See [Map Status](#map-status).
 
 ### Variable Substitution
 | Variable | Description |
@@ -106,8 +109,113 @@ My Plugin/
 | Value | Default value for the parameter.
 | ValueIsFile | Indicates that value is a file. Adds a button that opens a File Picker dialog. Defaults to `false`.
 | ValueIsFolder | Indicates that value is a folder. Adds a button that opens a Folder Picker dialog. Defaults to `false`.
+| Options | The values this parameter accepts, when there is a fixed set of them. The value cell becomes a list to pick from instead of a text box. Ignored unless `CanHaveValue` is `true`. See [Choice Parameters](#choice-parameters).
 | CompatibleGames | Whitelist of Steam App IDs for games that this plugin parameter is compatible with. Will override IncompatibleGames if both are set. (>=v27.29)
 | IncompatibleGames | Blacklist of Steam App IDs for games that this plugin parameter is not compatible with. (>=v27.29)
+
+## Choice Parameters
+
+A parameter whose value is one of a handful of words - a tag, a quality level, a number of minutes -
+can declare them:
+
+```json
+{
+	"Name": "Minimum minutes between publishes",
+	"Parameter": " -mininterval",
+	"CanHaveValue": true,
+	"Value": "5",
+	"Options": ["0", "5", "15", "60"]
+}
+```
+
+The cell becomes a dropdown. Nothing else changes: the chosen value is appended to the command line
+exactly as a typed one would be, and a preset stores it the same way.
+
+Use it where the set is genuinely fixed. A path, a change note or a map name is free text and should
+stay a text box - a dropdown that does not contain what somebody needs is worse than typing it, since
+there is no way to type it.
+
+`Value` still sets the default, and should be one of the options.
+
+## Settings Windows
+
+A plugin that needs more than flags - which Workshop item to publish to, which account to use, which
+of something to pick from a list - can bring its own window and declare it in `meta.json`:
+
+```json
+{
+	"Configure": "Plugins\\My Plugin\\my-plugin-ui.exe -vmf $vmfFile$ -bin $binFolder$",
+	"ConfigureLabel": "Workshop"
+}
+```
+
+Compile Pal runs it and waits. What the window writes, and where, is the plugin's business - the same
+files it reads at compile time.
+
+**Pass it the map.** A parameter belongs to the preset, and a preset applies to every map in the
+queue, so anything that differs per map cannot live in one. `$vmfFile$` here is the map selected in
+the queue, and a window that stores its answer per map behaves correctly when several are queued.
+
+The window's process is started with one extra environment variable:
+
+| Variable | Description |
+| ------ | ---- |
+| COMPILE_PAL_THEME | `dark` or `light`, so a window can match the application it was opened from. |
+| COMPILE_PAL_HWND | The main window's handle. A settings window that makes itself owned by it - `new WindowInteropHelper(window).Owner = handle`, with `ShowInTaskbar = false` - behaves like part of Compile Pal rather than a second application: it stays in front of it, minimises with it, and does not get a taskbar button of its own. |
+
+## Map Status
+
+A step can say something about a queued map before anything is compiled:
+
+```json
+{
+	"MapStatus": "Plugins\My Plugin\my-plugin.exe status \"$vmfFile$\""
+}
+```
+
+It is run once per queued map whenever the queue, a map's preset, or which steps are ticked changes,
+and again for every map when Compile is pressed. It must print **one line of JSON and nothing else**:
+
+```json
+{ "label": "Atlas RP | Downtown", "detail": "Replaces it for everyone subscribed.", "severity": "warn", "confirm": true }
+```
+
+| Field | Description |
+| ----- | ----------- |
+| label | Short text for the chip on the map's card. Required - without one there is no chip. Trimmed to 60 characters. |
+| detail | A sentence, shown as the chip's tooltip and in the confirmation. Trimmed to 400 characters. |
+| severity | `ok`, `info`, `warn` or `blocking`. Colours the chip; `blocking` also stops the compile from starting. Anything unrecognised is `ok`. |
+| confirm | `true` to list this map in a confirmation shown before the run starts. |
+
+Keep it fast and offline: it runs in front of someone who is about to press Compile, and a step that
+does not answer within eight seconds is simply not shown. Anything it prints that cannot be read is
+no chip at all - never an error dialog, and never a reason someone cannot compile.
+
+The step's own process is given two extra environment variables, because "what will happen to this
+map" usually depends on how the step is configured for it:
+
+| Variable | Description |
+| ------ | ---- |
+| COMPILE_PAL_STEP_ARGS | The arguments this step would be given for this map, under that map's preset. |
+| COMPILE_PAL_STEP_ENABLED | `true` or `false` - whether the step is ticked. |
+
+**Only for maps it would actually run on.** A step that is not in a map's preset is never asked about
+that map, and an unticked map in the queue is not asked about before a compile.
+
+## What A Step Is Told About The Compile
+
+Every external step's process is started with these set, so a step can see something about the run it
+is part of rather than only its own arguments:
+
+| Variable | Description |
+| ------ | ---- |
+| COMPILE_PAL_ERRORS | Errors logged so far for the map being compiled. A step that does something irreversible - publishing, uploading, deploying - should refuse when this is not `0`. |
+| COMPILE_PAL_WARNINGS | Warnings logged so far for the map being compiled. |
+| COMPILE_PAL_VERSION | The version of Compile Pal running the step. |
+
+These matter because a failing step does not necessarily stop a compile: only a non-zero exit code
+does. A leak, a failed pack or a missing texture all reach later steps with the compile still in
+progress, and without these a plugin has no way to know.
 
 ## Modifying The Current Game Configuration (>=v27.30)
 You can modify the current game configuration by sending `COMPILE_PAL_SET {variable} {value}` through stdout. These changes will persist until the next map is compiled.

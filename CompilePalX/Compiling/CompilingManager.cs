@@ -146,6 +146,16 @@ namespace CompilePalX
             set { preset = value; OnPropertyChanged(nameof(Preset));  }
         }
 
+        /// <summary>
+        /// What the steps in this map's preset say about it, before anything has been compiled.
+        ///
+        /// Filled by <see cref="CompilePalX.Configuration.PluginStatus"/> whenever the queue or a
+        /// preset changes. Empty for every map until a plugin declares a MapStatus command, which no
+        /// built-in step does - so the card looks exactly as it did unless something has an opinion.
+        /// </summary>
+        [JsonIgnore]
+        public ObservableCollection<CompilePalX.Configuration.PluginMapStatus> PluginStatuses { get; } = [];
+
         #region Last compile result
 
         // Deliberately not serialized: the queue file is written on every change, and a result from a
@@ -256,8 +266,35 @@ namespace CompilePalX
             CompilePalLogger.OnErrorFound += CompilePalLogger_OnErrorFound;
         }
             
+        /// <summary>
+        /// Errors logged so far for the map being compiled, and warnings alongside them.
+        ///
+        /// Kept here because this is where the log's errors already arrive, and read by
+        /// <see cref="CompilePalX.Compilers.CompileExecutable"/> when it starts a step, so a plugin
+        /// can be told what it otherwise has no way of knowing: that the compile it is part of has
+        /// already gone wrong. Severities match the ones the summary counts - 4 and up is an error,
+        /// anything else above zero is a warning.
+        ///
+        /// Reset per map rather than per run, because a step's question is about the map in front of
+        /// it and a failed first map should not stop a second one from being published.
+        /// </summary>
+        public static int ErrorsThisMap { get; private set; }
+
+        public static int WarningsThisMap { get; private set; }
+
+        private static void ResetMapErrorCounts()
+        {
+            ErrorsThisMap = 0;
+            WarningsThisMap = 0;
+        }
+
         private static void CompilePalLogger_OnErrorFound(Error e)
         {
+            if (e.Severity >= 4)
+                ErrorsThisMap++;
+            else if (e.Severity > 0)
+                WarningsThisMap++;
+
             // Null before the first step of a run starts, and between runs. Errors can be logged there -
             // a failure building the compile context, or the summary that postCompile prints - and this
             // used to throw a NullReferenceException out of a logging call.
@@ -456,6 +493,7 @@ namespace CompilePalX
                     var mapStopwatch = Stopwatch.StartNew();
 
                     var compileErrors = new List<Error>();
+                    ResetMapErrorCounts();
                     CompilePalLogger.LogLine($"Starting a '{ConfigurationManager.CurrentPreset?.Name}' compile for {GameConfigurationManager.GameConfiguration.Name}.");
                     CompilePalLogger.LogLine($"Starting compilation of {cleanMapName}");
                     CompilePalLogger.LogLineDebug($"Map path: {mapFile}");

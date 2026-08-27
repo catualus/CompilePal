@@ -19,6 +19,7 @@ using CompilePalX.Compilers.UtilityProcess;
 using CompilePalX.Compiling;
 using CompilePalX.Configuration;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace CompilePalX
 {
@@ -626,13 +627,53 @@ namespace CompilePalX
             WriteFileAtomic(metadataPath, jsonSaveText);
         }
 
+        /// <summary>
+        /// Writes back the two things the application changes about a step: whether it runs, and
+        /// where it runs in the order.
+        ///
+        /// EDITED IN PLACE, NOT REWRITTEN
+        ///
+        /// This used to serialize the whole metadata object over the file, which meant Compile Pal
+        /// deleted every field of a plugin's meta.json that the running build did not have a property
+        /// for. A plugin declaring something a newer Compile Pal understands - and an older one does
+        /// not - lost that declaration from its own folder the first time a checkbox was ticked, and
+        /// stayed broken after upgrading, because the file on disk no longer said it.
+        ///
+        /// The file belongs to the plugin. Only the two fields that are the user's answer rather than
+        /// the author's are touched, and anything else in it is left exactly as written.
+        /// </summary>
         public static void SaveProcesses()
         {
             foreach (var process in CompileProcesses)
             {
                 string jsonMetadata = Path.Combine(process.ParameterFolder, process.Metadata.Name, "meta.json");
-                WriteFileAtomic(jsonMetadata, JsonConvert.SerializeObject(process.Metadata, Formatting.Indented));
+
+                WriteFileAtomic(jsonMetadata, UpdatedMetadataJson(jsonMetadata, process.Metadata));
             }
+        }
+
+        private static string UpdatedMetadataJson(string path, CompileMetadata metadata)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var existing = JObject.Parse(File.ReadAllText(path));
+
+                    existing["DoRun"] = metadata.DoRun;
+                    existing["Order"] = metadata.Order;
+
+                    return existing.ToString(Formatting.Indented);
+                }
+            }
+            catch (Exception e) when (e is IOException or JsonException)
+            {
+                // Unreadable, so there is nothing to preserve. Falls through to writing it whole,
+                // which is what this always used to do.
+                CompilePalLogger.LogLineDebug($"Could not read {path} before saving it: {e.Message}");
+            }
+
+            return JsonConvert.SerializeObject(metadata, Formatting.Indented);
         }
 
         /// <summary>Raised after a settings save so open windows can apply changes without a restart.</summary>

@@ -28,6 +28,8 @@
 
     <ui:FluentWindow.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <config:StatusSeverityBrushConverter x:Key="SeverityBrush" />
+        <config:EmptyToCollapsedConverter x:Key="EmptyToCollapsed" />
         <Style x:Key="GroupListBoxStyle" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
             <Setter Property="Margin" Value="-5,1,0,1" />
             <Setter Property="Padding" Value="10,3,0,3" />
@@ -186,6 +188,27 @@
                                       SelectionChanged="MapPresetCombo_OnSelectionChanged"
                                       ToolTip="Preset this map compiles with"
                                       AutomationProperties.Name="Preset for this map"/>
+
+                            <!-- What the steps in this map's preset say about it before anything is
+                                 compiled. Empty for every map until a plugin declares a MapStatus
+                                 command, so the card is unchanged unless something has an opinion. -->
+                            <ItemsControl ItemsSource="{Binding PluginStatuses}" Margin="0,5,0,0"
+                                          Visibility="{Binding PluginStatuses.Count, Converter={StaticResource EmptyToCollapsed}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="9" Padding="7,2" Margin="0,0,0,2"
+                                                HorizontalAlignment="Left"
+                                                BorderThickness="1"
+                                                BorderBrush="{Binding Severity, Converter={StaticResource SeverityBrush}}"
+                                                ToolTip="{Binding Detail}">
+                                            <TextBlock FontSize="10.5" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{Binding Severity, Converter={StaticResource SeverityBrush}}">
+                                                <Run Text="{Binding StepName, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Label, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
 
                             <TextBlock Text="{Binding StatusLine}" FontSize="10.5" Margin="0,4,0,0" x:Name="MapStatusBlock"
                                        Foreground="{DynamicResource TextFillColorTertiaryBrush}">
@@ -435,6 +458,15 @@
                                                                 IsEnabled="{Binding SupportsCustomParameters}">
                                                             <iconPacks:Material Kind="PlaylistPlus" Height="10" Width="10"/>
                                                         </Button>
+                                                        <!-- A step that brings its own setup window gets a button for it,
+                                                             left of the parameter controls. Hidden entirely for the steps
+                                                             that do not, which is all of the built-in ones. -->
+                                                        <Button DockPanel.Dock="Right" MinHeight="25" Height="25" Padding="8,0" Margin="0,0,3,0"
+                                                                Click="ConfigureStepButton_Click"
+                                                                Content="{Binding ConfigureLabel}"
+                                                                ToolTip="Open this step's own settings"
+                                                                IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
+                                                                Visibility="{Binding HasConfigure, Converter={StaticResource BoolToVisibility}}"/>
                                                         <TextBlock Text="Parameters" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                                     </DockPanel>
 
@@ -537,10 +569,43 @@
                                                                                             <DataTrigger Binding="{Binding CanHaveValue}" Value="False">
                                                                                                 <Setter Property="Visibility" Value="Collapsed"/>
                                                                                             </DataTrigger>
+                                                                                            <!-- A parameter that declares its values gets a list instead. -->
+                                                                                            <DataTrigger Binding="{Binding HasOptions}" Value="True">
+                                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            </DataTrigger>
                                                                                         </Style.Triggers>
                                                                                     </Style>
                                                                                 </TextBox.Style>
                                                                             </TextBox>
+
+                                                                            <!-- The same cell, for a parameter whose value is one of a fixed set:
+                                                                                 a tag, a quality level, a number of minutes. Typing those into a
+                                                                                 text box means remembering them exactly, and a typo only shows up
+                                                                                 when the compiler rejects it. -->
+                                                                            <ComboBox ItemsSource="{Binding Options}"
+                                                                                      SelectedItem="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
+                                                                                      SelectionChanged="OnConfigChanged"
+                                                                                      VerticalContentAlignment="Center" MinHeight="26" Padding="6,0" FontSize="12">
+                                                                                <ComboBox.Style>
+                                                                                    <!-- BasedOn, or the whole cell reverts to the classic grey Windows
+                                                                                         combo box: an explicit style with no base replaces the theme's
+                                                                                         implicit one rather than adding to it. -->
+                                                                                    <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                        <Style.Triggers>
+                                                                                            <MultiDataTrigger>
+                                                                                                <MultiDataTrigger.Conditions>
+                                                                                                    <Condition Binding="{Binding HasOptions}" Value="True"/>
+                                                                                                    <Condition Binding="{Binding CanHaveValue}" Value="True"/>
+                                                                                                </MultiDataTrigger.Conditions>
+                                                                                                <MultiDataTrigger.Setters>
+                                                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                                                </MultiDataTrigger.Setters>
+                                                                                            </MultiDataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </ComboBox.Style>
+                                                                            </ComboBox>
                                                                             <local:FileInput Config="{Binding}" FileDialogTitle="Choose File" IsFolder="{Binding ValueIsFolder}">
                                                                                 <local:FileInput.Style>
                                                                                     <Style TargetType="{x:Type local:FileInput}">

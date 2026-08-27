@@ -21,6 +21,7 @@ using System.Windows.Threading;
 using CompilePalX.Compiling;
 using Microsoft.Win32;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -663,6 +664,14 @@ namespace CompilePalX
 
             MapListBox.SelectedIndex = 0;
 
+            /*
+             * The queue is restored from the last session rather than added to, so nothing raises a
+             * collection change and the cards would sit there with no chips until something else
+             * happened. Asked once here instead, off the UI thread - a plugin's status command starts
+             * a process per map, and startup is not the place to wait for that.
+             */
+            RefreshPluginStatuses();
+
             UpdateConfigGrid();
 
             CompilingManager.OnClear += CompilingManager_OnClear;
@@ -1007,6 +1016,9 @@ namespace CompilePalX
             ExceptionHandler.LogException(e.Exception);
         }
 
+        private void MapFiles_OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
+            RefreshPluginStatuses();
+
         Map? GetCurrentMap()
         {
             return MapListBox.SelectedItem as Map;
@@ -1014,6 +1026,11 @@ namespace CompilePalX
 
         void SetSources()
         {
+            // One subscription covers every way the queue changes: the button, a drag and drop, the
+            // command line, and a map being removed after a compile.
+            CompilingManager.MapFiles.CollectionChanged -= MapFiles_OnCollectionChanged;
+            CompilingManager.MapFiles.CollectionChanged += MapFiles_OnCollectionChanged;
+
             CompileProcessesListBox.ItemsSource = CompileProcessesSubList;
 
             // group presets by map
@@ -1424,6 +1441,122 @@ namespace CompilePalX
         {
             StepFor(sender)?.NotifyParametersChanged();
             ConfigurationManager.MarkDirty(ConfigurationManager.CurrentPreset);
+        }
+
+        /// <summary>
+        /// Opens a step's own settings window and waits for it.
+        ///
+        /// WHAT THIS DOES NOT DO
+        ///
+        /// It does not know what the window is for. The step declares a command in its meta.json and
+        /// this runs it, which is the whole contract - a plugin that needs to be told something a
+        /// list of flags cannot express brings a window that knows how to ask, and Compile Pal stays
+        /// out of it.
+        ///
+        /// The map matters, because what such a window is usually being asked about is a property of
+        /// one map rather than of the preset. Presets are shared by every map in the queue, so
+        /// anything per-map that lived in a parameter would be the same value for all of them; the
+        /// selected map is passed instead, and the window writes wherever it keeps its own state.
+        ///
+        /// Awaited rather than fired and forgotten so the step's rows are re-read afterwards: the
+        /// window has probably just changed what the step will do, and a row still showing the old
+        /// answer is worse than no row at all.
+        /// </summary>
+        private async void ConfigureStepButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (StepFor(sender) is not { } step || !step.HasConfigure)
+                return;
+
+            if (GetCurrentMap() is not { } map)
+            {
+                MessageBox.Show(
+                    $"Select a map in the queue first. {step.Name} is set up per map, not per preset.",
+                    step.ConfigureLabel, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var button = (Button)sender;
+
+            try
+            {
+                button.IsEnabled = false;
+
+                string command = GameConfigurationManager.SubstituteValues(step.Metadata.Configure!, map.File, quote: false);
+                var (rawFileName, arguments) = CompilePalX.Configuration.PluginCommand.Split(command);
+
+                if (CompilePalX.Configuration.PluginCommand.Resolve(rawFileName) is not { } fileName)
+                {
+                    MessageBox.Show(
+                        $"{step.Name} says its settings window is at:\n\n{rawFileName}\n\nThere is nothing there. " +
+                        "The plugin folder is probably incomplete - reinstalling the plugin is the usual fix.",
+                        step.ConfigureLabel, MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = arguments,
+                    WorkingDirectory = Path.GetDirectoryName(fileName) ?? ".",
+                    UseShellExecute = false,
+                };
+
+                // So a window can match the application it was opened from rather than guessing.
+                startInfo.Environment["COMPILE_PAL_THEME"] = CompilePalX.Theming.ThemeBridge.IsDarkTheme() ? "dark" : "light";
+
+                /*
+                 * And so it can belong to this window rather than float as a second application: a
+                 * child process cannot be given an owner from here, but it can make itself owned once
+                 * it knows the handle. A window that does that stays above the one it was opened
+                 * from, minimises with it, and stops appearing in the taskbar as a program of its own.
+                 */
+                startInfo.Environment["COMPILE_PAL_HWND"] =
+                    new System.Windows.Interop.WindowInteropHelper(this).Handle.ToString();
+
+                CompilePalLogger.LogLineDebug($"Running '{fileName}' with args '{arguments}'");
+
+                using var process = Process.Start(startInfo);
+
+                if (process != null)
+                    await process.WaitForExitAsync();
+            }
+            catch (Exception ex)
+            {
+                ExceptionHandler.LogException(ex, false);
+                MessageBox.Show($"{step.Name}'s settings window could not be opened: {ex.Message}",
+                    step.ConfigureLabel, MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                button.IsEnabled = true;
+                step.NotifyParametersChanged();
+
+                // The window has just changed what this step will do to this map. The card should
+                // not still be showing the answer from before it opened.
+                RefreshPluginStatuses();
+            }
+        }
+
+        /// <summary>
+        /// Re-asks every step what it makes of every queued map, and updates the cards.
+        ///
+        /// Called whenever something that could change the answer changes: the queue, a map's preset,
+        /// which steps are ticked, or a step's own settings window closing. Not on every keystroke in
+        /// a parameter box - each refresh starts a process per map, and the answer only has to be
+        /// right by the time someone reaches for Compile, which re-asks anyway.
+        ///
+        /// Fire and forget, and silent when it fails. These are chips on a card; a plugin whose
+        /// status command is broken should cost a chip, not an error dialog.
+        /// </summary>
+        private void RefreshPluginStatuses()
+        {
+            _ = Configuration.PluginStatus
+                .RefreshAllAsync(CompilingManager.MapFiles, ConfigurationManager.CompileProcesses)
+                .ContinueWith(t =>
+                {
+                    if (t.Exception != null)
+                        CompilePalLogger.LogLineDebug($"Plugin status refresh failed: {t.Exception.Message}");
+                }, TaskScheduler.Default);
         }
 
         private void AddParameterButton_Click(object sender, RoutedEventArgs e)
@@ -1867,6 +2000,10 @@ namespace CompilePalX
                 return;
 
             ConfigurationManager.CurrentPreset = preset;
+
+            // A different preset can mean different arguments for the same map - including whether a
+            // step is set to do the irreversible half of what it does.
+            RefreshPluginStatuses();
             PresetConfigListBox.SelectedItem = preset;
             UpdateProcessList();
             UpdateConfigGrid();
@@ -1940,12 +2077,72 @@ namespace CompilePalX
             // never compile against edits that are still sitting in the debounce window
             ConfigurationManager.Flush();
 
+            // Only on the way in. The same button cancels a running compile, and asking someone to
+            // confirm the thing they are trying to stop would be absurd.
+            if (!CompilingManager.IsCompiling && !await ConfirmPluginStatuses())
+                return;
+
             // Button label is driven by CompilingManager_OnStart/OnFinish, which fire for every
             // transition (including an error auto-cancelling the compile, which never reaches this
             // click handler) - toggling here too raced with them and could leave the label backwards.
             await CompilingManager.ToggleCompileState();
 
             OutputTab.Focus();
+        }
+
+        /// <summary>
+        /// Asks every step about every queued map, and stops here if one of them says to.
+        ///
+        /// Asked fresh rather than read off the cards: those hold whatever the last refresh found,
+        /// and the seconds before a compile are exactly when a binding may have been changed by the
+        /// settings window or by a text editor.
+        ///
+        /// Only maps that are ticked for this run are asked about. An unticked map is not being
+        /// compiled, so nothing it would have done can stop anything.
+        /// </summary>
+        private async Task<bool> ConfirmPluginStatuses()
+        {
+            var queued = CompilingManager.MapFiles.Where(m => m.Compile).ToList();
+
+            if (queued.Count == 0 || !Configuration.PluginStatus.AnyReporting(ConfigurationManager.CompileProcesses))
+                return true;
+
+            List<Configuration.PluginMapStatus> statuses;
+
+            try
+            {
+                statuses = await Configuration.PluginStatus.CollectAsync(queued, ConfigurationManager.CompileProcesses);
+            }
+            catch (Exception ex)
+            {
+                // A broken status command must not be able to stop someone from compiling. It is a
+                // courtesy; the step itself still runs and still has its own guards.
+                CompilePalLogger.LogLineDebug($"Plugin statuses could not be collected: {ex.Message}");
+                return true;
+            }
+
+            var interesting = statuses
+                .Where(s => s.Severity == Configuration.StatusSeverity.Blocking || s.Confirm)
+                .ToList();
+
+            if (interesting.Count == 0)
+                return true;
+
+            var dialog = new Configuration.PreCompileWindow(interesting) { Owner = this };
+            dialog.ShowDialog();
+
+            if (!dialog.Proceed)
+            {
+                bool blocked = interesting.Any(s => s.Severity == Configuration.StatusSeverity.Blocking);
+
+                CompilePalLogger.LogLineColor(
+                    blocked
+                        ? "The compile did not start: a step reported something that has to be dealt with first."
+                        : "The compile was cancelled before it started.",
+                    Error.GetSeverityBrush(blocked ? 3 : 1));
+            }
+
+            return dialog.Proceed;
         }
 
         private void UpdateLabel_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -2012,6 +2209,10 @@ namespace CompilePalX
 			OrderManager.UpdateOrder();
 
 			ConfigurationManager.MarkProcessesDirty();
+
+			// A step that is no longer going to run has nothing to say about a map, and one that just
+			// started going to run might.
+			RefreshPluginStatuses();
 		}
 
 	    private void DataGridCell_OnEnter(object sender, MouseEventArgs e)
