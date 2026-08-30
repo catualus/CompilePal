@@ -1,4 +1,4 @@
-// Supplementary compile-error definitions.
+﻿// Supplementary compile-error definitions.
 //
 // The interlopers catalogue (errors.default.txt) is the primary source, but it has not been
 // updated in many years and predates several messages the current Source tools emit - including
@@ -106,5 +106,23 @@
     "Severity": 4,
     "Title": "Error from a compile step",
     "Html": "<h4>Error from a compile step</h4><p><strong>Description:</strong><br />The step that printed this line labelled it an error itself, so it did not produce what it was asked for. Steps that fail this way also exit non-zero, which Compile Pal reports separately as the step failing.</p><p><strong>Solution:</strong><br />The rest of the line is the reason. A missing file is the usual one - check that the step before it actually ran and wrote its output where this one is looking.</p>"
+  },
+  {
+    "Pattern": "Displacement \\d+ has bad geometry, its physics will be disabled|Displacement on brush ID \\d+ caused IVP error",
+    "Severity": 3,
+    "Title": "Displacement has no collision",
+    "Html": "<h4>Displacement has no collision</h4><p><strong>Description:</strong><br />A displacement is shaped in a way vbsp cannot turn into a physics mesh - usually one that has been sculpted until faces fold back through each other. The displacement is still drawn, but it has no collision at all: players and physics objects fall straight through it.</p><p>The stock vbsp treats this as fatal and stops (<em>Can't compile displacement physics, exiting</em>). VBSP++ finishes the map instead and prints this line, so the compile succeeding is <em>not</em> a sign that the displacement is fine.</p><p><strong>Solution:</strong><br />Go to the coordinates in the message and look for the named texture. Undo the last few sculpting operations on that displacement, or destroy and recreate it - reshaping it further rarely recovers it.</p>"
+  },
+  {
+    "Pattern": "Map has too many texinfos \\(has \\d+, can have at most \\d+\\)",
+    "Severity": 5,
+    "Title": "Too many texinfos",
+    "Html": "<h4>Too many texinfos</h4><p><strong>Description:</strong><br />Every unique combination of material and texture alignment in the map costs one texinfo, and the map has more than the limit in force. Faces sharing a material but scaled, shifted or rotated differently each count separately, so this is driven by how varied the texturing is rather than by how many brushes there are.</p><p><strong>Solution:</strong><br />Reuse alignments: select faces with <em>Alt+right-click</em> to copy one face's alignment onto others, and prefer a single fitted texture over many individually nudged ones. Tying repeated geometry to func_detail does not help here - the texinfos still exist.</p><p><strong>With tools++:</strong> VBSP++ can raise the limit with <strong>Max Texinfo</strong>, but a map over the stock 12288 needs a BSP format and an engine build that can hold them - raising it for a game that cannot is how a map compiles cleanly and then fails to load.</p>"
+  },
+  {
+    "Pattern": "Plane limit still exceeded, applying aggressive culling",
+    "Severity": 4,
+    "Title": "Aggressive plane culling applied",
+    "Html": "<h4>Aggressive plane culling applied</h4><p><strong>Description:</strong><br />VBSP++ ran out of planes, and rather than stopping it discarded planes aggressively to fit the map into the limit. The map compiles, but the plane data the lighting stage relies on is no longer what the geometry describes.</p><p>vbsp says it plainly: lighting will be broken unless VRAD++ lights the map. The stock vrad reads this BSP and produces wrong lighting from it.</p><p><strong>Solution:</strong><br />Light the map with VRAD++, or reduce the geometry until culling is not needed - fewer unique brush angles, and displacement or model geometry in place of many small angled brushes.</p>"
   }
 ]

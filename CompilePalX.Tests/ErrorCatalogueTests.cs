@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -93,9 +93,10 @@ namespace CompilePalX.Tests
         }
 
         /// <summary>
-        /// Real lines from a Garry's Mod compile. Every one is absent from the upstream catalogue,
-        /// which is the reason the supplement exists - if upstream ever covers one, the supplement
-        /// entry becomes dead weight and this test says so.
+        /// Lines the compile tools actually print - taken from a Garry's Mod compile, or read off
+        /// the format strings in the tools++ binaries where the message is new. Every one is
+        /// absent from the upstream catalogue, which is the reason the supplement exists - if
+        /// upstream ever covers one, the supplement entry becomes dead weight and this test says so.
         /// </summary>
         public static TheoryData<string, int> MessagesUpstreamDoesNotCover() => new()
         {
@@ -103,6 +104,9 @@ namespace CompilePalX.Tests
             { "Water: $LightMapWaterFog doesn't work without $FlowMap", 2 },
             { "Error! To use model \"models/props_c17/door01_left.mdl\" as static prop, it must be compiled with $staticprop! Deleted.", 3 },
             { "Light at (-1566 1699 66) has _fifty_percent_distance of 67 but _zero_percent_distance of 40", 3 },
+            { "Displacement 42 has bad geometry, its physics will be disabled. Near (-1024.00 512.00 64.00) with texture NATURE/DIRT001", 3 },
+            { "Map has too many texinfos (has 15321, can have at most 65536)", 5 },
+            { "Plane limit still exceeded, applying aggressive culling. Lighting will be broken if you do not use VRAD++!!!", 4 },
         };
 
         [Theory]

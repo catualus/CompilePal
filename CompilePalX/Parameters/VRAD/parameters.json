@@ -40,6 +40,21 @@
     ] 
   },
   {
+    "Name": "Lightmap Format",
+    "Parameter": " -lightmapformat",
+    "Description": "Layout of the lighting lump. rgbe is colours only and is the default; the rest add an alpha channel, which games with cascaded shadow maps read as the sun's contribution to each luxel. Games on the CS:GO branch use rgbeastyle3.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Options": [
+      "rgbe",
+      "rgbea",
+      "rgbea3",
+      "rgbeastyle3"
+    ],
+    "Warning": "Only pick a format the target engine reads - an engine without CSM support cannot use the alpha channel and the map only gets a larger lighting lump",
+    "RequiresToolsPlusPlus": true
+  },
+  {
     "Name": "Fast",
     "Parameter": " -fast",
     "Description": "Fast lighting",
@@ -145,6 +160,15 @@
       4000, // gmod - verified present in its vrad/vbsp
       730 // csgo
     ] 
+  },
+  {
+    "Name": "Prop Alpha",
+    "Parameter": " -propalpha",
+    "Description": "Writes how much direct sunlight each vertex receives into the alpha channel of a static prop's vertex lighting, so a game with cascaded shadow maps can blend its own sun shadows against the baked ones.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "Needs Static Prop Lighting - there is no vertex lighting to write an alpha channel into without it",
+    "RequiresToolsPlusPlus": true
   },
   {
     "Name": "Static Prop Polys",
@@ -333,7 +357,16 @@
   {
     "Name": "Reflectivity Scale",
     "Parameter": " -reflectivityscale",
-    "Description": "Scales the reflectivity of all materials, controlling how much light bounces off surfaces.",
+    "Description": "Scales the $reflectivity of all materials, but only for light bounced between world brushes. Superseded by Global Reflectivity Scale, which also covers props and ambient cubes; kept because older presets use it.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Props and ambient cubes are left at their unscaled brightness, so bounced light will not match between brushes and models",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Global Reflectivity Scale",
+    "Parameter": " -globalreflectivityscale",
+    "Description": "Scales the $reflectivity of all materials for bounced light on brushes, props and ambient cubes alike. Use this rather than Reflectivity Scale.",
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
@@ -396,7 +429,7 @@
   {
     "Name": "Min Styled Light Cull Intensity",
     "Parameter": " -minstyledlightcullintensity",
-    "Description": "Cull threshold for named/styled (toggleable) lights. Default 1.",
+    "Description": "Cull threshold for named/styled (toggleable) lights. Default 0.5. Lowering it keeps fainter named lights at the cost of lightmap size and in-game performance.",
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
@@ -493,6 +526,42 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Brushes",
+    "Parameter": " -maxbrushes",
+    "Description": "Raises the brush limit VRAD reads the BSP with. Default 8192.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Must match the value VBSP was given - VRAD reads a BSP written past the stock limit at stock limits otherwise",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Brush Sides",
+    "Parameter": " -maxbrushsides",
+    "Description": "Raises the brushside limit VRAD reads the BSP with. Default 65536.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Must match the value VBSP was given - VRAD reads a BSP written past the stock limit at stock limits otherwise",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Texinfo",
+    "Parameter": " -maxtexinfo",
+    "Description": "Raises the texinfo limit VRAD reads the BSP with. Default 12288.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Must match the value VBSP was given - VRAD reads a BSP written past the stock limit at stock limits otherwise",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Max Dispinfo",
+    "Parameter": " -maxdispinfo",
+    "Description": "Raises the displacement limit VRAD reads the BSP with. Default 2048.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Must match the value VBSP was given - VRAD reads a BSP written past the stock limit at stock limits otherwise",
     "RequiresToolsPlusPlus": true
   },
   {

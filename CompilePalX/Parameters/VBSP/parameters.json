@@ -290,6 +290,42 @@
   // configured vbsp.exe is detected as VBSP++ (see ToolsPlusPlusDetector).
   // ---------------------------------------------------------------------------------------------
   {
+    "Name": "Cull Brushes",
+    "Parameter": " -cullbrushes",
+    "Description": "Reduces brush count even when the brush limit has not been exceeded. VBSP++ does this on its own once the limit is reached; this makes it unconditional.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Cull Brush Sides",
+    "Parameter": " -cullbrushsides",
+    "Description": "Reduces brushside count even when the brushside limit has not been exceeded.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Cull Planes",
+    "Parameter": " -cullplanes",
+    "Description": "Reduces plane count even when the plane limit has not been exceeded.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "No Cull",
+    "Parameter": " -nocull",
+    "Description": "Turns off every form of reduction - brushes, brushsides, vertexes and planes are all written as authored.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "A map that needed culling to fit under a limit will fail to compile instead",
+    "RequiresToolsPlusPlus": true
+  },
+  {
     "Name": "Cull Verts",
     "Parameter": " -cullverts",
     "Description": "Reduces vertex count even when the vertex limit has not been exceeded.",
