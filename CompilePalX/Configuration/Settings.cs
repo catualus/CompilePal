@@ -72,6 +72,21 @@ namespace CompilePalX.Configuration
         /// </summary>
         public bool PreferToolsPlusPlusBinaries { get; set; } = true;
 
+        /// <summary>
+        /// Where a standalone tools++ install lives, or null to search only next to the configured
+        /// compilers.
+        ///
+        /// The tools used to ship as drop-in replacements extracted over a game's bin/win64, so finding
+        /// them meant looking beside the binary the game configuration already pointed at. The current
+        /// builds are statically linked and run from anywhere, so one copy kept outside every game
+        /// folder is the normal install - and no amount of searching under bin/ will find it. Setting
+        /// this makes every game configuration use that copy without rewriting each one's paths by hand.
+        ///
+        /// Empty falls back to <see cref="ToolsPlusPlusDetector.AutoDetectFolder"/>, which probes the
+        /// few places the archive is usually unpacked into.
+        /// </summary>
+        public string? ToolsPlusPlusFolder { get; set; } = null;
+
         /// <summary>Delay before edits to a preset are flushed to disk, in milliseconds.</summary>
         public int AutosaveDelayMilliseconds { get; set; } = 750;
 

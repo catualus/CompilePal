@@ -45,14 +45,27 @@
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Name" Binding="{ Binding Name}" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Path" Binding="{ Binding GameFolder}" IsReadOnly="True" Width="*"/>
+                        <!-- Editing a game's paths is the reason most people open this window, and it used
+                             to be reached through a 5px-tall borderless kebab with an 8px glyph and
+                             negative margins - a control you had to already know was there. A labelled
+                             button says what the row can do; the menu behind it keeps Delete from sitting
+                             one mis-click away from the row you are about to launch. -->
                         <DataGridTemplateColumn Width="auto" CanUserResize="False">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <Button Name="GameKebabButton" Height="5" Width="auto" Padding="0" Margin="0, -8, 0, -8" Visibility="Visible" Style="{DynamicResource CompilePal.Styles.KebabButton}" AutomationProperties.Name="Game actions" ContextMenuOpening="GameKebabButton_OnContextMenuOpening" Click="GameKebabButton_OnClick">
-                                        <iconPacks:PackIconMaterial Kind="DotsVertical" Height="8" Width="8"/>
+                                    <Button Name="GameManageButton" Margin="4,3,6,3" Padding="10,3" VerticalAlignment="Center"
+                                            ToolTip="Edit or delete this game configuration"
+                                            AutomationProperties.Name="Manage game configuration"
+                                            ContextMenuOpening="GameManageButton_OnContextMenuOpening" Click="GameManageButton_OnClick">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Manage" FontSize="12" VerticalAlignment="Center"/>
+                                            <iconPacks:PackIconMaterial Kind="ChevronDown" Height="9" Width="9" Margin="7,1,0,0" VerticalAlignment="Center"
+                                                                        Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                                        </StackPanel>
                                         <Button.ContextMenu>
-                                            <ContextMenu Name="PresetActionMenu" Placement="Bottom">
-                                                <MenuItem Header="Edit" Click="EditButton_OnClick" />
+                                            <ContextMenu Name="GameActionMenu" Placement="Bottom">
+                                                <MenuItem Header="Edit..." Click="EditButton_OnClick" />
+                                                <Separator/>
                                                 <MenuItem Header="Delete" Click="DeleteButton_OnClick"/>
                                             </ContextMenu>
                                         </Button.ContextMenu>

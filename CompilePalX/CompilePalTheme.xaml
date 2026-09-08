@@ -185,11 +185,15 @@
         </Style.Triggers>
     </Style>
 
-    <!-- Small icon-only "..." action button used in list rows (preset/game kebab menus). It needs a
-         fully custom template just to get square-with-rounded-corners hit bounds instead of a pill, so
-         hover/press/disabled are set here directly - using the same WPF-UI brushes ThemeBridge aliases
-         the old MahApps hover/press keys to elsewhere, rather than the MahApps-era GrayBrush7/8 keys
-         this replaced, which no longer resolve to anything now that MahApps is gone. -->
+    <!-- Flat, borderless action button: no chrome of its own, a subtle fill on hover, and
+         square-with-rounded-corners hit bounds rather than the default pill. Used for the halves of the
+         title bar's split game button, where the surrounding Border draws the single outline and each
+         half only needs to light up under the cursor.
+
+         It needs a fully custom template to get those hit bounds, so hover/press/disabled are set here
+         directly - using the same WPF-UI brushes ThemeBridge aliases the old MahApps hover/press keys
+         to elsewhere, rather than the MahApps-era GrayBrush7/8 keys this replaced, which no longer
+         resolve to anything now that MahApps is gone. -->
     <Style x:Key="CompilePal.Styles.KebabButton" TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
@@ -204,9 +208,12 @@
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="4"
                                 SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                        <!-- Padding, not BorderThickness: ContentPresenter has no Padding of its own, so
+                             a template that insets by border thickness alone silently discards whatever
+                             padding the button declares and renders its content edge to edge. -->
                         <ContentPresenter
                             x:Name="PART_ContentPresenter"
-                            Margin="{TemplateBinding BorderThickness}"
+                            Margin="{TemplateBinding Padding}"
                             HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                             VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                             Content="{TemplateBinding Content}"

@@ -1,4 +1,4 @@
-<ui:FluentWindow x:Class="CompilePalX.MainWindow"
+﻿<ui:FluentWindow x:Class="CompilePalX.MainWindow"
             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
@@ -66,20 +66,43 @@
                     <!-- The game decides every tool path, every default and every compatibility warning,
                          so it is named here rather than left as the tail of the window title. This used
                          to be a bare hamburger glyph - a control that universally means "menu" - doing
-                         duty as "change game". -->
-                    <Button Click="ConfigBack_OnClick" ToolTip="Change game" AutomationProperties.Name="Change game" x:Name="ConfigSelectButton"
+                         duty as "change game".
+
+                         Split, because the two things you do to a game want different costs. Changing
+                         game stays one click on the name. Editing the game you are already in used to
+                         mean opening the selector, finding the row and its menu, and choosing Edit -
+                         three clicks through a window whose actual purpose is switching - so it gets its
+                         own entry behind the chevron. -->
+                    <Border x:Name="ConfigSelectContainer" Margin="12,0,0,0" VerticalAlignment="Center" CornerRadius="4"
                             Background="{DynamicResource ControlFillColorDefaultBrush}"
-                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
-                            Padding="8,3" Margin="12,0,0,0" VerticalAlignment="Center">
+                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
                         <StackPanel Orientation="Horizontal">
-                            <iconPacks:PackIconMaterial Kind="GamepadVariantOutline" Width="12" Height="12" VerticalAlignment="Center"
-                                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Text="{Binding GameName, ElementName=CompileWindow}" Margin="6,0,6,0" FontSize="12" VerticalAlignment="Center"
-                                       MaxWidth="220" TextTrimming="CharacterEllipsis"/>
-                            <iconPacks:PackIconMaterial Kind="ChevronDown" Width="10" Height="10" VerticalAlignment="Center"
-                                                Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                            <Button Click="ConfigBack_OnClick" ToolTip="Change game" AutomationProperties.Name="Change game" x:Name="ConfigSelectButton"
+                                    Style="{DynamicResource CompilePal.Styles.KebabButton}" Padding="8,3">
+                                <StackPanel Orientation="Horizontal">
+                                    <iconPacks:PackIconMaterial Kind="GamepadVariantOutline" Width="12" Height="12" VerticalAlignment="Center"
+                                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock Text="{Binding GameName, ElementName=CompileWindow}" Margin="6,0,0,0" FontSize="12" VerticalAlignment="Center"
+                                               MaxWidth="220" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Button>
+                            <Border Width="1" Margin="0,4" Background="{DynamicResource ControlStrokeColorDefaultBrush}"/>
+                            <Button Click="ConfigMenuButton_OnClick" ToolTip="Game configuration actions" AutomationProperties.Name="Game configuration actions"
+                                    x:Name="ConfigMenuButton" Style="{DynamicResource CompilePal.Styles.KebabButton}" Padding="7,3"
+                                    ContextMenuOpening="ConfigMenuButton_OnContextMenuOpening">
+                                <iconPacks:PackIconMaterial Kind="ChevronDown" Width="10" Height="10" VerticalAlignment="Center"
+                                                    Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                                <Button.ContextMenu>
+                                    <ContextMenu Placement="Bottom">
+                                        <!-- Header is rewritten to name the loaded game when the menu opens -->
+                                        <MenuItem Header="Edit game..." Click="EditCurrentGame_OnClick"/>
+                                        <Separator/>
+                                        <MenuItem Header="Change game..." Click="ConfigBack_OnClick"/>
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                            </Button>
                         </StackPanel>
-                    </Button>
+                    </Border>
                 </StackPanel>
             </ui:TitleBar.Header>
             <ui:TitleBar.TrailingContent>
