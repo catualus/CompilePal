@@ -149,9 +149,34 @@
                                          AutomationProperties.Name="Prefer tools++ binaries when found"/>
                         <StackPanel>
                             <TextBlock Style="{StaticResource SettingTitle}" Text="Prefer tools++ binaries when found"/>
-                            <TextBlock Style="{StaticResource SettingHint}" Text="Run a tools++ build of vbsp/vvis/vrad/bspzip found next to the configured binary, even though Game Configuration still shows the path you typed. Turn this off to always run exactly what is configured."/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Run a tools++ build of vbsp/vvis/vrad/bspzip found in the folder below or next to the configured binary, even though Game Configuration still shows the path you typed. Turn this off to always run exactly what is configured."/>
                         </StackPanel>
                     </DockPanel>
+                </Border>
+
+                <!-- The tools used to be a drop-in for a game's bin folder, so there was nothing to ask
+                     the user: whatever sat next to the configured compiler was it. They are standalone
+                     now and normally kept in one folder outside every game, which nothing under bin/
+                     points at - hence a field. It stays optional; empty still searches the bin folders,
+                     and Detect covers the usual download locations. -->
+                <Border Style="{StaticResource SettingRow}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SettingTitle}" Text="Tools++ folder"/>
+                        <TextBlock Style="{StaticResource SettingHint}" Text="Where a standalone tools++ download lives, for example C:\Users\you\Documents\Tools++. Every game configuration uses these binaries without its paths being rewritten. Leave empty to search only inside the game's bin folders."/>
+                        <DockPanel Margin="0,9,0,0">
+                            <ui:Button DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="86"
+                                       Content="Browse..." Click="BrowseToolsPlusPlusFolder_Click"/>
+                            <ui:Button DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="70"
+                                       Content="Detect" Click="DetectToolsPlusPlusFolder_Click"
+                                       ToolTip="Look for a tools++ folder in Documents, Desktop, Downloads and next to Compile Pal."/>
+                            <TextBox Name="ToolsPlusPlusFolderBox" VerticalAlignment="Center"
+                                     Text="{Binding Path=ToolsPlusPlusFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     TextChanged="ToolsPlusPlusFolderBox_TextChanged"
+                                     AutomationProperties.Name="Tools++ folder"/>
+                        </DockPanel>
+                        <TextBlock Name="ToolsPlusPlusFolderStatus" Style="{StaticResource SettingHint}"
+                                   Margin="0,7,0,0"/>
+                    </StackPanel>
                 </Border>
 
                 <TextBlock Style="{StaticResource SectionHeading}" Text="ERROR CHECKING"/>

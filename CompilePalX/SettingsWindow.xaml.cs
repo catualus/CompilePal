@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using CompilePalX.Compiling;
 using CompilePalX.Configuration;
+using Microsoft.WindowsAPICodePack.Dialogs;
 
 namespace CompilePalX
 {
@@ -17,6 +20,7 @@ namespace CompilePalX
         {
             this.DataContext = ConfigurationManager.Settings.Clone();
             InitializeComponent();
+            UpdateToolsPlusPlusFolderStatus();
         }
 
         private static List<string>? monospaceFonts;
@@ -79,6 +83,89 @@ namespace CompilePalX
             return Math.Abs(glyphs.AdvanceWidths[narrow] - glyphs.AdvanceWidths[wide]) < 0.0001;
         }
 
+        private void ToolsPlusPlusFolderBox_TextChanged(object sender, TextChangedEventArgs e)
+            => UpdateToolsPlusPlusFolderStatus();
+
+        /// <summary>
+        /// Says what the folder currently in the box actually contains.
+        ///
+        /// A path field that accepts anything and reports nothing is how you end up with a setting that
+        /// looks configured and does nothing - a typo, the parent of the real folder, or a folder from
+        /// before the tools were unpacked all look identical until a compile fails to use them.
+        /// </summary>
+        private void UpdateToolsPlusPlusFolderStatus()
+        {
+            // TextChanged fires while InitializeComponent is still wiring the tree up, before the status
+            // block exists
+            if (ToolsPlusPlusFolderStatus is null || ToolsPlusPlusFolderBox is null)
+                return;
+
+            string folder = ToolsPlusPlusFolderBox.Text?.Trim() ?? "";
+
+            if (folder.Length == 0)
+            {
+                string? detected = ToolsPlusPlusDetector.AutoDetectFolder();
+                ToolsPlusPlusFolderStatus.Text = detected is null
+                    ? "Not set. Compile Pal will only look for tools++ inside the game's bin folders."
+                    : $"Not set, but an install was found at {detected} and will be used.";
+                return;
+            }
+
+            if (!Directory.Exists(folder))
+            {
+                ToolsPlusPlusFolderStatus.Text = "That folder does not exist.";
+                return;
+            }
+
+            var found = ToolsPlusPlusDetector.ToolsInFolder(folder);
+            ToolsPlusPlusFolderStatus.Text = found.Count == 0
+                ? "No tools++ binaries here. Expected vbsp++.exe, vvis++.exe, vrad++.exe or bspzip++.exe."
+                : $"Found {string.Join(", ", found)}. These run in place of the paths in Game Configuration.";
+        }
+
+        private void BrowseToolsPlusPlusFolder_Click(object sender, RoutedEventArgs e)
+        {
+            string current = ToolsPlusPlusFolderBox.Text?.Trim() ?? "";
+
+            using var dialog = new CommonOpenFileDialog
+            {
+                Title = "Select the folder containing the tools++ binaries",
+                IsFolderPicker = true,
+                InitialDirectory = Directory.Exists(current) ? current : null,
+            };
+
+            if (dialog.ShowDialog() != CommonFileDialogResult.Ok || string.IsNullOrWhiteSpace(dialog.FileName))
+                return;
+
+            ToolsPlusPlusFolderBox.Text = dialog.FileName;
+        }
+
+        /// <summary>
+        /// Fills the field with an install found on disk, so the common case needs no typing and no
+        /// knowledge of where the archive went.
+        /// </summary>
+        private async void DetectToolsPlusPlusFolder_Click(object sender, RoutedEventArgs e)
+        {
+            // the user may have just unpacked the tools; a verdict cached earlier this session predates that
+            ToolsPlusPlusDetector.Invalidate();
+
+            string? detected = ToolsPlusPlusDetector.AutoDetectFolder();
+
+            if (detected is null)
+            {
+                await Theming.AppDialog.ShowAsync(
+                    "No tools++ install found",
+                    "Looked for a Tools++ folder in Documents, on the Desktop, in Downloads and next to " +
+                    "Compile Pal itself, and found no vbsp++/vvis++/vrad++/bspzip++ in any of them." +
+                    Environment.NewLine + Environment.NewLine +
+                    "Use Browse to point at the folder you unpacked them into.",
+                    closeText: "Close");
+                return;
+            }
+
+            ToolsPlusPlusFolderBox.Text = detected;
+        }
+
         /// <summary>
         /// Prints the exact submission that would be sent right now.
         ///
@@ -117,6 +204,12 @@ namespace CompilePalX
             // rendering in WPF's document default, so fall back rather than accept it.
             if (string.IsNullOrWhiteSpace(settings.OutputFontFamily))
                 settings.OutputFontFamily = "Cascadia Mono, Cascadia Code, Consolas, Courier New";
+
+            // A blank folder means "search the bin folders and fall back to auto-detection", and that is
+            // null rather than "" or "   " - the detector treats a whitespace path as set and finds nothing.
+            settings.ToolsPlusPlusFolder = string.IsNullOrWhiteSpace(settings.ToolsPlusPlusFolder)
+                ? null
+                : settings.ToolsPlusPlusFolder.Trim();
 
             // Read before the save replaces Settings, so "was it on a moment ago" is still answerable.
             bool wasEnabled = ConfigurationManager.Settings.TelemetryEnabled;
