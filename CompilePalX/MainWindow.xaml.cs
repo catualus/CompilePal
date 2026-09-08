@@ -2312,6 +2312,57 @@ namespace CompilePalX
 				LaunchWindow.Instance.Focus();
 		}
 
+		/// <summary>
+		/// Opens the actions menu on the chevron half of the game button, naming the loaded game in the
+		/// edit entry first.
+		///
+		/// Named rather than left as a generic "Edit game": the menu's whole reason to exist is that it
+		/// acts on the game already loaded, and "Edit Garry's Mod..." directly above "Change game..." is
+		/// what makes that distinction readable.
+		/// </summary>
+		private void ConfigMenuButton_OnClick(object sender, RoutedEventArgs e)
+		{
+			if (sender is not Button button || button.ContextMenu == null)
+				return;
+
+			if (button.ContextMenu.Items.Count > 0 && button.ContextMenu.Items[0] is MenuItem editItem)
+			{
+				var config = GameConfigurationManager.GameConfiguration;
+				editItem.Header = config == null ? "Edit game..." : $"Edit {config.Name}...";
+				editItem.IsEnabled = config != null;
+			}
+
+			// place the menu under the button rather than at the mouse
+			button.ContextMenu.PlacementTarget = button;
+			button.ContextMenu.IsOpen = true;
+			e.Handled = true;
+		}
+
+		private void ConfigMenuButton_OnContextMenuOpening(object sender, ContextMenuEventArgs e)
+		{
+			// block right click context menus
+			e.Handled = true;
+		}
+
+		/// <summary>
+		/// Edits the loaded game without going through the selector.
+		///
+		/// Edits a clone, same as the selector does, so cancelling leaves the running configuration
+		/// untouched. Saving is what swaps it in - see GameConfigurationWindow.SaveButton_OnClick.
+		/// </summary>
+		private void EditCurrentGame_OnClick(object sender, RoutedEventArgs e)
+		{
+			var config = GameConfigurationManager.GameConfiguration;
+			if (config == null)
+				return;
+
+			int index = GameConfigurationManager.GameConfigurations.IndexOf(config);
+			if (index < 0)
+				return;
+
+			GameConfigurationWindow.Instance.Open(config.Clone() as GameConfiguration, index);
+		}
+
         private void BugReportButton_OnClick(object sender, RoutedEventArgs e)
         {
 			// Bug reports belong on the fork that produced the build.

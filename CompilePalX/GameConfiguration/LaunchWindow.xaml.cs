@@ -181,7 +181,7 @@ namespace CompilePalX
             GameGrid.ItemsSource = GameConfigurationManager.GameConfigurations;
             RefreshGameConfigurationList();
         }
-        private void GameKebabButton_OnClick(object sender, RoutedEventArgs e)
+        private void GameManageButton_OnClick(object sender, RoutedEventArgs e)
         {
             if (sender is not Button button || button.ContextMenu == null)
                 return;
@@ -191,7 +191,7 @@ namespace CompilePalX
             button.ContextMenu.IsOpen = true;
             e.Handled = true;
         }
-        private void GameKebabButton_OnContextMenuOpening(object sender, ContextMenuEventArgs e)
+        private void GameManageButton_OnContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
             // block right click context menus
             e.Handled = true;
