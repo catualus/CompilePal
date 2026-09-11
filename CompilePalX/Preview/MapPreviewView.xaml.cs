@@ -91,9 +91,8 @@ namespace CompilePalX.Preview
 
         /// <summary>
         /// The compiled copies of a map, newest first: the one next to the .vmf and the one COPY put
-        /// in the game's maps folder. Both are tried, because the newer is often the one REPACK
-        /// compressed, which cannot be read, while the older still has the same geometry and
-        /// lighting. A queued .bsp is its own answer.
+        /// in the game's maps folder. Both are tried, so a copy that cannot be read for any reason
+        /// does not stop the other from being shown. A queued .bsp is its own answer.
         /// </summary>
         private static IReadOnlyList<string> CompiledCopiesOf(Map map)
         {
@@ -154,7 +153,7 @@ namespace CompilePalX.Preview
                     }
                     catch (InvalidDataException e)
                     {
-                        // a compressed or unreadable copy; the next candidate may be neither
+                        // an unreadable copy; the next candidate may be fine
                         CompilePalLogger.LogLineDebug($"Preview skipped \"{candidate}\": {e.Message}");
                         lastProblem = e.Message;
                     }
@@ -180,8 +179,8 @@ namespace CompilePalX.Preview
                     "ldr" => "LDR lighting",
                     _ => "no lighting yet",
                 };
-                StatusText.Text = $"{name} ({reason}) · {scene.DrawnFaces:N0} faces · {lighting}" +
-                                  (scene.SkippedDisplacements > 0 ? $" · {scene.SkippedDisplacements:N0} displacements not drawn" : "");
+                StatusText.Text = $"{name} ({reason}) · {scene.DrawnFaces:N0} faces · {scene.DrawnDisplacements:N0} displacements · {lighting}" +
+                                  (scene.Compressed ? " · read from a compressed BSP" : "");
             }
             catch (Exception e)
             {

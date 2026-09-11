@@ -27,7 +27,7 @@
                 <TextBlock x:Name="PlaceholderTitle" Text="Map preview" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center"/>
                 <TextBlock x:Name="PlaceholderText" Margin="0,8,0,0" TextWrapping="Wrap" TextAlignment="Center"
                            Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                           Text="Shows the compiled map's brush geometry with the lightmaps VRAD baked into it - flat colours per material, no textures, no props, no displacements. With Follow the compile on, the view refreshes as each step finishes."/>
+                           Text="Shows the compiled map's brush geometry with the lightmaps VRAD baked into it - flat colours per material, displacements included, no textures and no props. With Follow the compile on, the view refreshes as each step finishes."/>
             </StackPanel>
         </Grid>
     </DockPanel>

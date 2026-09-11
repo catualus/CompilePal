@@ -43,6 +43,11 @@
         "resolved": "1.1.9",
         "contentHash": "AfK5+ECWYTP7G3AAdnU8IfVj+QpGjrh9GC2mpdcJzCvtQ4pnerAGwHsxJ9D4/RnhDUz2DSzd951O/lQjQby2Sw=="
       },
+      "LZMA-SDK": {
+        "type": "Transitive",
+        "resolved": "22.1.1",
+        "contentHash": "lxG8/H53OCqebnDFlTStwzbgtmUN/DqnXN8kffa/ctHcSEHhIPDyEa3jLzpZxVX5F8bmJgvb1mna6gnhetykIw=="
+      },
       "MahApps.Metro.IconPacks": {
         "type": "Transitive",
         "resolved": "6.2.1",
@@ -817,6 +822,7 @@
         "type": "Project",
         "dependencies": {
           "Glob": "[1.1.9, )",
+          "LZMA-SDK": "[22.1.1, )",
           "MahApps.Metro.IconPacks": "[6.2.1, )",
           "Microsoft-WindowsAPICodePack-Shell": "[1.1.5, )",
           "Microsoft.Web.WebView2": "[1.0.4129.50, )",

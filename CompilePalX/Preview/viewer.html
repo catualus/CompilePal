@@ -67,9 +67,9 @@
   document.getElementById('title').textContent = scene.map;
   const lightingLabel = { hdr: 'HDR lighting', ldr: 'LDR lighting', none: 'no lighting yet' }[scene.lightmap.mode] || scene.lightmap.mode;
   document.getElementById('stats').textContent =
-    `${scene.faces.drawn.toLocaleString()} faces · ${(indexCount / 3).toLocaleString()} triangles · ${lightingLabel} · written ${scene.writtenAt.replace('T', ' ')}`;
+    `${scene.faces.drawn.toLocaleString()} faces · ${scene.faces.displacements.toLocaleString()} displacements · ${(indexCount / 3).toLocaleString()} triangles · ${lightingLabel}${scene.compressed ? ' · from a compressed BSP' : ''} · written ${scene.writtenAt.replace('T', ' ')}`;
   const warnings = [];
-  if (scene.faces.displacements > 0) warnings.push(`${scene.faces.displacements.toLocaleString()} displacement faces are not drawn`);
+  if (scene.faces.displacementsSkipped > 0) warnings.push(`${scene.faces.displacementsSkipped.toLocaleString()} displacements could not be read`);
   warnings.push('static props are not drawn');
   if (scene.faces.unlit > 0 && scene.lightmap.mode !== 'none') warnings.push(`${scene.faces.unlit.toLocaleString()} faces have no lightmap`);
   document.getElementById('warn').textContent = warnings.join(' · ');
@@ -164,10 +164,12 @@
   // ---- camera ----------------------------------------------------------------------------
   const mins = scene.bounds.mins, maxs = scene.bounds.maxs;
   const extent = Math.max(maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2], 512);
+  // At the spawn point at eye height when the map has one; otherwise above the middle of the map
+  // looking down, which at least shows the whole thing.
   const home = scene.spawn
-    ? [scene.spawn[0], scene.spawn[1], scene.spawn[2] + 64]
-    : [(mins[0] + maxs[0]) / 2, (mins[1] + maxs[1]) / 2, (mins[2] + maxs[2]) / 2];
-  const cam = { pos: home.slice(), yaw: 0, pitch: 0 };
+    ? { pos: [scene.spawn[0], scene.spawn[1], scene.spawn[2] + 64], yaw: 0, pitch: 0 }
+    : { pos: [(mins[0] + maxs[0]) / 2, (mins[1] + maxs[1]) / 2 - extent * 0.35, maxs[2] + extent * 0.45], yaw: Math.PI / 2, pitch: -0.9 };
+  const cam = { pos: home.pos.slice(), yaw: home.yaw, pitch: home.pitch };
   const keys = new Set();
   let dragging = false, lastX = 0, lastY = 0;
 
@@ -179,7 +181,7 @@
     cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch - (e.clientY - lastY) * 0.004));
     lastX = e.clientX; lastY = e.clientY;
   });
-  window.addEventListener('keydown', e => { keys.add(e.code); if (e.code === 'KeyR') { cam.pos = home.slice(); cam.yaw = 0; cam.pitch = 0; } });
+  window.addEventListener('keydown', e => { keys.add(e.code); if (e.code === 'KeyR') { cam.pos = home.pos.slice(); cam.yaw = home.yaw; cam.pitch = home.pitch; } });
   window.addEventListener('keyup', e => keys.delete(e.code));
   window.addEventListener('blur', () => keys.clear());
   canvas.tabIndex = 0;

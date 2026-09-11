@@ -135,6 +135,83 @@ namespace CompilePalX.Tests
         }
 
         [Fact]
+        public void AFlatDisplacementIsABilinearGrid()
+        {
+            // a 64x64 quad, power 1 (3x3 grid), every vertex offset zero
+            float[][] corners = [[0, 0, 0], [64, 0, 0], [64, 64, 0], [0, 64, 0]];
+            var verts = new float[9 * 5];
+
+            var mesh = BspGeometry.BuildDisplacement(corners, [0, 0, 0], 1, verts, 0);
+
+            Assert.Equal(9, mesh.Positions.Length);
+            Assert.Equal(8 * 3, mesh.Indices.Length);
+
+            // row i runs corner 0 -> corner 1, column j runs towards the opposite edge
+            Assert.Equal(new float[] { 0, 0, 0 }, mesh.Positions[0]);
+            Assert.Equal(new float[] { 32, 0, 0 }, mesh.Positions[1 * 3 + 0]);
+            Assert.Equal(new float[] { 0, 32, 0 }, mesh.Positions[0 * 3 + 1]);
+            Assert.Equal(new float[] { 64, 64, 0 }, mesh.Positions[2 * 3 + 2]);
+            Assert.All(mesh.Normals, n => Assert.Equal(1f, MathF.Abs(n[2]), 3));
+            Assert.All(mesh.Indices, i => Assert.True(i < 9));
+        }
+
+        [Fact]
+        public void TheGridStartsAtTheCornerNearestTheStartPosition()
+        {
+            float[][] corners = [[0, 0, 0], [64, 0, 0], [64, 64, 0], [0, 64, 0]];
+            var verts = new float[9 * 5];
+
+            // start position at corner 2: the grid origin moves there
+            var mesh = BspGeometry.BuildDisplacement(corners, [63, 65, 0], 1, verts, 0);
+
+            Assert.Equal(new float[] { 64, 64, 0 }, mesh.Positions[0]);
+        }
+
+        [Fact]
+        public void DisplacementVerticesMoveAlongTheirVector()
+        {
+            float[][] corners = [[0, 0, 0], [64, 0, 0], [64, 64, 0], [0, 64, 0]];
+            var verts = new float[9 * 5];
+
+            // the centre vertex (1,1) is pushed 10 units up
+            int centre = (1 * 3 + 1) * 5;
+            verts[centre + 2] = 1; // vector z
+            verts[centre + 3] = 10; // distance
+
+            var mesh = BspGeometry.BuildDisplacement(corners, [0, 0, 0], 1, verts, 0);
+
+            Assert.Equal(new float[] { 32, 32, 10 }, mesh.Positions[4]);
+            // the normal next to it tilts away from straight up; the far corner, whose neighbours are
+            // all flat, does not
+            Assert.True(mesh.Normals[1][2] < 0.999f);
+            Assert.Equal(1f, mesh.Normals[0][2], 3);
+        }
+
+        [Fact]
+        public void ACompressedLumpInflatesBackToItself()
+        {
+            var original = Enumerable.Range(0, 20000).Select(i => (byte)(i % 37 + (i / 500))).ToArray();
+
+            // the way bspzip -compress writes a lump: "LZMA", inflated size, packed size, the five
+            // property bytes, then a raw LZMA stream
+            var encoder = new SevenZip.Compression.LZMA.Encoder();
+            using var packed = new MemoryStream();
+            using (var input = new MemoryStream(original))
+                encoder.Code(input, packed, original.Length, -1, null);
+            using var properties = new MemoryStream();
+            encoder.WriteCoderProperties(properties);
+
+            using var lump = new MemoryStream();
+            lump.Write("LZMA"u8);
+            lump.Write(BitConverter.GetBytes((uint)original.Length));
+            lump.Write(BitConverter.GetBytes((uint)packed.Length));
+            lump.Write(properties.ToArray());
+            lump.Write(packed.ToArray());
+
+            Assert.Equal(original, BspGeometry.DecodeLzmaLump(lump.ToArray()));
+        }
+
+        [Fact]
         public void MaterialColoursAreStableAndDistinct()
         {
             var a = BspGeometry.ColourFor("concrete/concretewall001");
@@ -161,6 +238,8 @@ namespace CompilePalX.Tests
             var scene = BspGeometry.Read(path);
 
             Assert.True(scene.DrawnFaces > 1000, "gm_construct has thousands of faces");
+            Assert.True(scene.DrawnDisplacements > 0, "gm_construct's ground is displacements");
+            Assert.Equal(0, scene.SkippedDisplacements);
             Assert.Equal(scene.Indices.Length / 3, scene.TriangleCount);
             Assert.True(scene.Indices.All(i => i < scene.VertexCount), "an index points past the vertices");
             Assert.NotEqual("none", scene.LightingMode);

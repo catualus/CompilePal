@@ -134,6 +134,9 @@
        folder, and it works against upstream Compile Pal rather than only this fork. -->
   <ItemGroup>
     <PackageReference Include="Glob" Version="1.1.9" />
+    <!-- The reference LZMA decoder from the 7-Zip SDK, for reading the lumps of a BSP that bspzip
+         compressed. .NET has no LZMA of its own. -->
+    <PackageReference Include="LZMA-SDK" Version="22.1.1" />
     <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />

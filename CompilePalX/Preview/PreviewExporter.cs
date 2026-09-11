@@ -53,6 +53,7 @@ namespace CompilePalX.Preview
                 stamp,
                 writtenAt = DateTime.Now.ToString("s"),
                 bspVersion = scene.BspVersion,
+                compressed = scene.Compressed,
                 vertexStride = PreviewScene.VertexStride,
                 vertexCount = scene.VertexCount,
                 indexCount = scene.Indices.Length,
@@ -63,7 +64,8 @@ namespace CompilePalX.Preview
                 {
                     total = scene.FaceCount,
                     drawn = scene.DrawnFaces,
-                    displacements = scene.SkippedDisplacements,
+                    displacements = scene.DrawnDisplacements,
+                    displacementsSkipped = scene.SkippedDisplacements,
                     tool = scene.SkippedToolFaces,
                     unlit = scene.FacesWithoutLightmap,
                 },
@@ -74,7 +76,7 @@ namespace CompilePalX.Preview
             CompilePalLogger.LogLineDebug(
                 $"Preview written for {header.map}: {scene.DrawnFaces} of {scene.FaceCount} faces, {scene.TriangleCount} triangles, " +
                 $"{scene.LightingMode} lighting in a {scene.LightmapWidth}x{scene.LightmapHeight} atlas, " +
-                $"{scene.SkippedDisplacements} displacements not drawn.");
+                $"{scene.DrawnDisplacements} displacements{(scene.Compressed ? ", inflated from a compressed BSP" : "")}.");
 
             return new Export(bspPath, scene, DateTime.Now, stamp);
         }
