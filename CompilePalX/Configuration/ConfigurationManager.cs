@@ -126,8 +126,17 @@ namespace CompilePalX
         /// <summary>
         /// The map selected in the queue, for the command each step shows in its expanded row. Null
         /// when nothing is selected, in which case the rows show the template with its placeholders.
+        ///
+        /// The map rather than its path, because the preview also needs the map's own preset: the
+        /// compile loop sets <see cref="CurrentPreset"/> to each queued map's preset in turn and
+        /// leaves it on the last one, so after a multi-map run CurrentPreset can belong to a map other
+        /// than the one selected, and a preview built from it would show one map's path with another
+        /// map's arguments.
         /// </summary>
-        public static string? PreviewMap = null;
+        public static Map? PreviewMap = null;
+
+        /// <summary>The preset the selected map compiles with, or the one being edited when no map is selected.</summary>
+        public static Preset? PreviewPreset => PreviewMap?.Preset ?? CurrentPreset;
 
         private static readonly string ParametersFolder = "./Parameters";
         private static readonly string PresetsFolder = "./Presets";
@@ -268,7 +277,17 @@ namespace CompilePalX
                 item.PropertyChanged += OnItemChanged;
             }
 
-            void OnItemChanged(object? sender, PropertyChangedEventArgs args) => MarkDirty(preset);
+            void OnItemChanged(object? sender, PropertyChangedEventArgs args)
+            {
+                // What the compiler said its default is comes from the binary, is never saved, and is
+                // rewritten on every refresh - not a reason to write the preset to disk.
+                if (args.PropertyName is nameof(ConfigItem.ToolDefault)
+                    or nameof(ConfigItem.IsCompatible)
+                    or nameof(ConfigItem.IncompatibilityReason))
+                    return;
+
+                MarkDirty(preset);
+            }
         }
 
         /// <summary>
@@ -879,6 +898,7 @@ namespace CompilePalX
                         string baseline = baselines[i];
 
                         var item = ParseBaseLine(baseline);
+                        item.OwningProcess = compilerName ?? processName;
 
                         list.Add(item);
                     }

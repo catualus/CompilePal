@@ -24,7 +24,7 @@ namespace CompilePalX.Tests
 
         private readonly GameConfiguration? originalGame;
         private readonly Preset? originalPreset;
-        private readonly string? originalPreviewMap;
+        private readonly Map? originalPreviewMap;
         private readonly ToolsPlusPlusMode originalMode;
         private readonly bool originalPrefer;
         private readonly string? originalFolder;
@@ -195,7 +195,7 @@ namespace CompilePalX.Tests
             Add("Final");
             Add("Bounces");
             vrad.PresetDictionary[preset][1].Value = "2";
-            ConfigurationManager.PreviewMap = @"C:\maps\rp_test.vmf";
+            ConfigurationManager.PreviewMap = new Map(@"C:\maps\rp_test.vmf", preset: preset);
 
             string preview = vrad.CommandPreview;
 
@@ -204,6 +204,69 @@ namespace CompilePalX.Tests
             Assert.Contains($"-game \"{GameFolder}\"", preview);
             Assert.EndsWith("\"C:\\maps\\rp_test.vmf\"", preview);
             Assert.DoesNotContain("$", preview);
+        }
+
+        [Fact]
+        public void ThePreviewUsesTheSelectedMapsOwnPreset()
+        {
+            // After a multi-map compile CurrentPreset is whichever map ran last. The preview is a
+            // statement about the selected map, so it reads that map's preset, and the GPU/CPU badge
+            // does the same.
+            var other = new Preset { Name = "Other" };
+            vrad.PresetDictionary[other] = [];
+            Add("Final");
+            ConfigurationManager.CurrentPreset = other;
+            vrad.PresetDictionary[other].Add((ConfigItem)vrad.ParameterList.First(p => p.Name == "CPU Only").Clone());
+
+            ConfigurationManager.PreviewMap = new Map(@"C:\maps\rp_test.vmf", preset: preset);
+
+            Assert.Contains("-final", vrad.CommandPreview);
+            Assert.DoesNotContain("-cpu", vrad.CommandPreview);
+            Assert.EndsWith("· GPU", vrad.CompilerBadge);
+
+            // no map selected: the preset being edited is all there is
+            ConfigurationManager.PreviewMap = null;
+            Assert.Contains("-cpu", vrad.CommandPreview);
+            Assert.EndsWith("· CPU", vrad.CompilerBadge);
+        }
+
+        [Fact]
+        public void TheCompilerDefaultReachesTheRowsAlreadyOnScreen()
+        {
+            // Preset rows are clones made before the compiler answered -help. The refresh has to
+            // reach them, not only the picker's master list, or the default shows in the wrong place.
+            Add("Bounces");
+            var row = vrad.PresetDictionary[preset][0];
+            row.ToolDefault = null;
+
+            string? seen = null;
+            row.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ConfigItem.ToolDefault)) seen = row.ToolDefault; };
+
+            vrad.RefreshDiscoveredParameters();
+
+            Assert.Equal("100", row.ToolDefault);
+            Assert.Equal("100", seen);
+        }
+
+        [Fact]
+        public void ALegacyCsvParameterFileIsJudgedByItsCompilerToo()
+        {
+            // The one-time migration from parameters.csv built its items on a different path from the
+            // JSON one and never said which compiler they belonged to, so tools++ support did not
+            // apply until the next launch read the JSON it had written.
+            string folder = Path.Combine(root, "VVIS");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "meta.json"), """
+                { "Name": "VVIS", "Path": "$vvis$", "Order": 2.0, "DoRun": true, "ReadOutput": true,
+                  "Description": "", "Warning": "", "BasisString": " -game $game$ $vmfFile$" }
+                """);
+            File.WriteAllText(Path.Combine(root, "VVIS.csv"), "VVIS\nheader\nFast;-fast;False;Quick pass;\n");
+
+            var vvis = new CompileExecutable("VVIS", root);
+
+            var fast = vvis.ParameterList.First(p => p.Name == "Fast");
+            Assert.Equal("VVIS", fast.OwningProcess);
+            Assert.True(File.Exists(Path.Combine(folder, "parameters.json")));
         }
 
         [Fact]

@@ -307,9 +307,11 @@ namespace CompilePalX
 
         public bool HasCompilerBadge => CompilerBadge is not null;
 
-        /// <summary>Whether the current preset hands this step <paramref name="flag"/> and the compiler would take it.</summary>
+        /// <summary>Whether the previewed preset hands this step <paramref name="flag"/> and the compiler would take it.</summary>
         private bool UsesFlag(string flag) =>
-            CurrentPresetParameters?.Any(p => string.Equals(p.Flag, flag, StringComparison.OrdinalIgnoreCase) && p.IsCompatible) == true;
+            ConfigurationManager.PreviewPreset is { } preset
+            && PresetDictionary.TryGetValue(preset, out var parameters)
+            && parameters.Any(p => string.Equals(p.Flag, flag, StringComparison.OrdinalIgnoreCase) && p.IsCompatible);
 
         /// <summary>
         /// The command this step would run for the map selected in the queue, with every placeholder
@@ -326,8 +328,10 @@ namespace CompilePalX
             {
                 try
                 {
-                    string template = GetParameterString().Trim();
-                    string? map = ConfigurationManager.PreviewMap;
+                    // The selected map's own preset, not the one being edited: the two can differ
+                    // after a multi-map compile, and this is a statement about that map.
+                    string template = GetParameterString(ConfigurationManager.PreviewPreset).Trim();
+                    string? map = ConfigurationManager.PreviewMap?.File;
 
                     if (map is null || GameConfigurationManager.GameConfiguration is null)
                         return template;
@@ -407,10 +411,21 @@ namespace CompilePalX
 
             var help = ToolsPlusPlusDetector.HelpFor(CompilerName);
 
+            string? DefaultFor(ConfigItem parameter) =>
+                help is not null && help.TryGet(parameter.Flag, out var known) && known.TakesValue ? known.Default : null;
+
             foreach (var parameter in ParameterList)
-                parameter.ToolDefault = help is not null && help.TryGet(parameter.Flag, out var known) && known.TakesValue
-                    ? known.Default
-                    : null;
+                parameter.ToolDefault = DefaultFor(parameter);
+
+            // The rows on screen are the presets' clones, taken before the compiler answered - so
+            // they have to be told too, or the default appears on the picker's copy and never on the
+            // row it was wanted for.
+            foreach (var parameters in PresetDictionary.Values)
+                foreach (var parameter in parameters)
+                {
+                    parameter.ToolDefault = DefaultFor(parameter);
+                    parameter.NotifyAvailabilityChanged();
+                }
 
             if (help is null)
                 return;
