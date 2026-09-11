@@ -644,7 +644,7 @@ namespace CompilePalX.Compilers.BSPPack
         /// <c>name_dir.vpk</c> and its data in numbered archives, so listing the numbered parts would
         /// find nothing and listing both would double the work.
         /// </summary>
-        static List<string> FindGameVpks(string gameFolder)
+        internal static List<string> FindGameVpks(string gameFolder)
         {
             var found = new List<string>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -1,16 +1,19 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using CompilePalX.Compiling;
 using Newtonsoft.Json;
 
 namespace CompilePalX.Preview
 {
     /// <summary>
-    /// Writes a <see cref="PreviewScene"/> where the viewer page can fetch it.
+    /// Writes a <see cref="PreviewScene"/> and its textures where the viewer page can fetch them.
     ///
-    /// Three files in one folder: <c>scene.json</c> with the numbers and the camera, <c>geometry.bin</c>
-    /// with the vertices and indices, <c>lightmap.bin</c> with the raw atlas. The viewer page itself
-    /// is copied in alongside, so one virtual host over one folder serves the lot and the page never
+    /// One folder: <c>scene.json</c> with the numbers, the materials, the batches and the camera;
+    /// <c>geometry.bin</c> with the vertices and indices; <c>lightmap.bin</c> with the raw atlas;
+    /// <c>textures/tN.bin</c> with each texture's mip levels back to back. The viewer page itself is
+    /// copied in alongside, so one virtual host over one folder serves the lot and the page never
     /// has to cross an origin to load its data.
     /// </summary>
     public static class PreviewExporter
@@ -25,10 +28,14 @@ namespace CompilePalX.Preview
             Path.Combine(AppContext.BaseDirectory, "Preview", "viewer.html");
 
         /// <summary>What was last written, for the status line and for tests.</summary>
-        public sealed record Export(string BspPath, PreviewScene Scene, DateTime WrittenAt, long Stamp);
+        public sealed record Export(string BspPath, PreviewScene Scene, DateTime WrittenAt, long Stamp,
+            int MaterialsFound, int MaterialsMissing, int TexturesWritten, int TexturesMissing, bool SkyWritten);
 
-        /// <summary>Reads <paramref name="bspPath"/> and writes the preview folder. Throws on an unreadable map.</summary>
-        public static Export Write(string bspPath)
+        /// <summary>
+        /// Reads <paramref name="bspPath"/>, finds its materials under <paramref name="gameFolder"/>
+        /// and inside the map's own pak, and writes the preview folder. Throws on an unreadable map.
+        /// </summary>
+        public static Export Write(string bspPath, string? gameFolder)
         {
             var scene = BspGeometry.Read(bspPath);
             Directory.CreateDirectory(Folder);
@@ -46,6 +53,46 @@ namespace CompilePalX.Preview
 
             File.WriteAllBytes(Path.Combine(Folder, "lightmap.bin"), scene.Lightmap);
 
+            // materials and textures
+            using var content = new ContentLocator(scene.PakLump, gameFolder);
+            var materials = new PreviewMaterials(content);
+            var resolved = materials.Resolve(scene.MaterialNames);
+            var sky = materials.ResolveSky(scene.SkyName);
+
+            string textureFolder = Path.Combine(Folder, "textures");
+            if (Directory.Exists(textureFolder))
+                foreach (var old in Directory.EnumerateFiles(textureFolder))
+                    File.Delete(old);
+            Directory.CreateDirectory(textureFolder);
+
+            var textureManifest = new List<object>();
+            for (int id = 0; id < materials.Textures.Count; id++)
+            {
+                var (path, texture) = materials.Textures[id];
+                var levels = new List<object>();
+                using (var file = File.Create(Path.Combine(textureFolder, $"t{id}.bin")))
+                {
+                    long offset = 0;
+                    foreach (var level in texture.Levels)
+                    {
+                        file.Write(level.Data);
+                        levels.Add(new { w = level.Width, h = level.Height, offset, size = level.Data.Length });
+                        offset += level.Data.Length;
+                    }
+                }
+
+                textureManifest.Add(new
+                {
+                    id,
+                    path,
+                    format = texture.Format,
+                    width = texture.Width,
+                    height = texture.Height,
+                    hasAlpha = texture.HasAlpha,
+                    levels,
+                });
+            }
+
             var header = new
             {
                 map = Path.GetFileNameWithoutExtension(bspPath),
@@ -57,9 +104,53 @@ namespace CompilePalX.Preview
                 vertexStride = PreviewScene.VertexStride,
                 vertexCount = scene.VertexCount,
                 indexCount = scene.Indices.Length,
-                lightmap = new { width = scene.LightmapWidth, height = scene.LightmapHeight, mode = scene.LightingMode },
+                lightmap = new
+                {
+                    width = scene.LightmapWidth,
+                    height = scene.LightmapHeight,
+                    mode = scene.LightingMode,
+                    range = BspGeometry.LightmapRange,
+                },
                 bounds = new { mins = scene.Mins, maxs = scene.Maxs },
                 spawn = scene.Spawn,
+                sky = sky is not null
+                    ? new { name = scene.SkyName, faces = (object?)sky, painted = (object?)null }
+                    : scene.SkyPaint is { } paint
+                        ? new
+                        {
+                            name = scene.SkyName,
+                            faces = (object?)null,
+                            painted = (object?)new
+                            {
+                                top = paint.TopColor, bottom = paint.BottomColor, fadeBias = paint.FadeBias,
+                                sunColor = paint.SunColor, sunNormal = paint.SunNormal, sunSize = paint.SunSize,
+                            },
+                        }
+                        : null,
+                materials = resolved.Select(m => new
+                {
+                    name = m.Name,
+                    shader = m.Shader,
+                    texture = m.Texture,
+                    texture2 = m.Texture2,
+                    translucent = m.Translucent,
+                    alphaTest = m.AlphaTest,
+                    noCull = m.NoCull,
+                    unlit = m.Unlit,
+                    color = m.Color,
+                    hidden = m.Hidden,
+                }).ToList(),
+                batches = scene.Batches.Select(b => new { material = b.Material, first = b.First, count = b.Count }).ToList(),
+                textures = textureManifest,
+                content = new
+                {
+                    gameContent = content.HasGameContent,
+                    folders = content.Folders.Count,
+                    vpks = content.Vpks.Count,
+                    materialsFound = materials.MaterialsFound,
+                    materialsMissing = materials.MaterialsMissing,
+                    texturesMissing = materials.TexturesMissing,
+                },
                 faces = new
                 {
                     total = scene.FaceCount,
@@ -68,6 +159,7 @@ namespace CompilePalX.Preview
                     displacementsSkipped = scene.SkippedDisplacements,
                     tool = scene.SkippedToolFaces,
                     unlit = scene.FacesWithoutLightmap,
+                    brushEntities = scene.PlacedBrushEntities,
                 },
             };
 
@@ -76,9 +168,13 @@ namespace CompilePalX.Preview
             CompilePalLogger.LogLineDebug(
                 $"Preview written for {header.map}: {scene.DrawnFaces} of {scene.FaceCount} faces, {scene.TriangleCount} triangles, " +
                 $"{scene.LightingMode} lighting in a {scene.LightmapWidth}x{scene.LightmapHeight} atlas, " +
-                $"{scene.DrawnDisplacements} displacements{(scene.Compressed ? ", inflated from a compressed BSP" : "")}.");
+                $"{scene.DrawnDisplacements} displacements, {scene.PlacedBrushEntities} brush entities placed, " +
+                $"{materials.MaterialsFound} of {scene.MaterialNames.Count} materials found ({content.PakHits} of {content.PackedFiles} packed, {content.FolderHits} loose, {content.VpkHits} in VPKs), " +
+                $"{materials.Textures.Count} textures, sky {(sky is not null ? scene.SkyName : scene.SkyPaint is not null ? "painted" : "not found")}" +
+                $"{(scene.Compressed ? ", inflated from a compressed BSP" : "")}.");
 
-            return new Export(bspPath, scene, DateTime.Now, stamp);
+            return new Export(bspPath, scene, DateTime.Now, stamp,
+                materials.MaterialsFound, materials.MaterialsMissing, materials.Textures.Count, materials.TexturesMissing, sky is not null || scene.SkyPaint is not null);
         }
 
         /// <summary>Copies the viewer page into the folder when it is missing or older than the shipped one.</summary>

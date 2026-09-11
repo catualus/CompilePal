@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -7,17 +8,25 @@ using System.Text.RegularExpressions;
 
 namespace CompilePalX.Preview
 {
+    /// <summary>A run of the index buffer drawn with one material.</summary>
+    public sealed record DrawBatch(int Material, int First, int Count);
+
     /// <summary>
-    /// A compiled map reduced to what a viewer needs: triangles, a lightmap atlas, and where to stand.
-    /// Built by <see cref="BspGeometry.Read"/> from the BSP alone - no game content, no VTFs, no models.
+    /// A compiled map reduced to what a viewer needs: triangles grouped by material, a lightmap
+    /// atlas, the material names to go and find textures for, and where to stand. Built by
+    /// <see cref="BspGeometry.Read"/> from the BSP alone.
     /// </summary>
     public sealed class PreviewScene
     {
-        /// <summary>Floats per vertex in <see cref="Vertices"/>: position, normal, lightmap uv, colour.</summary>
-        public const int VertexStride = 11;
+        /// <summary>Floats per vertex: position, normal, lightmap uv, texture uv, blend, colour.</summary>
+        public const int VertexStride = 14;
 
         public float[] Vertices { get; init; } = [];
         public uint[] Indices { get; init; } = [];
+        public IReadOnlyList<DrawBatch> Batches { get; init; } = [];
+
+        /// <summary>Material names by texdata index, which is what batches refer to.</summary>
+        public IReadOnlyList<string> MaterialNames { get; init; } = [];
 
         /// <summary>RGBA8, <see cref="LightmapWidth"/> by <see cref="LightmapHeight"/>. Empty when the map has no lighting.</summary>
         public byte[] Lightmap { get; init; } = [];
@@ -33,6 +42,15 @@ namespace CompilePalX.Preview
         /// <summary>An info_player_start, if the map has one; a good place to open the camera.</summary>
         public float[]? Spawn { get; init; }
 
+        /// <summary>worldspawn's skyname, for the 2D skybox.</summary>
+        public string? SkyName { get; init; }
+
+        /// <summary>Garry's Mod's procedural sky, from env_skypaint, when the map has one.</summary>
+        public BspGeometry.SkyPaint? SkyPaint { get; init; }
+
+        /// <summary>The pakfile lump as stored: a zip of the content packed into the map.</summary>
+        public byte[] PakLump { get; init; } = [];
+
         public int BspVersion { get; init; }
         public bool Compressed { get; init; }
         public int FaceCount { get; init; }
@@ -41,6 +59,7 @@ namespace CompilePalX.Preview
         public int SkippedDisplacements { get; init; }
         public int SkippedToolFaces { get; init; }
         public int FacesWithoutLightmap { get; init; }
+        public int PlacedBrushEntities { get; init; }
 
         public int VertexCount => Vertices.Length / VertexStride;
         public int TriangleCount => Indices.Length / 3;
@@ -51,8 +70,9 @@ namespace CompilePalX.Preview
     ///
     /// The format is https://developer.valvesoftware.com/wiki/Source_BSP_File_Format. Only the lumps
     /// a renderer needs are touched: vertices, edges, surfedges, faces, planes, texinfo, texdata,
-    /// displacements and the lighting lump, plus the entity text for a spawn point. Static props are
-    /// not read; they live in the game lump and need the models, which are not in the BSP.
+    /// models, displacements and the lighting lump, plus the entity text for a spawn point, the sky
+    /// name and where brush entities sit. Static props are not read; they live in the game lump
+    /// and need the models, which are not in the BSP.
     ///
     /// Lumps that bspzip compressed with <c>-compress</c> are inflated on the way in, so a repacked
     /// map previews the same as the one it was made from.
@@ -68,8 +88,10 @@ namespace CompilePalX.Preview
         private const int LumpLighting = 8;
         private const int LumpEdges = 12;
         private const int LumpSurfedges = 13;
+        private const int LumpModels = 14;
         private const int LumpDispInfo = 26;
         private const int LumpDispVerts = 33;
+        private const int LumpPakfile = 40;
         private const int LumpTexdataStringData = 43;
         private const int LumpTexdataStringTable = 44;
         private const int LumpLightingHdr = 53;
@@ -93,8 +115,19 @@ namespace CompilePalX.Preview
 
         private readonly record struct TexInfo(float[] TextureVecs, float[] LightmapVecs, int Flags, int TexData);
 
+        private readonly record struct TexData(string Name, int Width, int Height);
+
         /// <summary>One displacement: which face it replaces, where its grid starts, how fine it is.</summary>
         private readonly record struct DispInfo(float[] StartPosition, int VertStart, int Power, int MapFace);
+
+        /// <summary>A brush model: the faces it owns. Model 0 is the world.</summary>
+        private readonly record struct Model(int FirstFace, int NumFaces);
+
+        /// <summary>Where a brush entity put its model: a translation and a rotation.</summary>
+        public readonly record struct Placement(float[] Origin, float[] Angles);
+
+        /// <summary>The colours env_skypaint paints the sky with. Linear 0..1, as the entity stores them.</summary>
+        public sealed record SkyPaint(float[] TopColor, float[] BottomColor, float FadeBias, float[] SunColor, float[] SunNormal, float SunSize);
 
         /// <summary>Reads <paramref name="path"/>. Throws on a file that is not a BSP.</summary>
         public static PreviewScene Read(string path)
@@ -125,7 +158,8 @@ namespace CompilePalX.Preview
             var surfedges = Ints(Data(LumpSurfedges));
             var planes = ReadPlanes(Data(LumpPlanes));
             var texinfos = ReadTexInfos(Data(LumpTexinfo));
-            var materials = ReadMaterialNames(Data(LumpTexdata), Data(LumpTexdataStringTable), Data(LumpTexdataStringData));
+            var texdata = ReadTexData(Data(LumpTexdata), Data(LumpTexdataStringTable), Data(LumpTexdataStringData));
+            var models = ReadModels(Data(LumpModels));
 
             // HDR when the map has it: a -hdr compile leaves the LDR lump empty, and a -both compile's
             // HDR lump is the better of the two.
@@ -149,17 +183,37 @@ namespace CompilePalX.Preview
             var dispInfos = ReadDispInfos(Data(LumpDispInfo));
             var dispVerts = Floats(Data(LumpDispVerts)); // 5 floats each: vector, distance, alpha
 
-            float[]? spawn = FindSpawn(Encoding.ASCII.GetString(Data(LumpEntities)))
-                             ?? FindSpawnInLumpFile(path);
+            // ENTLUMP moves the entities out of the BSP into a file beside it; when that file exists
+            // it is the map's entity list and the lump inside is empty or a stub
+            string entityText = ReadEntityLumpFile(path) ?? Encoding.ASCII.GetString(Data(LumpEntities));
+            var entities = ParseEntities(entityText);
 
-            return Build(version, compressed, vertices, edges, surfedges, planes, texinfos, materials, faces, lighting, lightingMode, spawn, dispInfos, dispVerts);
+            float[]? spawn = FindSpawn(entityText);
+            string? skyName = entities.FirstOrDefault(e => e.GetValueOrDefault("classname") == "worldspawn")?.GetValueOrDefault("skyname");
+
+            var placements = BrushPlacements(entities);
+            var skyPaint = ReadSkyPaint(entities);
+
+            // the pak lump is a zip and is read by the content locator later; kept as stored
+            var pak = RawLump(stream, reader, lumps[LumpPakfile]);
+
+            return Build(version, compressed, vertices, edges, surfedges, planes, texinfos, texdata, models, placements,
+                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, dispInfos, dispVerts);
         }
 
         private static PreviewScene Build(
             int version, bool compressed, float[] vertices, ushort[] edges, int[] surfedges, float[] planes,
-            TexInfo[] texinfos, string[] materials, Face[] faces, byte[] lighting, string lightingMode, float[]? spawn,
+            TexInfo[] texinfos, TexData[] texdata, Model[] models, Dictionary<int, Placement> placements,
+            Face[] faces, byte[] lighting, string lightingMode, float[]? spawn, string? skyName, SkyPaint? skyPaint, byte[] pak,
             DispInfo[] dispInfos, float[] dispVerts)
         {
+            // which brush model each face belongs to, for the entities that moved theirs
+            var faceModel = new int[faces.Length];
+            for (int m = 1; m < models.Length; m++)
+                for (int f = models[m].FirstFace; f < models[m].FirstFace + models[m].NumFaces && f < faces.Length; f++)
+                    if (f >= 0)
+                        faceModel[f] = m;
+
             // pass 1: decide what draws and reserve lightmap space
             var drawn = new List<int>(faces.Length);
             var drawnDisps = new List<int>(dispInfos.Length);
@@ -176,7 +230,7 @@ namespace CompilePalX.Preview
                     continue;
 
                 var texinfo = texinfos[face.TexInfo];
-                string material = MaterialOf(texinfo, materials);
+                string material = MaterialOf(texinfo, texdata);
 
                 if ((texinfo.Flags & (SurfSky | SurfSky2D | SurfNoDraw | SurfTrigger | SurfHint | SurfSkip)) != 0
                     || (material.StartsWith("tools/", StringComparison.OrdinalIgnoreCase) && !material.Contains("black", StringComparison.OrdinalIgnoreCase)))
@@ -223,11 +277,15 @@ namespace CompilePalX.Preview
             byte[] lightmap = atlas.Width > 0 ? new byte[atlas.Width * atlas.Height * 4] : [];
             var placed = atlas.Placements;
 
-            // pass 2: emit geometry
+            // pass 2: emit geometry, one material at a time so the viewer draws each in one call
             var outVerts = new List<float>((drawn.Count * 4 + drawnDisps.Count * 81) * PreviewScene.VertexStride);
             var outIndices = new List<uint>(drawn.Count * 6 + drawnDisps.Count * 384);
+            var batches = new List<DrawBatch>();
             var mins = new[] { float.MaxValue, float.MaxValue, float.MaxValue };
             var maxs = new[] { float.MinValue, float.MinValue, float.MinValue };
+            var placedEntities = new HashSet<int>();
+
+            int TexDataOf(Face face) => face.TexInfo >= 0 && face.TexInfo < texinfos.Length ? texinfos[face.TexInfo].TexData : -1;
 
             List<float[]> Corners(Face face)
             {
@@ -242,7 +300,7 @@ namespace CompilePalX.Preview
                 return corners;
             }
 
-            void Emit(float[] p, float[] normal, float u, float v, float[] colour)
+            void Emit(float[] p, float[] normal, float lu, float lv, float tu, float tv, float blend, float[] colour)
             {
                 for (int k = 0; k < 3; k++)
                 {
@@ -252,69 +310,90 @@ namespace CompilePalX.Preview
 
                 outVerts.Add(p[0]); outVerts.Add(p[1]); outVerts.Add(p[2]);
                 outVerts.Add(normal[0]); outVerts.Add(normal[1]); outVerts.Add(normal[2]);
-                outVerts.Add(u); outVerts.Add(v);
+                outVerts.Add(lu); outVerts.Add(lv);
+                outVerts.Add(tu); outVerts.Add(tv);
+                outVerts.Add(blend);
                 outVerts.Add(colour[0]); outVerts.Add(colour[1]); outVerts.Add(colour[2]);
             }
 
-            foreach (int fi in drawn)
+            // faces and displacements grouped by material, so each group is one draw
+            var byMaterial = drawn.Select(f => (Face: f, Disp: -1))
+                .Concat(drawnDisps.Select(d => (Face: dispInfos[d].MapFace, Disp: d)))
+                .GroupBy(x => TexDataOf(faces[x.Face]))
+                .OrderBy(g => g.Key);
+
+            foreach (var group in byMaterial)
             {
-                var face = faces[fi];
-                var texinfo = texinfos[face.TexInfo];
-                var colour = ColourFor(MaterialOf(texinfo, materials));
+                int batchStart = outIndices.Count;
+                var colour = ColourFor(group.Key >= 0 && group.Key < texdata.Length ? texdata[group.Key].Name : "");
 
-                bool lit = placed.TryGetValue(fi, out var place);
-                if (lit)
-                    BlitLightmap(lighting, face, place, atlas.Width, lightmap);
-
-                var corners = Corners(face);
-                var normal = FaceNormal(corners) ?? PlaneNormal(planes, face.PlaneNum);
-                uint baseIndex = (uint)(outVerts.Count / PreviewScene.VertexStride);
-
-                foreach (var p in corners)
+                foreach (var (fi, di) in group)
                 {
-                    var (u, v) = lit
-                        ? LightmapUv(p, texinfo.LightmapVecs, face.LightMinS, face.LightMinT, place, atlas.Width, atlas.Height)
-                        : (-1f, -1f);
-                    Emit(p, normal, u, v, colour);
+                    var face = faces[fi];
+                    var texinfo = texinfos[face.TexInfo];
+                    var tex = texinfo.TexData >= 0 && texinfo.TexData < texdata.Length ? texdata[texinfo.TexData] : new TexData("", 64, 64);
+
+                    bool lit = placed.TryGetValue(fi, out var place);
+                    if (lit)
+                        BlitLightmap(lighting, face, place, atlas.Width, lightmap);
+
+                    placements.TryGetValue(faceModel[fi], out var placement);
+                    bool moved = faceModel[fi] > 0 && placements.ContainsKey(faceModel[fi]);
+                    if (moved)
+                        placedEntities.Add(faceModel[fi]);
+
+                    var corners = Corners(face);
+                    uint baseIndex = (uint)(outVerts.Count / PreviewScene.VertexStride);
+
+                    if (di < 0)
+                    {
+                        var normal = FaceNormal(corners) ?? PlaneNormal(planes, face.PlaneNum);
+                        var worldNormal = moved ? Rotate(normal, placement.Angles) : normal;
+
+                        foreach (var p in corners)
+                        {
+                            // lightmap and texture coordinates belong to the model's own space
+                            var (lu, lv) = lit
+                                ? LightmapUv(p, texinfo.LightmapVecs, face.LightMinS, face.LightMinT, place, atlas.Width, atlas.Height)
+                                : (-1f, -1f);
+                            var (tu, tv) = TextureUv(p, texinfo.TextureVecs, tex.Width, tex.Height);
+                            var world = moved ? Place(p, placement) : p;
+                            Emit(world, worldNormal, lu, lv, tu, tv, 0, colour);
+                        }
+
+                        foreach (uint index in FanIndices(corners.Count))
+                            outIndices.Add(baseIndex + index);
+                    }
+                    else
+                    {
+                        var disp = dispInfos[di];
+                        var grid = BuildDisplacement(corners, disp.StartPosition, disp.Power, dispVerts, disp.VertStart);
+                        int side = (1 << disp.Power) + 1;
+
+                        for (int i = 0; i < side; i++)
+                            for (int j = 0; j < side; j++)
+                            {
+                                int n = i * side + j;
+                                float lu = -1, lv = -1;
+                                if (lit)
+                                {
+                                    // VRAD samples a displacement on its own grid: luxel s runs along
+                                    // the columns and t along the rows, over the face's whole lightmap.
+                                    lu = (place.X + 1 + (float)j / (side - 1) * face.LightSizeS + 0.5f) / atlas.Width;
+                                    lv = (place.Y + 1 + (float)i / (side - 1) * face.LightSizeT + 0.5f) / atlas.Height;
+                                }
+                                var (tu, tv) = TextureUv(grid.Positions[n], texinfo.TextureVecs, tex.Width, tex.Height);
+                                float alpha = dispVerts[(disp.VertStart + n) * 5 + 4] / 255f;
+                                Emit(grid.Positions[n], grid.Normals[n], lu, lv, tu, tv, alpha, colour);
+                            }
+
+                        foreach (uint index in grid.Indices)
+                            outIndices.Add(baseIndex + index);
+                    }
                 }
 
-                foreach (uint index in FanIndices(corners.Count))
-                    outIndices.Add(baseIndex + index);
-            }
-
-            foreach (int d in drawnDisps)
-            {
-                var disp = dispInfos[d];
-                var face = faces[disp.MapFace];
-                var texinfo = face.TexInfo >= 0 && face.TexInfo < texinfos.Length ? texinfos[face.TexInfo] : default;
-                var colour = ColourFor(texinfo.TextureVecs is null ? "displacement" : MaterialOf(texinfo, materials));
-
-                bool lit = placed.TryGetValue(disp.MapFace, out var place);
-                if (lit)
-                    BlitLightmap(lighting, face, place, atlas.Width, lightmap);
-
-                var corners = Corners(face);
-                var grid = BuildDisplacement(corners, disp.StartPosition, disp.Power, dispVerts, disp.VertStart);
-                int side = (1 << disp.Power) + 1;
-                uint baseIndex = (uint)(outVerts.Count / PreviewScene.VertexStride);
-
-                for (int i = 0; i < side; i++)
-                    for (int j = 0; j < side; j++)
-                    {
-                        int n = i * side + j;
-                        float u = -1, v = -1;
-                        if (lit)
-                        {
-                            // VRAD samples a displacement on its own grid: luxel s runs along the
-                            // columns and t along the rows, over the face's whole lightmap.
-                            u = (place.X + 1 + (float)j / (side - 1) * face.LightSizeS + 0.5f) / atlas.Width;
-                            v = (place.Y + 1 + (float)i / (side - 1) * face.LightSizeT + 0.5f) / atlas.Height;
-                        }
-                        Emit(grid.Positions[n], grid.Normals[n], u, v, colour);
-                    }
-
-                foreach (uint index in grid.Indices)
-                    outIndices.Add(baseIndex + index);
+                if (outIndices.Count > batchStart)
+                    batches.Add(new DrawBatch(group.Key, batchStart, outIndices.Count - batchStart));
             }
 
             if (outVerts.Count == 0)
@@ -327,6 +406,8 @@ namespace CompilePalX.Preview
             {
                 Vertices = outVerts.ToArray(),
                 Indices = outIndices.ToArray(),
+                Batches = batches,
+                MaterialNames = texdata.Select(t => t.Name).ToList(),
                 Lightmap = lightmap,
                 LightmapWidth = atlas.Width,
                 LightmapHeight = atlas.Height,
@@ -334,6 +415,9 @@ namespace CompilePalX.Preview
                 Mins = mins,
                 Maxs = maxs,
                 Spawn = spawn,
+                SkyName = skyName,
+                SkyPaint = skyPaint,
+                PakLump = pak,
                 BspVersion = version,
                 Compressed = compressed,
                 FaceCount = faces.Length,
@@ -342,6 +426,7 @@ namespace CompilePalX.Preview
                 SkippedDisplacements = skippedDisp,
                 SkippedToolFaces = skippedTool,
                 FacesWithoutLightmap = noLightmap + (drawn.Count + drawnDisps.Count - noLightmap - placed.Count),
+                PlacedBrushEntities = placedEntities.Count,
             };
         }
 
@@ -472,31 +557,34 @@ namespace CompilePalX.Preview
             return result;
         }
 
-        /// <summary>Material name per texdata entry, lower-cased.</summary>
-        private static string[] ReadMaterialNames(byte[] texdata, byte[] stringTable, byte[] stringData)
+        /// <summary>Material name and texture size per texdata entry, names lower-cased.</summary>
+        private static TexData[] ReadTexData(byte[] texdata, byte[] stringTable, byte[] stringData)
         {
             int count = texdata.Length / 32;
             var offsets = Ints(stringTable);
-            var names = new string[count];
+            var result = new TexData[count];
 
             for (int i = 0; i < count; i++)
             {
-                int id = BitConverter.ToInt32(texdata, i * 32 + 12);
-                if (id < 0 || id >= offsets.Length || offsets[id] < 0 || offsets[id] >= stringData.Length)
+                int o = i * 32;
+                int id = BitConverter.ToInt32(texdata, o + 12);
+                int width = Math.Max(1, BitConverter.ToInt32(texdata, o + 16));
+                int height = Math.Max(1, BitConverter.ToInt32(texdata, o + 20));
+
+                string name = "";
+                if (id >= 0 && id < offsets.Length && offsets[id] >= 0 && offsets[id] < stringData.Length)
                 {
-                    names[i] = "";
-                    continue;
+                    int start = offsets[id];
+                    int end = start;
+                    while (end < stringData.Length && stringData[end] != 0)
+                        end++;
+                    name = Encoding.ASCII.GetString(stringData, start, end - start).ToLowerInvariant().Replace('\\', '/');
                 }
 
-                int start = offsets[id];
-                int end = start;
-                while (end < stringData.Length && stringData[end] != 0)
-                    end++;
-
-                names[i] = Encoding.ASCII.GetString(stringData, start, end - start).ToLowerInvariant();
+                result[i] = new TexData(name, width, height);
             }
 
-            return names;
+            return result;
         }
 
         private static Face[] ReadFaces(byte[] data)
@@ -524,6 +612,16 @@ namespace CompilePalX.Preview
             return result;
         }
 
+        private static Model[] ReadModels(byte[] data)
+        {
+            const int size = 48;
+            int count = data.Length / size;
+            var result = new Model[count];
+            for (int i = 0; i < count; i++)
+                result[i] = new Model(BitConverter.ToInt32(data, i * size + 40), BitConverter.ToInt32(data, i * size + 44));
+            return result;
+        }
+
         private static DispInfo[] ReadDispInfos(byte[] data)
         {
             const int size = 176;
@@ -545,10 +643,133 @@ namespace CompilePalX.Preview
 
         #endregion
 
+        #region Entities
+
+        private static readonly Regex EntityBlock = new(@"\{([^{}]*)\}", RegexOptions.Compiled);
+        private static readonly Regex EntityPair = new(@"""([^""]*)""\s*""([^""]*)""", RegexOptions.Compiled);
+
+        /// <summary>The entity lump as a list of key-value maps, one per entity, keys lower-cased.</summary>
+        public static List<Dictionary<string, string>> ParseEntities(string text)
+        {
+            var result = new List<Dictionary<string, string>>();
+            foreach (Match block in EntityBlock.Matches(text))
+            {
+                var entity = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (Match pair in EntityPair.Matches(block.Groups[1].Value))
+                    entity.TryAdd(pair.Groups[1].Value.ToLowerInvariant(), pair.Groups[2].Value);
+                if (entity.Count > 0)
+                    result.Add(entity);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Where each brush entity put its model.
+        ///
+        /// A brush entity's geometry is stored around its own origin, and the engine places it with the
+        /// entity's "origin" and "angles" keys - a func_door at 512 0 0 has its faces stored near 0 0 0.
+        /// Drawing the faces as stored puts every moved brush entity in the wrong place.
+        /// </summary>
+        public static Dictionary<int, Placement> BrushPlacements(IEnumerable<Dictionary<string, string>> entities)
+        {
+            var result = new Dictionary<int, Placement>();
+
+            foreach (var entity in entities)
+            {
+                if (!entity.TryGetValue("model", out var model) || !model.StartsWith('*'))
+                    continue;
+                if (!int.TryParse(model.AsSpan(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out int index) || index <= 0)
+                    continue;
+
+                var origin = ParseVector(entity.GetValueOrDefault("origin"));
+                var angles = ParseVector(entity.GetValueOrDefault("angles"));
+
+                if (origin.All(v => v == 0) && angles.All(v => v == 0))
+                    continue;
+
+                result[index] = new Placement(origin, angles);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Garry's Mod paints its default sky from an env_skypaint entity rather than textures: a
+        /// gradient between two colours, biased, with a sun. The stock maps all use it.
+        /// </summary>
+        public static SkyPaint? ReadSkyPaint(IEnumerable<Dictionary<string, string>> entities)
+        {
+            var paint = entities.FirstOrDefault(e => string.Equals(e.GetValueOrDefault("classname"), "env_skypaint", StringComparison.OrdinalIgnoreCase));
+            if (paint is null)
+                return null;
+
+            float Number(string key, float fallback) =>
+                paint.TryGetValue(key, out var v) && float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out float f) ? f : fallback;
+
+            float[] Colour(string key, float[] fallback) => paint.ContainsKey(key) ? ParseVector(paint[key]) : fallback;
+
+            return new SkyPaint(
+                Colour("topcolor", [0.2f, 0.5f, 1f]),
+                Colour("bottomcolor", [0.8f, 1f, 1f]),
+                Number("fadebias", 1f),
+                Colour("suncolor", [0.2f, 0.1f, 0f]),
+                Colour("sunnormal", [0.4f, 0f, 1f]),
+                Number("sunsize", 2f));
+        }
+
+        /// <summary>"x y z" as three floats; zeros when absent or malformed.</summary>
+        public static float[] ParseVector(string? text)
+        {
+            var result = new float[3];
+            if (string.IsNullOrWhiteSpace(text))
+                return result;
+
+            var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < 3 && i < parts.Length; i++)
+                if (float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out float f))
+                    result[i] = f;
+
+            return result;
+        }
+
+        /// <summary>
+        /// Rotates by the engine's angle convention: pitch about Y, yaw about Z, roll about X,
+        /// applied roll first, then pitch, then yaw - the matrix AngleMatrix builds.
+        /// </summary>
+        public static float[] Rotate(float[] v, float[] angles)
+        {
+            if (angles[0] == 0 && angles[1] == 0 && angles[2] == 0)
+                return v;
+
+            double pitch = angles[0] * Math.PI / 180, yaw = angles[1] * Math.PI / 180, roll = angles[2] * Math.PI / 180;
+            double sp = Math.Sin(pitch), cp = Math.Cos(pitch);
+            double sy = Math.Sin(yaw), cy = Math.Cos(yaw);
+            double sr = Math.Sin(roll), cr = Math.Cos(roll);
+
+            double m00 = cp * cy, m01 = sr * sp * cy - cr * sy, m02 = cr * sp * cy + sr * sy;
+            double m10 = cp * sy, m11 = sr * sp * sy + cr * cy, m12 = cr * sp * sy - sr * cy;
+            double m20 = -sp, m21 = sr * cp, m22 = cr * cp;
+
+            return
+            [
+                (float)(m00 * v[0] + m01 * v[1] + m02 * v[2]),
+                (float)(m10 * v[0] + m11 * v[1] + m12 * v[2]),
+                (float)(m20 * v[0] + m21 * v[1] + m22 * v[2]),
+            ];
+        }
+
+        public static float[] Place(float[] v, Placement placement)
+        {
+            var r = Rotate(v, placement.Angles);
+            return [r[0] + placement.Origin[0], r[1] + placement.Origin[1], r[2] + placement.Origin[2]];
+        }
+
+        #endregion
+
         #region Geometry helpers
 
-        private static string MaterialOf(TexInfo texinfo, string[] materials) =>
-            texinfo.TexData >= 0 && texinfo.TexData < materials.Length ? materials[texinfo.TexData] : "";
+        private static string MaterialOf(TexInfo texinfo, TexData[] texdata) =>
+            texinfo.TexData >= 0 && texinfo.TexData < texdata.Length ? texdata[texinfo.TexData].Name : "";
 
         private static bool HasLightmap(Face face, byte[] lighting)
         {
@@ -679,13 +900,9 @@ namespace CompilePalX.Preview
                     uint d = (uint)((i + 1) * side + j);
 
                     if (((i + j) & 1) == 0)
-                    {
                         indices.AddRange([a, b, c, a, c, d]);
-                    }
                     else
-                    {
                         indices.AddRange([a, b, d, b, c, d]);
-                    }
                 }
 
             return new DisplacementMesh(positions, normals, indices.ToArray());
@@ -713,7 +930,18 @@ namespace CompilePalX.Preview
         }
 
         /// <summary>
-        /// Copies a face's lightmap into the atlas, decoding each sample, and replicates its edge into
+        /// Texture coordinates from the face's texture axes: the engine's texel position divided by
+        /// the texture's size, so the result repeats once per texture width.
+        /// </summary>
+        public static (float U, float V) TextureUv(float[] position, float[] textureVecs, int width, int height)
+        {
+            float u = textureVecs[0] * position[0] + textureVecs[1] * position[1] + textureVecs[2] * position[2] + textureVecs[3];
+            float v = textureVecs[4] * position[0] + textureVecs[5] * position[1] + textureVecs[6] * position[2] + textureVecs[7];
+            return (u / width, v / height);
+        }
+
+        /// <summary>
+        /// Copies a face's lightmap into the atlas, encoding each sample, and replicates its edge into
         /// the one-texel border around it. A bump-mapped face stores four lightmaps per style with the
         /// ordinary one first, which is the one wanted here, so the flag needs no special handling.
         /// </summary>
@@ -730,7 +958,7 @@ namespace CompilePalX.Preview
                     int sx = Math.Clamp(x, 0, width - 1);
                     int sample = face.LightOfs + (sy * width + sx) * 4;
 
-                    var (r, g, b) = DecodeSample(lighting[sample], lighting[sample + 1], lighting[sample + 2], (sbyte)lighting[sample + 3]);
+                    var (r, g, b) = EncodeSample(lighting[sample], lighting[sample + 1], lighting[sample + 2], (sbyte)lighting[sample + 3]);
 
                     int o = ((place.Y + 1 + y) * atlasWidth + place.X + 1 + x) * 4;
                     atlas[o] = r;
@@ -742,22 +970,36 @@ namespace CompilePalX.Preview
         }
 
         /// <summary>
-        /// A ColorRGBExp32 sample as a display value.
-        ///
-        /// VRAD writes light as a byte per channel with a shared power-of-two exponent, in linear
-        /// units where 255 at exponent 0 is full brightness. Clamped and gamma-encoded here, because
-        /// the atlas is 8-bit; the viewer applies a gain on top for maps that are darker than that.
+        /// Linear light a ColorRGBExp32 sample stands for: a byte per channel with a shared
+        /// power-of-two exponent, where 255 at exponent 0 is 1.0.
         /// </summary>
-        public static (byte R, byte G, byte B) DecodeSample(byte r, byte g, byte b, sbyte exponent)
+        public static (float R, float G, float B) LinearSample(byte r, byte g, byte b, sbyte exponent)
         {
             float scale = MathF.Pow(2, exponent) / 255f;
-            return (ToDisplay(r * scale), ToDisplay(g * scale), ToDisplay(b * scale));
+            return (r * scale, g * scale, b * scale);
         }
 
-        private static byte ToDisplay(float linear)
+        /// <summary>
+        /// The range of linear light one atlas texel can hold. VRAD's output goes past 1.0 wherever
+        /// the sun hits, and the engine keeps that headroom; clamping at 1.0 flattens every sunlit
+        /// surface to the same white.
+        /// </summary>
+        public const float LightmapRange = 4f;
+
+        /// <summary>
+        /// A sample as stored in the atlas: linear light divided by <see cref="LightmapRange"/>, then
+        /// gamma-encoded so the 8 bits are spent where the eye can tell. The viewer inverts both.
+        /// </summary>
+        public static (byte R, byte G, byte B) EncodeSample(byte r, byte g, byte b, sbyte exponent)
         {
-            float clamped = Math.Clamp(linear, 0f, 1f);
-            return (byte)Math.Round(MathF.Pow(clamped, 1f / 2.2f) * 255f);
+            var (lr, lg, lb) = LinearSample(r, g, b, exponent);
+            return (Encode(lr), Encode(lg), Encode(lb));
+        }
+
+        private static byte Encode(float linear)
+        {
+            float scaled = Math.Clamp(linear / LightmapRange, 0f, 1f);
+            return (byte)Math.Round(MathF.Pow(scaled, 1f / 2.2f) * 255f);
         }
 
         /// <summary>
@@ -807,11 +1049,12 @@ namespace CompilePalX.Preview
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /// <summary>
-        /// The spawn point from the entity lump file beside the map, for a map whose entities the
-        /// ENTLUMP step moved out of the BSP. A .lmp is a 20-byte header - lump offset, id, version,
-        /// length and map revision - followed by the lump's bytes, which for the entity lump is text.
+        /// The entity text from the lump file beside the map, for a map whose entities the ENTLUMP
+        /// step moved out of the BSP, or null when there is no such file. A .lmp is a 20-byte header -
+        /// lump offset, id, version, length and map revision - followed by the lump's bytes, which
+        /// for the entity lump is text.
         /// </summary>
-        public static float[]? FindSpawnInLumpFile(string bspPath)
+        public static string? ReadEntityLumpFile(string bspPath)
         {
             string lumpFile = Path.Combine(Path.GetDirectoryName(bspPath) ?? "", Path.GetFileNameWithoutExtension(bspPath) + "_l_0.lmp");
 
@@ -831,7 +1074,8 @@ namespace CompilePalX.Preview
                 if (length <= 0 || offset + length > bytes.Length)
                     length = bytes.Length - offset;
 
-                return FindSpawn(Encoding.ASCII.GetString(bytes, offset, length));
+                string text = Encoding.ASCII.GetString(bytes, offset, length);
+                return text.Contains("classname", StringComparison.OrdinalIgnoreCase) ? text : null;
             }
             catch (IOException)
             {
@@ -854,9 +1098,9 @@ namespace CompilePalX.Preview
             {
                 return
                 [
-                    float.Parse(origin.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
-                    float.Parse(origin.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture),
-                    float.Parse(origin.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture),
+                    float.Parse(origin.Groups[1].Value, CultureInfo.InvariantCulture),
+                    float.Parse(origin.Groups[2].Value, CultureInfo.InvariantCulture),
+                    float.Parse(origin.Groups[3].Value, CultureInfo.InvariantCulture),
                 ];
             }
             catch (FormatException)

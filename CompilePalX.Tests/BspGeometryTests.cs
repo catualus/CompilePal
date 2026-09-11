@@ -15,33 +15,80 @@ namespace CompilePalX.Tests
     public class BspGeometryTests
     {
         [Fact]
-        public void FullBrightnessIsWhite()
+        public void FullBrightnessIsOneInLinearLight()
         {
-            // 255 at exponent 0 is 1.0 in linear light, which is white however it is encoded
-            Assert.Equal(((byte)255, (byte)255, (byte)255), BspGeometry.DecodeSample(255, 255, 255, 0));
+            // 255 at exponent 0 is 1.0; the exponent scales by powers of two
+            Assert.Equal((1f, 1f, 1f), BspGeometry.LinearSample(255, 255, 255, 0));
+            Assert.Equal(0.5f, BspGeometry.LinearSample(255, 255, 255, -1).R, 4);
+            Assert.Equal(0f, BspGeometry.LinearSample(0, 0, 0, 5).R);
         }
 
         [Fact]
-        public void TheExponentScalesTheSample()
+        public void TheAtlasKeepsHeadroomAboveOne()
         {
-            // 255 at exponent -1 is 0.5 linear, which gamma-encodes to about 186
-            var half = BspGeometry.DecodeSample(255, 255, 255, -1);
-            Assert.InRange(half.R, 184, 188);
+            // 1.0 linear is a quarter of the atlas range, gamma-encoded: about 136 of 255
+            var one = BspGeometry.EncodeSample(255, 255, 255, 0);
+            Assert.InRange(one.R, 134, 138);
 
-            // a positive exponent overflows and clamps to white rather than wrapping
-            Assert.Equal((byte)255, BspGeometry.DecodeSample(200, 200, 200, 3).R);
+            // four times that fills the range; more clamps rather than wraps
+            Assert.Equal((byte)255, BspGeometry.EncodeSample(255, 255, 255, 2).R);
+            Assert.Equal((byte)255, BspGeometry.EncodeSample(200, 200, 200, 4).R);
 
             // deep in the negatives is black
-            Assert.Equal((byte)0, BspGeometry.DecodeSample(1, 1, 1, -20).R);
+            Assert.Equal((byte)0, BspGeometry.EncodeSample(1, 1, 1, -20).R);
+
+            // channels are independent
+            var sample = BspGeometry.EncodeSample(255, 0, 128, 0);
+            Assert.Equal((byte)0, sample.G);
+            Assert.True(sample.B < sample.R);
         }
 
         [Fact]
-        public void ChannelsAreIndependent()
+        public void TextureUvRepeatsOncePerTextureSize()
         {
-            var sample = BspGeometry.DecodeSample(255, 0, 128, 0);
-            Assert.Equal((byte)255, sample.R);
-            Assert.Equal((byte)0, sample.G);
-            Assert.InRange(sample.B, 185, 190);
+            // texture S axis is world X at one texel per unit, on a 64-wide texture
+            float[] vecs = [1, 0, 0, 0, 0, 1, 0, 0];
+            Assert.Equal((0f, 0f), BspGeometry.TextureUv([0, 0, 0], vecs, 64, 32));
+            Assert.Equal((1f, 0.5f), BspGeometry.TextureUv([64, 16, 0], vecs, 64, 32));
+        }
+
+        [Fact]
+        public void AnglesRotateTheEngineWay()
+        {
+            // yaw turns about Z: +X becomes +Y
+            var yawed = BspGeometry.Rotate([1, 0, 0], [0, 90, 0]);
+            Assert.Equal(0f, yawed[0], 4);
+            Assert.Equal(1f, yawed[1], 4);
+            Assert.Equal(0f, yawed[2], 4);
+
+            // pitch tips the nose down about Y: +X becomes -Z
+            var pitched = BspGeometry.Rotate([1, 0, 0], [90, 0, 0]);
+            Assert.Equal(-1f, pitched[2], 4);
+
+            // roll leaves X alone
+            Assert.Equal(new float[] { 1, 0, 0 }, BspGeometry.Rotate([1, 0, 0], [0, 0, 90]));
+        }
+
+        [Fact]
+        public void BrushEntitiesAreReadWithTheirPlacement()
+        {
+            var entities = BspGeometry.ParseEntities("""
+                { "classname" "worldspawn" "skyname" "sky_day01_01" }
+                { "classname" "func_door" "model" "*3" "origin" "512 -64 128" }
+                { "classname" "func_brush" "model" "*4" "angles" "0 45 0" }
+                { "classname" "func_detail_like" "model" "*5" "origin" "0 0 0" }
+                { "classname" "prop_dynamic" "model" "models/props/thing.mdl" "origin" "1 2 3" }
+                """);
+
+            Assert.Equal(5, entities.Count);
+            Assert.Equal("sky_day01_01", entities[0]["skyname"]);
+
+            var placements = BspGeometry.BrushPlacements(entities);
+
+            Assert.Equal(new float[] { 512, -64, 128 }, placements[3].Origin);
+            Assert.Equal(new float[] { 0, 45, 0 }, placements[4].Angles);
+            Assert.False(placements.ContainsKey(5), "an entity sitting at the origin needs no placement");
+            Assert.Equal(2, placements.Count);
         }
 
         [Fact]
@@ -240,6 +287,11 @@ namespace CompilePalX.Tests
             Assert.True(scene.DrawnFaces > 1000, "gm_construct has thousands of faces");
             Assert.True(scene.DrawnDisplacements > 0, "gm_construct's ground is displacements");
             Assert.Equal(0, scene.SkippedDisplacements);
+            Assert.True(scene.Batches.Count > 10, "one batch per material");
+            Assert.Equal(scene.Indices.Length, scene.Batches.Sum(b => b.Count));
+            Assert.True(scene.MaterialNames.Count > 10);
+            Assert.False(string.IsNullOrEmpty(scene.SkyName));
+            Assert.True(scene.PakLump.Length > 0, "gm_construct packs content");
             Assert.Equal(scene.Indices.Length / 3, scene.TriangleCount);
             Assert.True(scene.Indices.All(i => i < scene.VertexCount), "an index points past the vertices");
             Assert.NotEqual("none", scene.LightingMode);

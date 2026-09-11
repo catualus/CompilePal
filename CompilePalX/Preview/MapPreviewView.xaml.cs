@@ -147,7 +147,8 @@ namespace CompilePalX.Preview
                 {
                     try
                     {
-                        export = await Task.Run(() => PreviewExporter.Write(candidate));
+                        string? gameFolder = GameConfigurationManager.GameConfiguration?.GameFolder;
+                        export = await Task.Run(() => PreviewExporter.Write(candidate, gameFolder));
                         name = Path.GetFileName(candidate);
                         break;
                     }
@@ -180,6 +181,8 @@ namespace CompilePalX.Preview
                     _ => "no lighting yet",
                 };
                 StatusText.Text = $"{name} ({reason}) · {scene.DrawnFaces:N0} faces · {scene.DrawnDisplacements:N0} displacements · {lighting}" +
+                                  $" · {export.MaterialsFound:N0} of {scene.MaterialNames.Count:N0} materials found, {export.TexturesWritten:N0} textures" +
+                                  (export.SkyWritten ? "" : " · no sky") +
                                   (scene.Compressed ? " · read from a compressed BSP" : "");
             }
             catch (Exception e)

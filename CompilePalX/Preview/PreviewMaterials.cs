@@ -1,0 +1,149 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using CompilePalX.Compiling;
+
+namespace CompilePalX.Preview
+{
+    /// <summary>A material as the viewer sees it: its textures by id, and how to draw it.</summary>
+    public sealed record ResolvedMaterial(
+        int Index, string Name, string Shader, int? Texture, int? Texture2,
+        bool Translucent, bool AlphaTest, bool NoCull, bool Unlit, float[] Color, bool Hidden);
+
+    /// <summary>
+    /// Turns the material names in a BSP into textures the viewer can load.
+    ///
+    /// For each name: find the VMT, read which VTF it wants, find and decode that, and hand back an
+    /// id. Textures are shared between materials that name the same file, which they often do. A
+    /// material whose files cannot be found keeps its flat colour, and the counts say how many did.
+    /// </summary>
+    public sealed class PreviewMaterials
+    {
+        private readonly ContentLocator content;
+        private readonly Dictionary<string, int> textureIds = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<(string Path, Texture Texture)> textures = [];
+
+        public IReadOnlyList<(string Path, Texture Texture)> Textures => textures;
+        public int MaterialsFound { get; private set; }
+        public int MaterialsMissing { get; private set; }
+        public int TexturesMissing { get; private set; }
+
+        public PreviewMaterials(ContentLocator content)
+        {
+            this.content = content;
+        }
+
+        /// <summary>Resolves every name in <paramref name="materialNames"/>, in order, keeping indices.</summary>
+        public List<ResolvedMaterial> Resolve(IReadOnlyList<string> materialNames)
+        {
+            var result = new List<ResolvedMaterial>(materialNames.Count);
+
+            for (int i = 0; i < materialNames.Count; i++)
+            {
+                string name = materialNames[i];
+                var material = LoadMaterial(name);
+
+                if (material is null)
+                {
+                    MaterialsMissing++;
+                    result.Add(new ResolvedMaterial(i, name, "", null, null, false, false, false, false, [1, 1, 1], false));
+                    continue;
+                }
+
+                MaterialsFound++;
+                int? texture = material.Hidden ? null : LoadTexture(material.BaseTexture);
+                int? texture2 = material.Hidden ? null : LoadTexture(material.BaseTexture2);
+
+                result.Add(new ResolvedMaterial(i, name, material.Shader, texture, texture2,
+                    material.Translucent, material.AlphaTest, material.NoCull, material.Unlit, material.Color, material.Hidden));
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// The six faces of the 2D skybox named <paramref name="skyName"/>, as texture ids keyed by
+        /// suffix, or null when none of them can be found.
+        /// </summary>
+        public Dictionary<string, int>? ResolveSky(string? skyName)
+        {
+            if (string.IsNullOrWhiteSpace(skyName))
+                return null;
+
+            var faces = new Dictionary<string, int>();
+            foreach (var suffix in new[] { "ft", "bk", "lf", "rt", "up", "dn" })
+            {
+                var material = LoadMaterial($"skybox/{skyName}{suffix}");
+                int? id = material is null ? null : LoadTexture(material.BaseTexture);
+                if (id is { } found)
+                    faces[suffix] = found;
+            }
+
+            return faces.Count == 6 ? faces : null;
+        }
+
+        private Material? LoadMaterial(string name)
+        {
+            string text = ReadText($"materials/{name}.vmt") ?? "";
+            if (text.Length == 0)
+                return null;
+
+            try
+            {
+                return Vmt.Parse(name, text, include => ReadText(include.StartsWith("materials/", StringComparison.OrdinalIgnoreCase) ? include : $"materials/{include}"));
+            }
+            catch (Exception e)
+            {
+                CompilePalLogger.LogLineDebug($"Material \"{name}\" could not be read: {e.Message}");
+                return null;
+            }
+        }
+
+        private int? LoadTexture(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return null;
+
+            string path = name.Replace('\\', '/').TrimStart('/');
+            if (!path.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase))
+                path += ".vtf";
+            if (!path.StartsWith("materials/", StringComparison.OrdinalIgnoreCase))
+                path = "materials/" + path;
+
+            if (textureIds.TryGetValue(path, out int known))
+                return known < 0 ? null : known;
+
+            int? id = null;
+            var bytes = content.Read(path);
+            if (bytes is not null)
+            {
+                try
+                {
+                    if (Vtf.Read(bytes) is { } texture)
+                    {
+                        id = textures.Count;
+                        textures.Add((path, texture));
+                    }
+                }
+                catch (Exception e)
+                {
+                    CompilePalLogger.LogLineDebug($"Texture \"{path}\" could not be read: {e.Message}");
+                }
+            }
+
+            if (id is null)
+                TexturesMissing++;
+
+            textureIds[path] = id ?? -1;
+            return id;
+        }
+
+        private string? ReadText(string path)
+        {
+            var bytes = content.Read(path);
+            return bytes is null ? null : Encoding.UTF8.GetString(bytes);
+        }
+    }
+}
