@@ -71,6 +71,7 @@
   const lightingLabel = { hdr: 'HDR lighting', ldr: 'LDR lighting', none: 'no lighting yet' }[scene.lightmap.mode] || scene.lightmap.mode;
   document.getElementById('stats').textContent =
     `${scene.faces.drawn.toLocaleString()} faces · ${scene.faces.displacements.toLocaleString()} displacements · ${(indexCount / 3).toLocaleString()} triangles · ${lightingLabel}` +
+    ` · ${scene.props ? scene.props.placed.toLocaleString() + ' of ' + scene.props.total.toLocaleString() + ' props' + (scene.props.baked > 0 ? ' (' + scene.props.baked.toLocaleString() + ' with baked light)' : '') : 'no props'}` +
     ` · ${scene.content.materialsFound.toLocaleString()} of ${scene.materials.length.toLocaleString()} materials, ${scene.textures.length.toLocaleString()} textures` +
     `${scene.compressed ? ' · from a compressed BSP' : ''} · written ${scene.writtenAt.replace('T', ' ')}`;
   const warnings = [];
@@ -79,7 +80,8 @@
   if (scene.content.texturesMissing > 0) warnings.push(`${scene.content.texturesMissing.toLocaleString()} textures not found`);
   if (!scene.sky) warnings.push('sky not found');
   if (scene.faces.displacementsSkipped > 0) warnings.push(`${scene.faces.displacementsSkipped.toLocaleString()} displacements could not be read`);
-  warnings.push('static props are not drawn');
+  if (scene.props && scene.props.missing > 0) warnings.push(`${scene.props.missing.toLocaleString()} props whose model could not be found`);
+  if (scene.props && scene.props.skipped > 0) warnings.push(`${scene.props.skipped.toLocaleString()} props skipped to stay within the triangle budget`);
   if (!s3tc) warnings.push('this WebView cannot use DXT textures, so most textures will be missing');
   document.getElementById('warn').textContent = warnings.join(' · ');
 
@@ -116,7 +118,7 @@
     precision mediump float;
     in vec3 vNormal; in vec2 vLmUv; in vec2 vTexUv; in float vBlend; in vec3 vColor;
     uniform sampler2D uLightmap; uniform sampler2D uTex; uniform sampler2D uTex2;
-    uniform bool uHasLightmap, uHasTex, uHasTex2, uUnlit, uAlphaTest, uTranslucent;
+    uniform bool uHasLightmap, uHasTex, uHasTex2, uUnlit, uAlphaTest, uTranslucent, uProp;
     uniform vec3 uTint;
     uniform int uMode;
     uniform float uExposure, uRange;
@@ -131,8 +133,9 @@
       vec3 n = normalize(vNormal);
       float shade = 0.55 + 0.45 * max(dot(n, normalize(vec3(0.4, 0.3, 0.85))), 0.0);
 
-      // albedo: the texture, blended with the second one on displacements, tinted; or the flat colour
-      vec3 albedo = vColor;
+      // albedo: the texture, blended with the second one on displacements, tinted; or the flat colour.
+      // A prop carries its light in the colour slot instead, so its untextured fallback is grey.
+      vec3 albedo = uProp ? vec3(0.6) : vColor;
       float alpha = 1.0;
       bool textured = uHasTex && uMode != 1 && uMode != 2;
       if (textured) {
@@ -144,8 +147,8 @@
       }
 
       // light: the lightmap where there is one, a fixed sun where there is not
-      bool lit = uHasLightmap && vLmUv.x >= 0.0;
-      vec3 light = lit ? toLinear(texture(uLightmap, vLmUv).rgb) * uRange : vec3(shade);
+      bool lit = uProp || (uHasLightmap && vLmUv.x >= 0.0);
+      vec3 light = uProp ? vColor : lit ? toLinear(texture(uLightmap, vLmUv).rgb) * uRange : vec3(shade);
 
       vec3 c;
       if (uMode == 2) c = light;
@@ -192,7 +195,7 @@
     viewProj: U(worldProgram, 'uViewProj'), hasLightmap: U(worldProgram, 'uHasLightmap'),
     hasTex: U(worldProgram, 'uHasTex'), hasTex2: U(worldProgram, 'uHasTex2'), unlit: U(worldProgram, 'uUnlit'),
     alphaTest: U(worldProgram, 'uAlphaTest'), translucent: U(worldProgram, 'uTranslucent'), tint: U(worldProgram, 'uTint'),
-    mode: U(worldProgram, 'uMode'), exposure: U(worldProgram, 'uExposure'), range: U(worldProgram, 'uRange'),
+    mode: U(worldProgram, 'uMode'), exposure: U(worldProgram, 'uExposure'), range: U(worldProgram, 'uRange'), prop: U(worldProgram, 'uProp'),
   };
   gl.useProgram(worldProgram);
   gl.uniform1i(U(worldProgram, 'uLightmap'), 0);
@@ -394,6 +397,7 @@
     gl.uniform1i(u.unlit, m.unlit ? 1 : 0);
     gl.uniform1i(u.alphaTest, m.alphaTest ? 1 : 0);
     gl.uniform1i(u.translucent, m.translucent ? 1 : 0);
+    gl.uniform1i(u.prop, b.prop ? 1 : 0);
     gl.uniform3f(u.tint, m.color ? m.color[0] : 1, m.color ? m.color[1] : 1, m.color ? m.color[2] : 1);
     gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.first * 4);
   }

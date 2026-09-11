@@ -29,7 +29,8 @@ namespace CompilePalX.Preview
 
         /// <summary>What was last written, for the status line and for tests.</summary>
         public sealed record Export(string BspPath, PreviewScene Scene, DateTime WrittenAt, long Stamp,
-            int MaterialsFound, int MaterialsMissing, int TexturesWritten, int TexturesMissing, bool SkyWritten);
+            int MaterialsFound, int MaterialsMissing, int TexturesWritten, int TexturesMissing, bool SkyWritten,
+            int PropsPlaced, int PropsTotal, int PropsMissing);
 
         /// <summary>
         /// Reads <paramref name="bspPath"/>, finds its materials under <paramref name="gameFolder"/>
@@ -43,21 +44,28 @@ namespace CompilePalX.Preview
 
             long stamp = DateTime.UtcNow.Ticks;
 
-            using (var geometry = new BinaryWriter(File.Create(Path.Combine(Folder, "geometry.bin"))))
-            {
-                geometry.Write(scene.VertexCount);
-                geometry.Write(scene.Indices.Length);
-                foreach (float f in scene.Vertices) geometry.Write(f);
-                foreach (uint i in scene.Indices) geometry.Write(i);
-            }
-
             File.WriteAllBytes(Path.Combine(Folder, "lightmap.bin"), scene.Lightmap);
 
             // materials and textures
             using var content = new ContentLocator(scene.PakLump, gameFolder);
             var materials = new PreviewMaterials(content);
-            var resolved = materials.Resolve(scene.MaterialNames);
+            materials.Resolve(scene.MaterialNames);
             var sky = materials.ResolveSky(scene.SkyName);
+
+            // static props, after the world so their indices follow the world's
+            var props = PropBuilder.Build(scene, content, materials, scene.LightingMode == "hdr");
+            var resolved = materials.Resolved;
+
+            uint worldVertices = (uint)scene.VertexCount;
+            using (var geometry = new BinaryWriter(File.Create(Path.Combine(Folder, "geometry.bin"))))
+            {
+                geometry.Write(scene.VertexCount + props.Vertices.Length / PreviewScene.VertexStride);
+                geometry.Write(scene.Indices.Length + props.Indices.Length);
+                foreach (float f in scene.Vertices) geometry.Write(f);
+                foreach (float f in props.Vertices) geometry.Write(f);
+                foreach (uint i in scene.Indices) geometry.Write(i);
+                foreach (uint i in props.Indices) geometry.Write(i + worldVertices);
+            }
 
             string textureFolder = Path.Combine(Folder, "textures");
             if (Directory.Exists(textureFolder))
@@ -102,8 +110,8 @@ namespace CompilePalX.Preview
                 bspVersion = scene.BspVersion,
                 compressed = scene.Compressed,
                 vertexStride = PreviewScene.VertexStride,
-                vertexCount = scene.VertexCount,
-                indexCount = scene.Indices.Length,
+                vertexCount = scene.VertexCount + props.Vertices.Length / PreviewScene.VertexStride,
+                indexCount = scene.Indices.Length + props.Indices.Length,
                 lightmap = new
                 {
                     width = scene.LightmapWidth,
@@ -140,7 +148,19 @@ namespace CompilePalX.Preview
                     color = m.Color,
                     hidden = m.Hidden,
                 }).ToList(),
-                batches = scene.Batches.Select(b => new { material = b.Material, first = b.First, count = b.Count }).ToList(),
+                batches = scene.Batches.Select(b => new { material = b.Material, first = b.First, count = b.Count, prop = false })
+                    .Concat(props.Batches.Select(b => new { material = b.Material, first = b.First + scene.Indices.Length, count = b.Count, prop = true }))
+                    .ToList(),
+                props = new
+                {
+                    total = scene.StaticProps.Count,
+                    placed = props.PropsPlaced,
+                    missing = props.PropsMissing,
+                    skipped = props.PropsSkipped,
+                    models = props.ModelsLoaded,
+                    baked = props.PropsWithBakedLight,
+                    triangles = props.Triangles,
+                },
                 textures = textureManifest,
                 content = new
                 {
@@ -169,12 +189,14 @@ namespace CompilePalX.Preview
                 $"Preview written for {header.map}: {scene.DrawnFaces} of {scene.FaceCount} faces, {scene.TriangleCount} triangles, " +
                 $"{scene.LightingMode} lighting in a {scene.LightmapWidth}x{scene.LightmapHeight} atlas, " +
                 $"{scene.DrawnDisplacements} displacements, {scene.PlacedBrushEntities} brush entities placed, " +
+                $"{props.PropsPlaced} of {scene.StaticProps.Count} static props ({props.ModelsLoaded} models, {props.Triangles} triangles, {props.PropsWithBakedLight} with baked light, {props.PropsMissing} models missing, {props.PropsSkipped} over budget), " +
                 $"{materials.MaterialsFound} of {scene.MaterialNames.Count} materials found ({content.PakHits} of {content.PackedFiles} packed, {content.FolderHits} loose, {content.VpkHits} in VPKs), " +
                 $"{materials.Textures.Count} textures, sky {(sky is not null ? scene.SkyName : scene.SkyPaint is not null ? "painted" : "not found")}" +
                 $"{(scene.Compressed ? ", inflated from a compressed BSP" : "")}.");
 
             return new Export(bspPath, scene, DateTime.Now, stamp,
-                materials.MaterialsFound, materials.MaterialsMissing, materials.Textures.Count, materials.TexturesMissing, sky is not null || scene.SkyPaint is not null);
+                materials.MaterialsFound, materials.MaterialsMissing, materials.Textures.Count, materials.TexturesMissing, sky is not null || scene.SkyPaint is not null,
+                props.PropsPlaced, scene.StaticProps.Count, props.PropsMissing);
         }
 
         /// <summary>Copies the viewer page into the folder when it is missing or older than the shipped one.</summary>

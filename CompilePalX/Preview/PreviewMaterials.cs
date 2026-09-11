@@ -35,32 +35,57 @@ namespace CompilePalX.Preview
             this.content = content;
         }
 
+        private readonly List<ResolvedMaterial> resolved = [];
+        private readonly Dictionary<string, int> resolvedByName = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Every material resolved so far, in index order; batches refer to these indices.</summary>
+        public IReadOnlyList<ResolvedMaterial> Resolved => resolved;
+
         /// <summary>Resolves every name in <paramref name="materialNames"/>, in order, keeping indices.</summary>
         public List<ResolvedMaterial> Resolve(IReadOnlyList<string> materialNames)
         {
-            var result = new List<ResolvedMaterial>(materialNames.Count);
+            foreach (var name in materialNames)
+                Append(name);
 
-            for (int i = 0; i < materialNames.Count; i++)
+            return resolved.ToList();
+        }
+
+        /// <summary>
+        /// The index of <paramref name="name"/>, resolving it first if it is new. The world's
+        /// materials come from the texdata lump in order; props name theirs from their models, and
+        /// the same material on two props is resolved once.
+        /// </summary>
+        public int IndexOf(string name)
+        {
+            if (resolvedByName.TryGetValue(name, out int known))
+                return known;
+
+            return Append(name);
+        }
+
+        private int Append(string name)
+        {
+            int i = resolved.Count;
+            var material = LoadMaterial(name);
+
+            if (material is null)
             {
-                string name = materialNames[i];
-                var material = LoadMaterial(name);
-
-                if (material is null)
-                {
-                    MaterialsMissing++;
-                    result.Add(new ResolvedMaterial(i, name, "", null, null, false, false, false, false, [1, 1, 1], false));
-                    continue;
-                }
-
+                MaterialsMissing++;
+                resolved.Add(new ResolvedMaterial(i, name, "", null, null, false, false, false, false, [1, 1, 1], false));
+            }
+            else
+            {
                 MaterialsFound++;
                 int? texture = material.Hidden ? null : LoadTexture(material.BaseTexture);
                 int? texture2 = material.Hidden ? null : LoadTexture(material.BaseTexture2);
 
-                result.Add(new ResolvedMaterial(i, name, material.Shader, texture, texture2,
+                resolved.Add(new ResolvedMaterial(i, name, material.Shader, texture, texture2,
                     material.Translucent, material.AlphaTest, material.NoCull, material.Unlit, material.Color, material.Hidden));
             }
 
-            return result;
+            // the world can list one name twice under different texdata entries; the first keeps the name
+            resolvedByName.TryAdd(name, i);
+            return i;
         }
 
         /// <summary>

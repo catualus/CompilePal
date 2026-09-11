@@ -51,6 +51,12 @@ namespace CompilePalX.Preview
         /// <summary>The pakfile lump as stored: a zip of the content packed into the map.</summary>
         public byte[] PakLump { get; init; } = [];
 
+        /// <summary>Every static prop the map places, from the game lump.</summary>
+        public IReadOnlyList<StaticProp> StaticProps { get; init; } = [];
+
+        /// <summary>The map's ambient light by position, for props with no baked vertex lighting.</summary>
+        public LeafAmbient? Ambient { get; init; }
+
         public int BspVersion { get; init; }
         public bool Compressed { get; init; }
         public int FaceCount { get; init; }
@@ -96,6 +102,13 @@ namespace CompilePalX.Preview
         private const int LumpTexdataStringTable = 44;
         private const int LumpLightingHdr = 53;
         private const int LumpFacesHdr = 58;
+        private const int LumpNodes = 5;
+        private const int LumpLeafs = 10;
+        private const int LumpGameLump = 35;
+        private const int LumpLeafAmbientIndexHdr = 51;
+        private const int LumpLeafAmbientIndex = 52;
+        private const int LumpLeafAmbientLightingHdr = 55;
+        private const int LumpLeafAmbientLighting = 56;
 
         // texinfo flags: surfaces that never draw in the engine either
         private const int SurfSky2D = 0x2;
@@ -197,15 +210,34 @@ namespace CompilePalX.Preview
             // the pak lump is a zip and is read by the content locator later; kept as stored
             var pak = RawLump(stream, reader, lumps[LumpPakfile]);
 
+            // static props, whose sub-lump offsets are absolute in the file
+            List<StaticProp> staticProps;
+            try
+            {
+                staticProps = StaticPropLump.Read(RawLump(stream, reader, lumps[LumpGameLump]), lumps[LumpGameLump].Offset,
+                    (offset, length) => RawLump(stream, reader, new Lump(offset, length, 0)));
+            }
+            catch (Exception e) when (e is InvalidDataException or ArgumentException or IndexOutOfRangeException)
+            {
+                staticProps = [];
+            }
+
+            // ambient light per leaf, HDR when the map has it
+            bool hdrAmbient = lightingMode == "hdr" && lumps[LumpLeafAmbientLightingHdr].Length > 0;
+            var ambient = new LeafAmbient(
+                Data(LumpPlanes), Data(LumpNodes), Data(LumpLeafs), lumps[LumpLeafs].Version,
+                Data(hdrAmbient ? LumpLeafAmbientIndexHdr : LumpLeafAmbientIndex),
+                Data(hdrAmbient ? LumpLeafAmbientLightingHdr : LumpLeafAmbientLighting));
+
             return Build(version, compressed, vertices, edges, surfedges, planes, texinfos, texdata, models, placements,
-                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, dispInfos, dispVerts);
+                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, staticProps, ambient, dispInfos, dispVerts);
         }
 
         private static PreviewScene Build(
             int version, bool compressed, float[] vertices, ushort[] edges, int[] surfedges, float[] planes,
             TexInfo[] texinfos, TexData[] texdata, Model[] models, Dictionary<int, Placement> placements,
             Face[] faces, byte[] lighting, string lightingMode, float[]? spawn, string? skyName, SkyPaint? skyPaint, byte[] pak,
-            DispInfo[] dispInfos, float[] dispVerts)
+            List<StaticProp> staticProps, LeafAmbient ambient, DispInfo[] dispInfos, float[] dispVerts)
         {
             // which brush model each face belongs to, for the entities that moved theirs
             var faceModel = new int[faces.Length];
@@ -418,6 +450,8 @@ namespace CompilePalX.Preview
                 SkyName = skyName,
                 SkyPaint = skyPaint,
                 PakLump = pak,
+                StaticProps = staticProps,
+                Ambient = ambient,
                 BspVersion = version,
                 Compressed = compressed,
                 FaceCount = faces.Length,

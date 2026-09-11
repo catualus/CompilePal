@@ -181,7 +181,8 @@ namespace CompilePalX.Preview
                     _ => "no lighting yet",
                 };
                 StatusText.Text = $"{name} ({reason}) · {scene.DrawnFaces:N0} faces · {scene.DrawnDisplacements:N0} displacements · {lighting}" +
-                                  $" · {export.MaterialsFound:N0} of {scene.MaterialNames.Count:N0} materials found, {export.TexturesWritten:N0} textures" +
+                                  $" · {export.PropsPlaced:N0} of {export.PropsTotal:N0} props" +
+                                  $" · {export.MaterialsFound:N0} of {export.MaterialsFound + export.MaterialsMissing:N0} materials, {export.TexturesWritten:N0} textures" +
                                   (export.SkyWritten ? "" : " · no sky") +
                                   (scene.Compressed ? " · read from a compressed BSP" : "");
             }
