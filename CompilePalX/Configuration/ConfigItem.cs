@@ -103,7 +103,8 @@ namespace CompilePalX
         /// compiler in use has not said, or the option is a plain switch.
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
-        public string? ToolDefault { get; set; }
+        public string? ToolDefault { get => toolDefault; set => Set(ref toolDefault, value); }
+        private string? toolDefault;
 
         /// <summary>The flag alone - " -bounce" is "-bounce", "+nav_max_view_distance 1" is "+nav_max_view_distance".</summary>
         [Newtonsoft.Json.JsonIgnore]
@@ -116,6 +117,17 @@ namespace CompilePalX
         public string? IncompatibilityReason => Availability().Reason;
 
         public bool IsCompatible => Availability().Offered;
+
+        /// <summary>
+        /// Says that the answer to <see cref="IsCompatible"/> may have changed without any field of
+        /// this item changing - the compiler answered <c>-help</c>, or the game was switched. The
+        /// warning icon on a row binds to it and would otherwise show the verdict from before.
+        /// </summary>
+        public void NotifyAvailabilityChanged()
+        {
+            OnPropertyChanged(nameof(IsCompatible));
+            OnPropertyChanged(nameof(IncompatibilityReason));
+        }
 
         /// <summary>
         /// Whether the compiler that will run accepts this parameter under the current game.

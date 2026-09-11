@@ -58,7 +58,7 @@ namespace CompilePalX
 
             }
 
-            ParameterList = ConfigurationManager.GetParameters(Metadata.Name, Metadata.IsExternal, this.ParameterFolder);
+            ParameterList = ConfigurationManager.GetParameters(Metadata.Name, Metadata.IsExternal, this.ParameterFolder, CompilerName);
         }
 
         public static CompileMetadata LoadLegacyData(string csvFile)
@@ -217,6 +217,145 @@ namespace CompilePalX
         /// <summary>Whether this step has any parameters set, so the row can say "no parameters".</summary>
         public bool HasParameters => CurrentPresetParameters is { Count: > 0 };
 
+        /// <summary>
+        /// Which of the four compilers this step runs, by the placeholder its path names, or null for
+        /// every other step. REPACK and BSPZIP both run bspzip; STATS runs vbspinfo, which is not one
+        /// of the tools that gets replaced or asked anything.
+        /// </summary>
+        public string? CompilerName => CompilerFor(Metadata?.Path);
+
+        /// <summary>
+        /// The compiler a step's path placeholder names, or null when it is not one of the four.
+        /// Looked up by placeholder rather than step name because two steps can run the same tool:
+        /// REPACK and BSPZIP are both bspzip, and a parameter marked as needing tools++ under REPACK
+        /// was never offered at all while the lookup went by the step's own name.
+        /// </summary>
+        public static string? CompilerFor(string? path) => (path ?? "").Trim() switch
+        {
+            "$vbsp$" => "VBSP",
+            "$vvis$" => "VVIS",
+            "$vrad$" => "VRAD",
+            "$bspZip$" => "BSPZIP",
+            _ => null,
+        };
+
+        /// <summary>
+        /// The compiler this step will actually run, as a few words for the row: "vrad++ (Sep 10 2026)
+        /// · GPU", "stock vrad.exe", "not configured". Null for steps that run no compiler.
+        ///
+        /// This is the question the whole tools++ machinery exists to answer, and until now the only
+        /// place it was answered was the debug log. Whether the compile about to start uses tools++,
+        /// and whether VRAD is about to light on the GPU, should not need a log file.
+        /// </summary>
+        public string? CompilerBadge
+        {
+            get
+            {
+                try
+                {
+                    if (ToolsPlusPlusDetector.Describe(CompilerName) is not { } info)
+                        return null;
+
+                    if (info.Path is null)
+                        return "not configured";
+
+                    string label = info.Help?.Label ?? (info.ToolsPlusPlus ? "tools++" : "stock " + Path.GetFileName(info.Path));
+
+                    // vrad++ builds that know -cpu light on the GPU unless told otherwise
+                    if (CompilerName == "VRAD" && info.Help is { } help && help.Has("-cpu"))
+                        label += UsesFlag("-cpu") ? " · CPU" : " · GPU";
+
+                    return label;
+                }
+                catch
+                {
+                    // decoration on a row, never a reason for the row to fail to render
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>The badge's tooltip: the full path, and how much the compiler said about itself.</summary>
+        public string? CompilerBadgeDetail
+        {
+            get
+            {
+                try
+                {
+                    if (ToolsPlusPlusDetector.Describe(CompilerName) is not { } info)
+                        return null;
+
+                    if (info.Path is null)
+                        return "No compiler is configured for this step in the game configuration.";
+
+                    string detail = info.Path;
+                    if (info.Help is { } help)
+                        detail += $"{Environment.NewLine}{help.Banner}{Environment.NewLine}Reports {help.Options.Count} options; the ones Compile Pal's own list does not describe are offered under their flag.";
+                    else if (info.ToolsPlusPlus)
+                        detail += $"{Environment.NewLine}A tools++ build, not yet asked what it accepts.";
+                    else
+                        detail += $"{Environment.NewLine}A stock compiler. It does not list its options, so the shipped parameter list is used.";
+
+                    return detail;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        public bool HasCompilerBadge => CompilerBadge is not null;
+
+        /// <summary>Whether the previewed preset hands this step <paramref name="flag"/> and the compiler would take it.</summary>
+        private bool UsesFlag(string flag) =>
+            ConfigurationManager.PreviewPreset is { } preset
+            && PresetDictionary.TryGetValue(preset, out var parameters)
+            && parameters.Any(p => string.Equals(p.Flag, flag, StringComparison.OrdinalIgnoreCase) && p.IsCompatible);
+
+        /// <summary>
+        /// The command this step would run for the map selected in the queue, with every placeholder
+        /// filled in: the real compiler path, the real map, the real game folder. Falls back to the
+        /// template when no map is selected or nothing is configured.
+        ///
+        /// The row's summary keeps the placeholders on purpose - it is the preset that is being read
+        /// there, and a preset applies to any map. The expanded step is where someone goes to see
+        /// what is about to happen, and "-game $game$ $vmfFile$" is not that.
+        /// </summary>
+        public string CommandPreview
+        {
+            get
+            {
+                try
+                {
+                    // The selected map's own preset, not the one being edited: the two can differ
+                    // after a multi-map compile, and this is a statement about that map.
+                    string template = GetParameterString(ConfigurationManager.PreviewPreset).Trim();
+                    string? map = ConfigurationManager.PreviewMap?.File;
+
+                    if (map is null || GameConfigurationManager.GameConfiguration is null)
+                        return template;
+
+                    string arguments = GameConfigurationManager.SubstituteValues(template, map).Trim();
+
+                    if (Metadata is null || !Metadata.IsExternal || string.IsNullOrWhiteSpace(Metadata.Path))
+                        return arguments;
+
+                    string program = GameConfigurationManager.SubstituteValues(Metadata.Path, map, quote: false);
+
+                    // always quoted, so a path with spaces and one without read the same way
+                    if (!program.StartsWith('"'))
+                        program = $"\"{program}\"";
+
+                    return arguments.Length == 0 ? program : $"{program} {arguments}";
+                }
+                catch
+                {
+                    return "";
+                }
+            }
+        }
+
         public event PropertyChangedEventHandler? PropertyChanged;
 
         /// <summary>
@@ -227,6 +366,10 @@ namespace CompilePalX
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ArgumentSummary)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasParameters)));
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurrentPresetParameters)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CompilerBadge)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CompilerBadgeDetail)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasCompilerBadge)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CommandPreview)));
         }
 
         #endregion
@@ -266,12 +409,23 @@ namespace CompilePalX
             foreach (var stale in ParameterList.Where(p => p.FromToolHelp).ToList())
                 ParameterList.Remove(stale);
 
-            var help = ToolsPlusPlusDetector.HelpFor(Name);
+            var help = ToolsPlusPlusDetector.HelpFor(CompilerName);
+
+            string? DefaultFor(ConfigItem parameter) =>
+                help is not null && help.TryGet(parameter.Flag, out var known) && known.TakesValue ? known.Default : null;
 
             foreach (var parameter in ParameterList)
-                parameter.ToolDefault = help is not null && help.TryGet(parameter.Flag, out var known) && known.TakesValue
-                    ? known.Default
-                    : null;
+                parameter.ToolDefault = DefaultFor(parameter);
+
+            // The rows on screen are the presets' clones, taken before the compiler answered - so
+            // they have to be told too, or the default appears on the picker's copy and never on the
+            // row it was wanted for.
+            foreach (var parameters in PresetDictionary.Values)
+                foreach (var parameter in parameters)
+                {
+                    parameter.ToolDefault = DefaultFor(parameter);
+                    parameter.NotifyAvailabilityChanged();
+                }
 
             if (help is null)
                 return;
@@ -295,7 +449,7 @@ namespace CompilePalX
                 if (option.Default.Contains("<bspfile>", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                ParameterList.Add(ConfigItem.FromToolOption(Name, option));
+                ParameterList.Add(ConfigItem.FromToolOption(CompilerName!, option));
                 added++;
             }
 

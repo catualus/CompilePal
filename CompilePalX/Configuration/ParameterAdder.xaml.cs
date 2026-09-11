@@ -65,7 +65,24 @@ namespace CompilePalX
         private static bool Contains(string? haystack, string needle) =>
             haystack != null && haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
 
-        private void SearchBox_OnTextChanged(object sender, TextChangedEventArgs e) => paramView.Refresh();
+        /// <summary>
+        /// Whether a search is being typed. The folded groups bind their expansion to this, so a match
+        /// under "More options this compiler reports" is shown rather than hidden behind a closed header.
+        /// </summary>
+        public bool IsSearching
+        {
+            get => (bool)GetValue(IsSearchingProperty);
+            set => SetValue(IsSearchingProperty, value);
+        }
+
+        public static readonly DependencyProperty IsSearchingProperty =
+            DependencyProperty.Register(nameof(IsSearching), typeof(bool), typeof(ParameterAdder), new PropertyMetadata(false));
+
+        private void SearchBox_OnTextChanged(object sender, TextChangedEventArgs e)
+        {
+            IsSearching = !string.IsNullOrWhiteSpace(SearchBox.Text);
+            paramView.Refresh();
+        }
 
         private void ConfigDataGrid_MouseUp(object sender, MouseButtonEventArgs e)
         {

@@ -1247,6 +1247,12 @@ namespace CompilePalX
 
             RefreshHistory();
 
+            // The compile loop points CurrentPreset at each queued map's preset in turn and leaves it
+            // on the last one. The panel is still showing the selected map, so put the preset being
+            // edited back to that map's - otherwise the grids show one map's parameters under another
+            // map's name until something else happens to reselect.
+            UpdateConfigGrid();
+
             CompileStartStopButton.Content = "Compile";
 
             // A segment is only marked done when the *next* step starts, so the last one never was and
@@ -2230,6 +2236,9 @@ namespace CompilePalX
                 PresetConfigListBox.SelectedItem = ConfigurationManager.CurrentPreset;
                 SelectedMapIndex = MapListBox.SelectedIndex;
             }
+
+            // the expanded rows show the command for this map, so they follow the selection
+            ConfigurationManager.PreviewMap = MapListBox.SelectedItem as Map;
 
             // refresh preset config listbox to filter the presets
             CollectionViewSource.GetDefaultView(ConfigurationManager.KnownPresets).Refresh();

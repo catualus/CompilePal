@@ -420,6 +420,29 @@ namespace CompilePalX
             return null;
         }
 
+        /// <summary>What is known about the compiler a step will run: where it is, what it is, and what it said.</summary>
+        public sealed record CompilerInfo(string? Path, bool ToolsPlusPlus, ToolHelp? Help);
+
+        /// <summary>
+        /// Describes the compiler that will run for <paramref name="processName"/>, for the badge on
+        /// the step's row. Null for anything that is not one of the four compilers. Reads caches only;
+        /// a compiler not yet asked about is asked in the background and the badge catches up.
+        /// </summary>
+        public static CompilerInfo? Describe(string? processName)
+        {
+            if (processName is null || !ToolMarkers.ContainsKey(processName))
+                return null;
+
+            string? path = ResolveBinary(processName, GetConfiguredPath(processName));
+            if (string.IsNullOrEmpty(path))
+                return new CompilerInfo(null, false, null);
+
+            bool toolsPlusPlus = IsToolsPlusPlusBinary(processName, path);
+            var help = HelpFor(processName);
+
+            return new CompilerInfo(path, toolsPlusPlus || help is not null, help);
+        }
+
         /// <summary>
         /// Drops the cached verdicts about which binaries are tools++ and which one runs for each
         /// step, and nothing else - not the auto-detected folder, not what the compilers said. For

@@ -45,11 +45,15 @@
                                 <Setter.Value>
                                     <ControlTemplate TargetType="{x:Type GroupItem}">
                                         <Grid>
-                                            <Expander IsExpanded="False" x:Name="GroupExpander">
+                                            <!-- Folded groups open themselves while a search is typed: a match hidden
+                                                 under a closed expander is a match nobody sees. -->
+                                            <Expander x:Name="GroupExpander"
+                                                      IsExpanded="{Binding IsSearching, RelativeSource={RelativeSource AncestorType=Window}, Mode=OneWay}">
                                                 <Expander.Header>
-                                                    <DockPanel ToolTip="Parameter may be incompatible with the current game">
-                                                        <iconPacks:PackIconMaterial Kind="Alert" Foreground="{DynamicResource CompilePal.Brushes.Warning}" VerticalAlignment="Center" />
-                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="14" Margin="5, 2, 5, 0" Visibility="Visible"/>
+                                                    <DockPanel x:Name="GroupHeader" ToolTip="Parameter may be incompatible with the current game">
+                                                        <iconPacks:PackIconMaterial x:Name="GroupIcon" Kind="Alert" Foreground="{DynamicResource CompilePal.Brushes.Warning}" VerticalAlignment="Center" />
+                                                        <TextBlock x:Name="GroupTitle" Text="{Binding Name}" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="14" Margin="5, 2, 5, 0" Visibility="Visible"/>
+                                                        <TextBlock Text="{Binding ItemCount, StringFormat='({0})'}" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorTertiaryBrush}" FontSize="12" Margin="0,2,5,0"/>
                                                     </DockPanel>
                                                 </Expander.Header>
                                                 <Expander.Content>
@@ -66,6 +70,13 @@
                                             <DataTrigger Binding="{Binding Name}" Value="IsCompatible">
                                                 <Setter TargetName="GroupExpander" Property="Visibility" Value="Collapsed"/>
                                                 <Setter TargetName="Presenter" Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                            <!-- Reported by the compiler, not described by Compile Pal: available, folded
+                                                 away so the curated list stays readable, and not a warning. -->
+                                            <DataTrigger Binding="{Binding Name}" Value="Discovered">
+                                                <Setter TargetName="GroupIcon" Property="Visibility" Value="Collapsed"/>
+                                                <Setter TargetName="GroupTitle" Property="Text" Value="More options this compiler reports"/>
+                                                <Setter TargetName="GroupHeader" Property="ToolTip" Value="Listed by the compiler's own -help but not described in Compile Pal's parameter list. Named by their flag, explained in the compiler's words."/>
                                             </DataTrigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>

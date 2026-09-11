@@ -266,7 +266,7 @@ namespace CompilePalX.Tests
             ToolHelpProbe.Override = path => string.Equals(path, bspzipPath, StringComparison.OrdinalIgnoreCase) ? bspzip : null;
             ToolsPlusPlusDetector.Invalidate();
 
-            using var step = new TemporaryStep("BSPZIP", """[{ "Name": "Compress", "Parameter": " -compress" }]""");
+            using var step = new TemporaryStep("BSPZIP", """[{ "Name": "Compress", "Parameter": " -compress" }]""", path: "$bspZip$");
             step.Process.RefreshDiscoveredParameters();
 
             var names = step.Process.ParameterList.Select(p => p.Name).ToList();
@@ -330,14 +330,14 @@ namespace CompilePalX.Tests
             private readonly string root;
             public CompileProcess Process { get; }
 
-            public TemporaryStep(string name, string parametersJson)
+            public TemporaryStep(string name, string parametersJson, string path = "$vrad$")
             {
                 root = Path.Combine(Path.GetTempPath(), "CompilePalStep_" + Guid.NewGuid().ToString("N"));
                 string folder = Path.Combine(root, name);
                 Directory.CreateDirectory(folder);
 
                 File.WriteAllText(Path.Combine(folder, "meta.json"), $$"""
-                    { "Name": "{{name}}", "Path": "$vrad$", "Order": 3.0, "DoRun": true, "ReadOutput": true,
+                    { "Name": "{{name}}", "Path": "{{path}}", "Order": 3.0, "DoRun": true, "ReadOutput": true,
                       "Description": "", "Warning": "", "BasisString": " -game $game$ $vmfFile$" }
                     """);
                 File.WriteAllText(Path.Combine(folder, "parameters.json"), parametersJson);
