@@ -1579,15 +1579,17 @@ namespace CompilePalX
 
 					if (c.ChosenItem != null)
 					{
-						if (c.ChosenItem.CanBeUsedMoreThanOnce)
-						{
-							// .clone() removes problems with parameters sometimes becoming linked
-							selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Add((ConfigItem)c.ChosenItem.Clone());
-						} 
-						else if (!selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Contains(c.ChosenItem))
-						{
-							selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Add(c.ChosenItem);
-						}
+						var presetParameters = selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset];
+
+						// Always a clone. The dialog hands back the entry from the step's master list,
+						// and adding that object itself meant a preset was editing the template every
+						// other preset is built from - and, since presets loaded from disk hold clones,
+						// a reference-equality Contains never found the flag already present, so the
+						// same switch could be added to a preset twice.
+						bool alreadyPresent = presetParameters.Any(p => p.Name == c.ChosenItem.Name);
+
+						if (c.ChosenItem.CanBeUsedMoreThanOnce || !alreadyPresent)
+							presetParameters.Add((ConfigItem)c.ChosenItem.Clone());
 					}
 	            }
 
