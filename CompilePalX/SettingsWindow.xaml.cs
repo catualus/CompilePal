@@ -7,7 +7,6 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using CompilePalX.Compiling;
 using CompilePalX.Configuration;
-using Microsoft.WindowsAPICodePack.Dialogs;
 
 namespace CompilePalX
 {
@@ -127,17 +126,16 @@ namespace CompilePalX
         {
             string current = ToolsPlusPlusFolderBox.Text?.Trim() ?? "";
 
-            using var dialog = new CommonOpenFileDialog
+            var dialog = new Microsoft.Win32.OpenFolderDialog
             {
                 Title = "Select the folder containing the tools++ binaries",
-                IsFolderPicker = true,
-                InitialDirectory = Directory.Exists(current) ? current : null,
+                InitialDirectory = Directory.Exists(current) ? current : "",
             };
 
-            if (dialog.ShowDialog() != CommonFileDialogResult.Ok || string.IsNullOrWhiteSpace(dialog.FileName))
+            if (dialog.ShowDialog() != true || string.IsNullOrWhiteSpace(dialog.FolderName))
                 return;
 
-            ToolsPlusPlusFolderBox.Text = dialog.FileName;
+            ToolsPlusPlusFolderBox.Text = dialog.FolderName;
         }
 
         /// <summary>

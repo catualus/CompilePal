@@ -137,10 +137,8 @@
     <!-- The reference LZMA decoder from the 7-Zip SDK, for reading the lumps of a BSP that bspzip
          compressed. .NET has no LZMA of its own. -->
     <PackageReference Include="LZMA-SDK" Version="22.1.1" />
-    <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
-    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
-    <PackageReference Include="Microsoft.Windows.Compatibility" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+    <PackageReference Include="Microsoft.Windows.Compatibility" Version="10.0.12" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="MahApps.Metro.IconPacks" Version="6.2.1" />
     <PackageReference Include="ValveKeyValue" Version="0.20.0.417" />
