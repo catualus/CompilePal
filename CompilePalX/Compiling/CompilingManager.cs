@@ -444,12 +444,9 @@ namespace CompilePalX
             // Snapshot, for the same reason the compile loop does: UpdateOrder clears and refills
             // CurrentOrder, and several UI actions call it - including just opening the ORDER tab.
             foreach (var process in OrderManager.CurrentOrder.ToList())
-            foreach (var (name, flag, toolsPlusPlus) in process.IncompatibleParameters())
+            foreach (var (name, flag, reason) in process.IncompatibleParameters())
                 CompilePalLogger.LogLineColor(
-                    $"{process.Name}: skipping '{name}' ({flag}) - " +
-                    (toolsPlusPlus
-                        ? "requires the Hammer++ compile tools."
-                        : $"not supported by {game}."),
+                    $"{process.Name}: skipping '{name}' ({flag}) - {reason}.",
                     Error.GetSeverityBrush(1));
         }
 

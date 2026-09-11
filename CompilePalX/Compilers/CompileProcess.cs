@@ -236,15 +236,82 @@ namespace CompilePalX
         /// Parameters this preset carries that the configured compiler will not accept, with the
         /// reason. Empty when everything applies.
         /// </summary>
-        public IEnumerable<(string Name, string Flag, bool ToolsPlusPlus)> IncompatibleParameters()
+        public IEnumerable<(string Name, string Flag, string Reason)> IncompatibleParameters()
         {
             if (ConfigurationManager.CurrentPreset is not { } preset || !PresetDictionary.ContainsKey(preset))
                 yield break;
 
             foreach (var parameter in PresetDictionary[preset])
-                if (!parameter.IsCompatible)
-                    yield return (parameter.Name, parameter.Parameter.Trim(), parameter.RequiresToolsPlusPlus);
+                if (parameter.IncompatibilityReason is { } reason)
+                    yield return (parameter.Name, parameter.Parameter.Trim(), reason);
         }
+
+        /// <summary>
+        /// Brings the parameter list in line with what the compiler for this step reports.
+        ///
+        /// The shipped parameters.json is the curated layer: a readable name, a warning, a fixed set
+        /// of values, a file picker. The compiler's own <c>-help</c> is the complete one. Anything the
+        /// compiler lists that the file does not is added here under its flag, so a new option is
+        /// available the day the tools ship it rather than the day someone edits a JSON file - and
+        /// anything the file lists that the compiler does not is hidden by <see cref="ConfigItem.IsCompatible"/>.
+        ///
+        /// Also fills in <see cref="ConfigItem.ToolDefault"/> on the curated entries, since the
+        /// default is the thing most likely to differ between builds.
+        ///
+        /// Steps that are not one of the four compilers, or whose compiler prints no table, are left
+        /// exactly as loaded.
+        /// </summary>
+        public void RefreshDiscoveredParameters()
+        {
+            foreach (var stale in ParameterList.Where(p => p.FromToolHelp).ToList())
+                ParameterList.Remove(stale);
+
+            var help = ToolsPlusPlusDetector.HelpFor(Name);
+
+            foreach (var parameter in ParameterList)
+                parameter.ToolDefault = help is not null && help.TryGet(parameter.Flag, out var known) && known.TakesValue
+                    ? known.Default
+                    : null;
+
+            if (help is null)
+                return;
+
+            var curated = new HashSet<string>(
+                ParameterList.Select(p => p.Flag).Where(f => f.Length > 0),
+                StringComparer.OrdinalIgnoreCase);
+
+            int added = 0;
+            foreach (var option in help.Options)
+            {
+                if (!curated.Add(option.Flag))
+                    continue;
+
+                if (NeverOffered.Contains(option.Flag))
+                    continue;
+
+                // bspzip's -extract, -dir, -addfile and the rest are commands that name the BSP
+                // themselves; the step already supplies the file, and they are not options to
+                // combine with -repack. An option whose default mentions the bsp file is one of these.
+                if (option.Default.Contains("<bspfile>", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                ParameterList.Add(ConfigItem.FromToolOption(Name, option));
+                added++;
+            }
+
+            if (added > 0)
+                CompilePalLogger.LogLineDebug($"{Name}: {added} parameter(s) added from {help.Label} that the shipped list does not describe.");
+        }
+
+        /// <summary>
+        /// Options a compiler lists that make no sense as a preset parameter: the ones Compile Pal
+        /// already supplies from the game configuration, the ones that only mean something at a
+        /// keyboard, and the one-letter alias of a switch that is already offered in full.
+        /// </summary>
+        private static readonly HashSet<string> NeverOffered = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "-game", "-vproject", "-basedir", "-StopOnExit", "-v",
+        };
 
         public string GetParameterString() => GetParameterString(ConfigurationManager.CurrentPreset);
 

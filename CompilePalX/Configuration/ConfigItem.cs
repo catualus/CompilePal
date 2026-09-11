@@ -69,65 +69,114 @@ namespace CompilePalX
 
         /// <summary>
         /// Parameter is only offered by ficool2's Hammer++ compile tools (tools++), not by the stock
-        /// Source SDK compilers. Hidden unless tools++ is detected for the owning process.
+        /// Source SDK compilers.
+        ///
+        /// Only consulted when the compiler in use cannot be asked what it accepts - which is to say,
+        /// for the stock tools, which print no option table. A tools++ build lists what it takes and
+        /// that listing is believed over this flag in either direction.
         /// </summary>
         public bool RequiresToolsPlusPlus { get; set; }
 
         /// <summary>
-        /// The mirror of <see cref="RequiresToolsPlusPlus"/>: a stock-compiler option that tools++
-        /// dropped, so it has to be hidden when tools++ *is* in use. Verified by asking the binary -
-        /// ficool2's VRAD answers "Unrecognized option '-normal_priority'".
+        /// The compiler accepts this even though its <c>-help</c> does not list it, or Compile Pal
+        /// consumes it itself and the compiler never sees it.
+        ///
+        /// The default rule is that a compiler which describes itself is believed, and anything it
+        /// does not list is not offered. Three things break that rule and need saying so:
+        /// <c>-StaticPropBounce</c> and vvis's <c>-tmpin</c>/<c>-tmpout</c> are accepted silently by
+        /// tools++ but absent from its table, and <c>-normal_priority</c> is Compile Pal's own switch,
+        /// stripped from the command line before the compiler runs. The last of these used to be
+        /// marked incompatible with tools++ on the strength of the compiler rejecting it - which it
+        /// does, and which is irrelevant, because it is never handed the flag.
         /// </summary>
-        public bool IncompatibleWithToolsPlusPlus { get; set; }
+        public bool NotInToolHelp { get; set; }
 
         /// <summary>
-        /// The game whitelist/blacklist on this parameter describes the *stock* compilers only -
-        /// tools++ accepts it whatever game is configured, so the game gate should not apply when
-        /// tools++ is in use.
-        ///
-        /// Several arguments are like this because the stock lists were written when the option only
-        /// shipped in CS:GO's branch: <c>-StaticPropSampleScale</c>, <c>-StaticPropBounce</c>,
-        /// <c>-aoscale</c> and <c>-dumppropmaps</c> are all marked for other games and all answer
-        /// "accepted" when handed to ficool2's VRAD. Without this they get correctly filtered out by
-        /// the game check and silently lost on a Garry's Mod tools++ compile that had been using them.
+        /// This parameter was not in the shipped list at all; it was added because the compiler
+        /// reported it. Named after its flag, described in the compiler's own words.
         /// </summary>
-        public bool SupportedByToolsPlusPlus { get; set; }
+        [Newtonsoft.Json.JsonIgnore]
+        public bool FromToolHelp { get; set; }
 
-        public bool IsCompatible
+        /// <summary>
+        /// What the compiler uses when this is not given, as printed in its help. Null when the
+        /// compiler in use has not said, or the option is a plain switch.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? ToolDefault { get; set; }
+
+        /// <summary>The flag alone - " -bounce" is "-bounce", "+nav_max_view_distance 1" is "+nav_max_view_distance".</summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string Flag => (Parameter ?? "").Trim().Split(' ', 2)[0];
+
+        /// <summary>
+        /// Why <see cref="IsCompatible"/> is false, in words the log can print. Null when it is true.
+        /// </summary>
+        [Newtonsoft.Json.JsonIgnore]
+        public string? IncompatibilityReason => Availability().Reason;
+
+        public bool IsCompatible => Availability().Offered;
+
+        /// <summary>
+        /// Whether the compiler that will run accepts this parameter under the current game.
+        ///
+        /// The order of the checks is the design:
+        ///
+        ///   1. If the compiler describes itself, that description is the truth. Listed means offered
+        ///      whatever the game lists below say, because those lists were written for the stock
+        ///      binaries and a tools++ build ships every option for every game. Not listed means not
+        ///      offered, unless the parameter file says the omission is known (NotInToolHelp).
+        ///   2. If it does not - the stock tools, or nothing configured - the shipped file is all
+        ///      there is: tools++-only options are hidden, and the game lists apply.
+        ///
+        /// Only flags are checked against the compiler. A parameter with no flag of its own (the
+        /// free-text "Command Line Argument", CUSTOM's program path) is passed through on the game
+        /// rules alone, since there is nothing to look up.
+        /// </summary>
+        private (bool Offered, string? Reason) Availability()
         {
-            get
+            var mode = ConfigurationManager.Settings.ToolsPlusPlusMode;
+            var help = ToolsPlusPlusDetector.HelpFor(OwningProcess);
+
+            if (help is not null && !NotInToolHelp && Flag.StartsWith('-'))
             {
-                bool toolsPlusPlus = ToolsPlusPlusDetector.IsEnabledFor(OwningProcess);
+                if (help.Has(Flag))
+                    return (true, null);
 
-                // parameter only exists in tools++, hide it when the configured compiler is stock
-                if (RequiresToolsPlusPlus && !toolsPlusPlus)
-                    return false;
-
-                // and the reverse: stock-only options the tools++ rewrite no longer accepts
-                if (IncompatibleWithToolsPlusPlus && toolsPlusPlus)
-                    return false;
-
-                // the game lists below describe the stock binaries; tools++ ships this one regardless
-                if (toolsPlusPlus && SupportedByToolsPlusPlus)
-                    return true;
-
-                // current game configuration has no SteamAppID
-                if (GameConfigurationManager.GameConfiguration != null && GameConfigurationManager.GameConfiguration.SteamAppID == null)
-                    return true;
-
-                int currentAppID = (int)GameConfigurationManager.GameConfiguration!.SteamAppID!;
-
-                // supported game ID list should take precedence. If defined, check that current GameConfiguration SteamID is in whitelist
-                if (CompatibleGames != null)
-                    return CompatibleGames.Contains(currentAppID);
-
-                // If defined, check that current GameConfiguration SteamID is not in blacklist
-                if (IncompatibleGames != null)
-                    return !IncompatibleGames.Contains(currentAppID);
-
-                // parameter does not define which games are supported
-                return true;
+                return (false, $"not accepted by {help.Label}");
             }
+
+            if (help is null && RequiresToolsPlusPlus)
+            {
+                bool toolsPlusPlus = mode switch
+                {
+                    Configuration.ToolsPlusPlusMode.ForceOn => true,
+                    Configuration.ToolsPlusPlusMode.ForceOff => false,
+                    _ => ToolsPlusPlusDetector.IsEnabledFor(OwningProcess),
+                };
+
+                if (!toolsPlusPlus)
+                    return (false, "requires the Hammer++ compile tools");
+            }
+
+            // current game configuration has no SteamAppID
+            var game = GameConfigurationManager.GameConfiguration;
+            if (game is null || game.SteamAppID is null)
+                return (true, null);
+
+            int currentAppID = (int)game.SteamAppID;
+            string gameName = game.Name ?? "this game";
+
+            // supported game ID list should take precedence. If defined, check that current GameConfiguration SteamID is in whitelist
+            if (CompatibleGames != null)
+                return CompatibleGames.Contains(currentAppID) ? (true, null) : (false, $"not supported by {gameName}");
+
+            // If defined, check that current GameConfiguration SteamID is not in blacklist
+            if (IncompatibleGames != null)
+                return !IncompatibleGames.Contains(currentAppID) ? (true, null) : (false, $"not supported by {gameName}");
+
+            // parameter does not define which games are supported
+            return (true, null);
         }
 
         /// <summary>
@@ -136,6 +185,55 @@ namespace CompilePalX
         /// </summary>
         [Newtonsoft.Json.JsonIgnore]
         public string? OwningProcess { get; set; }
+
+        /// <summary>
+        /// A parameter built from one line of a compiler's help, for an option the shipped list does
+        /// not describe. Its name is its flag, so a preset saved with it can be read back by any
+        /// build that lists the same flag.
+        /// </summary>
+        public static ConfigItem FromToolOption(string processName, ToolOption option)
+        {
+            string description = option.Description;
+            if (option.TakesValue)
+                description += (description.Length > 0 ? " " : "") + $"Default: {option.Default}.";
+
+            return new ConfigItem
+            {
+                Name = option.Flag,
+                Parameter = " " + option.Flag,
+                Description = description,
+                Warning = "",
+                CanHaveValue = option.TakesValue,
+                ToolDefault = option.TakesValue ? option.Default : null,
+                FromToolHelp = true,
+                // Only ever seen in a tools++ listing, so when there is no listing to check against -
+                // a stock compiler, or ForceOff - this must not be handed over on the game rules alone.
+                RequiresToolsPlusPlus = true,
+                OwningProcess = processName,
+            };
+        }
+
+        /// <summary>
+        /// A parameter for a flag a preset names that no current list carries. Null unless the name
+        /// is a flag, since only parameters discovered from a compiler are saved under one.
+        /// </summary>
+        public static ConfigItem? FromPresetFlag(string processName, string name, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(name) || !name.StartsWith('-') || name.Contains(' '))
+                return null;
+
+            return new ConfigItem
+            {
+                Name = name,
+                Parameter = " " + name,
+                Description = "Reported by a compiler that is not the one configured now.",
+                Warning = "",
+                CanHaveValue = !string.IsNullOrEmpty(value),
+                FromToolHelp = true,
+                RequiresToolsPlusPlus = true,
+                OwningProcess = processName,
+            };
+        }
 
         /// <summary>
         /// Copies every field by hand, so anything added to this class has to be added here too or it
@@ -149,7 +247,7 @@ namespace CompilePalX
             // Options is copied by reference on purpose: it is the parameter's declaration, read from
             // the plugin's parameters.json and never edited, so every clone of a parameter shares the
             // same list of choices. The Value each clone holds is its own.
-            return new ConfigItem() {Options=Options,Name=Name,Parameter=Parameter,Description = Description,Value=Value, Value2 = Value2, CanHaveValue = CanHaveValue,Warning = Warning,CanBeUsedMoreThanOnce = CanBeUsedMoreThanOnce, ReadOutput = ReadOutput, ValueIsFile = ValueIsFile, Value2IsFile = Value2IsFile, ValueIsFolder = ValueIsFolder, Value2IsFolder = Value2IsFolder, WaitForExit = WaitForExit, CompatibleGames = CompatibleGames, IncompatibleGames = IncompatibleGames, RequiresToolsPlusPlus = RequiresToolsPlusPlus, IncompatibleWithToolsPlusPlus = IncompatibleWithToolsPlusPlus, SupportedByToolsPlusPlus = SupportedByToolsPlusPlus, OwningProcess = OwningProcess};
+            return new ConfigItem() {Options=Options,Name=Name,Parameter=Parameter,Description = Description,Value=Value, Value2 = Value2, CanHaveValue = CanHaveValue,Warning = Warning,CanBeUsedMoreThanOnce = CanBeUsedMoreThanOnce, ReadOutput = ReadOutput, ValueIsFile = ValueIsFile, Value2IsFile = Value2IsFile, ValueIsFolder = ValueIsFolder, Value2IsFolder = Value2IsFolder, WaitForExit = WaitForExit, CompatibleGames = CompatibleGames, IncompatibleGames = IncompatibleGames, RequiresToolsPlusPlus = RequiresToolsPlusPlus, NotInToolHelp = NotInToolHelp, FromToolHelp = FromToolHelp, ToolDefault = ToolDefault, OwningProcess = OwningProcess};
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

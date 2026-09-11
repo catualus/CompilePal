@@ -1,0 +1,123 @@
+Breadworks - vbsp++ (Sep 10 2026)
+Unable to find gameinfo.txt. Solutions:
+
+1. Add -game <path> on the command line where <path> is the directory that gameinfo.txt is in.
+2. Read https://developer.valvesoftware.com/wiki/Gameinfo.txt
+
+Options:
+                          Name | Default | Description
+====================================================================================
+            -allowdetailcracks |         | Don't fixup t-junctions on func_detail
+    -allowdynamicpropsasstatic |         | Allow props without allowstatic to be static props
+           -append_search_path |         | Add an extra search path behind the ones from gameinfo.txt
+                                           Multiple paths can be specified with a , (comma)
+                          -asw |         | Use Alien-Swarm compatible BSP format
+                      -basedir |         | Path to the game's base directory,
+                                           deduced from the mod directory by default
+                        -block |     N N | Control the grid size mins/maxs that the map is chopped on
+                       -blocks | N N N N | Control the grid dimensions that the map is chopped on
+                    -blocksize |    1024 | Control the size of each grid square that vbsp chops the level on
+                        -box3d |         | Load vphysics_box3d to generate collision data
+                    -bspformat |      20 | BSP version to write. Supported versions:
+                                           19    (HL2)
+                                           20    (TF2)
+                                           21    (ASW/L4D2/Portal 2/CS:GO)
+                      -bumpall |         | Force all surfaces to be bump mapped
+                         -csgo |         | Use CS:GO compatible BSP format
+             -csgoclipcontents |         | Compile CS:GO grenadeclip/droneclip contents
+                      -cullall |         | Force all forms of culling
+                  -cullbrushes |         | Always cull brushes, even if limit isn't exceeded yet
+               -cullbrushsides |         | Always cull brushsides, even if limit isn't exceeded yet
+                   -cullplanes |         | Always cull planes, even if limit isn't exceeded yet
+         -cullplanesaggressive |         | Force aggressive plane culling
+                    -cullverts |         | Always cull vertexes, even if limit isn't exceeded yet
+               -defaultcubemap |         | Obsolete (on by default). Generates default LDR and HDR cubemaps
+             -defaultluxelsize |      16 | Set the default luxel scale if a face has no lightmap scale
+                  -dumpcollide |         | Write files with collision info
+               -dumpstaticprop |         | Dump static props to staticprop*.txt
+                      -dxlevel |       0 | Don't include entities whose dxlevels preclude this dxlevel
+                        -embed |   <dir> | Use an additional search path for assets
+                     -entfirst |         | Set the entity classname to sort first in the entity list
+                -forcematerial |         | Force all brushes to use this material
+                  -forceskyvis |         | Enable vis calculations in 3d skybox leaves
+                   -fulldetail |         | Mark all detail geometry as normal geometry
+                         -game |         | Path to the mod directory holding gameinfo.txt
+                       -glview |         | Writes.gl files in the current directory that can be viewed with glview
+           -insert_search_path |         | Add an extra search path in front of the ones from gameinfo.txt
+                                           Multiple paths can be specified with a , (comma)
+                   -insurgency |         | Use Insurgency compatible BSP format
+                 -keepstalezip |         | Keep the BSP's zip files intact but regenerate everything else
+                         -l4d2 |         | Use Left 4 Dead 2 compatible BSP format
+                     -leaktest |         | Obsolete (on by default). Stop processing the map if a leak is detected
+                  -lightformat |       0 | World light version to write. Supported versions:
+                                           0     (HL2/TF2)
+                                           1     (ASW/L4D2/Portal 2/CS:GO)
+               -lightifmissing |         | Force lightmaps to be generated for all surfaces
+                                           even if they don't need lightmaps
+                          -low |         | Run as an idle-priority process
+                   -luxelscale |       1 | Scale all lightmaps by this amount
+                -materialdebug |         | Print debug information about materials
+                   -maxbrushes |    8192 | Set maximum brush limit
+                -maxbrushsides |   65536 | Set maximum brushsides limit
+                  -maxdispinfo |    2048 | Set maximum displacement limit
+               -maxlightmapdim |      32 | Maximum lightmap dimension a face can have before splitting
+                -maxluxelscale |  999999 | No luxel scale will be higher than this amount
+                   -maxtexinfo |   12288 | Set maximum texinfo limit
+                        -micro |       1 | Warn when brushes are output with a volume less than this number
+                -minluxelscale |       1 | No luxel scale will be lower than this amount
+              -missingmaterial |         | Replace missing brush materials with this material
+                     -mountcfg | cfg/mount.cfg | Path to a mount.cfg listing extra content to mount
+                                           Intended for Garry's Mod
+                      -nobevel |         | Don't bevel solids for collision
+                       -nobump |         | Disable bumpmap lightmaps on all surface
+                        -nocsg |         | Don't chop out intersecting brush areas
+                       -nocull |         | Don't reduce brushes, brushsides, vertexes or planes
+             -nodefaultcubemap |         | Don't generate default LDR and HDR cubemaps
+                     -nodetail |         | Get rid of all detail geometry
+                 -nodetailclip |         | Don't clip detail brush faces with each other
+           -nodisp4virtualmesh |         | Enable physics compression for power of 4 displacements
+               -nodrawtriggers |         | Compiles all triggers as if they were using the Nodraw texture
+                 -nohdrcubemap |         | Don't generate default HDR cubemaps (for maps that will be LDR only)
+   -noineligiblevertexlitprops |         | Don't mark bumpmap/phong props as not supporting vertex lighting
+                 -noldrcubemap |         | Don't generate default LDR cubemaps (for maps that will be HDR only)
+                   -noleaktest |         | Continue processing the map if a leak is detected
+                      -nomerge |         | Don't merge together chopped faces on nodes
+                 -nomergewater |         | Don't merge together chopped faces on water
+                  -nonamefixup |         | Disable default name prefixing for instance collapsing
+                        -noopt |         | Preserves the 'outer shell' of the map, which are all the faces
+                                           you can't see because you can never get outside the map
+                    -nophysics |         | Don't generate physics collision for the map
+                      -noprune |         | Don't prune neighboring solid nodes
+                      -noshare |         | Emit unique face edges instead of sharing them
+                     -nosubdiv |         | Don't subdivide faces for lightmapping
+                      -notjunc |         | Don't fixup t-junctions
+                -novirtualmesh |         | Disable physics compression for displacements
+                      -nowater |         | Get rid of water brushes
+                       -noweld |         | Don't join face vertices together
+                     -onlyents |         | Only import the entities from the VMF. Brush models are not re-imported
+                    -onlyprops |         | Only update the static props and detail props
+                      -portal2 |         | Use Portal 2 compatible BSP format
+             -replacematerials |         | Substitute materials according to cfg/materialsub.cfg file
+          -report_search_paths |         | Show search paths for assets
+ -showineligiblevertexlitprops |         | Show what props got marked as not supporting vertex lighting
+                -simpleladders |         | Write ladders in func_simpleladder format like L4D
+                 -singleplayer |         | Use SDK 2013 singleplayer compatible BSP format
+                    -snapaxial |         | Snap axial planes to integer coordinates
+             -staticpropformat |  10_TF2 | Static prop version to write. Supported versions:
+                                           6      (HL2)
+                                           7 8    (L4D)
+                                           9      (L4D2)
+                                           10_TF2 (TF2)
+                                           10     (Insurgency)
+                                           11 12  (CSGO)
+                                           13     (Strata)
+                                           14     (MvZ)
+                                           
+                      -threads |     <N> | Number of threads to use. Defaults to max CPU thread count
+                            -v |         | Turn on verbose output
+                      -verbose |         | Turn on verbose output
+              -verboseentities |         | Disables verbose output for submodels
+         -warnmissinginstances |         | Warn when instances are missing instead of erroring
+                         -xbox |         | Enable mandatory xbox options
+
+No map name specified

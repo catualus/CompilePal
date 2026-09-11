@@ -114,7 +114,6 @@
   {
     "Name": "Static Prop Lighting Final",
     "Parameter": " -StaticPropLightingFinal",
-    "IncompatibleWithToolsPlusPlus": true,
     "Description": "Generate per-vertex prop_static lighting (uses higher/final quality processing)",
     "Value": null,
     "CanHaveValue": false,
@@ -126,7 +125,6 @@
   {
     "Name": "Static Prop Lighting Old",
     "Parameter": " -StaticPropLightingOld",
-    "IncompatibleWithToolsPlusPlus": true,
     "Description": "Generate per-vertex prop_static lighting using the old algorithm",
     "Value": null,
     "CanHaveValue": false,
@@ -138,7 +136,7 @@
   {
     "Name": "Static Prop Bounce",
     "Parameter": " -StaticPropBounce",
-    "SupportedByToolsPlusPlus": true,
+    "NotInToolHelp": true,
     "Description": "Enable static props to bounce light.",
     "Value": null,
     "CanHaveValue": false,
@@ -151,7 +149,6 @@
   {
     "Name": "Static Prop Sample Scale",
     "Parameter": " -StaticPropSampleScale",
-    "SupportedByToolsPlusPlus": true,
     "Description": "Controls quality of static prop lighting. Higher is slower and better. Stock VRAD defaults to 4, tools++ VRAD to 1.",
     "Value": null,
     "CanHaveValue": true,
@@ -205,7 +202,6 @@
   {
     "Name": "AO Scale",
     "Parameter": " -aoscale",
-    "SupportedByToolsPlusPlus": true,
     "Description": "Scales the amount of baked AO. Stock VRAD defaults to 1.0, tools++ VRAD to 0.5.",
     "Value": null,
     "CanHaveValue": true,
@@ -234,10 +230,10 @@
   {
     "Name": "Normal Priority",
     "Parameter": " -normal_priority",
+    "NotInToolHelp": true,
     "Description": "Run process with a normal process priority (be default below normal). Will prevent process from getting run on an efficiency core for certain CPUs",
     "Value": null,
     "CanHaveValue": false,
-    "IncompatibleWithToolsPlusPlus": true,
     "Warning": "Using above normal process priority can cause other applications to become slow/unresponsive"
   },
   {
@@ -251,7 +247,6 @@
   {
     "Name": "Dump Prop Lightmaps",
     "Parameter": " -dumppropmaps",
-    "SupportedByToolsPlusPlus": true,
     "Description": "Dump TGA versions of the lightmaps generated for prop_static models.",
     "Value": null,
     "CanHaveValue": false,
@@ -298,7 +293,6 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": "",
-    "SupportedByToolsPlusPlus": true,
     "CompatibleGames": [
       4000 // gmod - its stock binaries carry this natively
     ]
@@ -319,7 +313,6 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "SupportedByToolsPlusPlus": true,
     "CompatibleGames": [
       4000 // gmod - its stock binaries carry this natively
     ]
@@ -331,7 +324,6 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "SupportedByToolsPlusPlus": true,
     "CompatibleGames": [
       4000 // gmod - its stock binaries carry this natively
     ]
@@ -469,7 +461,6 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": "",
-    "SupportedByToolsPlusPlus": true,
     "CompatibleGames": [
       4000 // gmod - its stock binaries carry this natively
     ]
@@ -579,6 +570,42 @@
     "Description": "Disables lightmap edge pairing between geometrically adjacent faces.",
     "Value": null,
     "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "CPU Only",
+    "Parameter": " -cpu",
+    "Description": "Calculate lighting on the CPU only. vrad++ builds from September 2026 onwards light on the GPU by default; use this if the display driver times out or the GPU results look wrong, at the cost of a much slower compile.",
+    "Value": null,
+    "CanHaveValue": false,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "GPU Submit Time",
+    "Parameter": " -gpusubmit",
+    "Description": "How long one GPU submission may run, in seconds. Default 0.5. Lower it if the display driver is timing out during the compile; raise it to spend less time waiting between submissions.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "Values above the driver timeout can reset the display driver",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Insert Search Path",
+    "Parameter": " -insert_search_path",
+    "Description": "Add an extra search path in front of the ones from gameinfo.txt, so its content wins over the game's. Several paths can be given separated by commas.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Append Search Path",
+    "Parameter": " -append_search_path",
+    "Description": "Add an extra search path behind the ones from gameinfo.txt, for content the game does not already have. Several paths can be given separated by commas.",
+    "Value": null,
+    "CanHaveValue": true,
     "Warning": "",
     "RequiresToolsPlusPlus": true
   }

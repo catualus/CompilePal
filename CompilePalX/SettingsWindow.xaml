@@ -137,7 +137,7 @@
                                   AutomationProperties.Name="Hammer++ compile tools mode"/>
                         <StackPanel>
                             <TextBlock Style="{StaticResource SettingTitle}" Text="Hammer++ tools (tools++)"/>
-                            <TextBlock Style="{StaticResource SettingHint}" Text="Auto inspects the configured vbsp/vvis/vrad/bspzip binaries and shows tools++ only parameters when ficool2's tools are detected. Restart Compile Pal after changing this."/>
+                            <TextBlock Style="{StaticResource SettingHint}" Text="Auto asks each configured vbsp/vvis/vrad/bspzip binary what it accepts (tools++ answers -help with its full option list) and offers exactly that. Force on shows every tools++ parameter regardless; force off never asks and uses only the shipped lists."/>
                         </StackPanel>
                     </DockPanel>
                 </Border>

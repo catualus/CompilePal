@@ -1,0 +1,125 @@
+ficool2 - vradplusplus.exe (Aug 29 2026)
+Warning: falling back to auto detection of vproject directory.
+Unable to find gameinfo.txt. Solutions:
+
+1. Add -game <path> on the command line where <path> is the directory that <bin> is in.
+2. Read https://developer.valvesoftware.com/wiki/Gameinfo.txt
+3. Run vc
+Options:
+                         Name | Default | Description
+====================================================================================
+                     -ambient |   0 0 0 | Apply a minimum ambient lighting value to the map
+            -ambientocclusion |         | Enable Ambient Occlusion baking
+                          -ao |         | Same as -ambientocclusion
+                     -aodebug |         | Visualize ambient occlusion only (disables all lights)
+               -aofacesamples |      32 | Adjust number of AO face samples for brushes
+                                          (128 on -final, 16 on -fast)
+               -aopropsamples |      16 | Adjust number of AO face samples for props
+                                          (32 on -final, 12 on -fast)
+                    -aoradius |      40 | Ambient Occlusion radius
+                     -aoscale |     0.5 | Ambient Occlusion intensity multiplier
+                        -both |         | Compile in LDR and HDR mode
+                      -bounce |     100 | Set max number of bounces. Zero disables bouncing
+               -centersamples |         | Move sample centers
+                        -chop |       4 | Smallest number of luxel widths for a bounce patch
+                                          Used on edges
+               -choptexlights |         | Enables chopping of texture lights generated from a lights file
+                      -coring |       1 | Light threshold to force to blackness (minimizes lightmaps)
+                  -debugextra |         | Places debugging data in lightmaps to visualize supersampling
+                    -dispchop |       8 | Tightest number of luxel widths for a displacement patch
+                                          Used on edges
+     -DisplacementLightingOld |         | Same as -dispsamplefactor 2.2 and -disppatchsamplefactor 2.2
+             -disppatchradius |    1500 | Maximum radius allowed for displacement patches
+                                          Used in face interiors
+       -disppatchsamplefactor |       1 | Radius of bounced lighting influence for displacements
+            -dispsamplefactor |       1 | Radius of lighting influence multiplier for displacements
+                      -dlight |     0.1 | Minimum light threshold for creating texlights
+                   -dlightmap |         | Move sample centers
+                        -dump |         | Write patches to debug files
+                 -dumpnormals |         | Write normals to debug files
+                -dumppropmaps |         | Dump prop lightmaps to game's 'sp_lightmaps' folder
+                   -dumptrace |         | Write ray-tracing environment to debug files
+          -extendedsoftlimits |         | Disables warning about exceeding soft limits
+                    -extrasky |       1 | Trace N times as many rays for indirect light and sky ambient
+                   -extrasoft |       1 | Trace N times as many rays for soft lights
+                        -fast |         | Quick and dirty lighting
+                 -fastambient |         | Per-leaf ambient sampling is lower quality to save compute time
+                  -fastradial |         | Use fast radial accumulation
+                       -final |         | High quality processing. Equivalent to:
+                                          -extrasky 8 -extrasoft 4 -StaticPropSampleScale 4
+                                          -aofacesamples 96 -aopropsamples 32
+         -forcetextureshadows |         | Force all props to allow casting texture shadows
+     -globalreflectivityscale |       1 | Scale the $reflectivity of all textures
+                                          In comparison to -reflectivityScale, this scales bounced contribution
+                                          on brushes, props and ambient cubes
+                         -hdr |         | Compile in HDR only mode
+                -indirectonly |         | Bake only indirect lighting into the map
+       -LargeDispSampleRadius |         | Same as -disppatchsamplefactor 2.2
+                         -ldr |         | Compile in LDR only mode
+              -lightmapformat |    rgbe | Layout of the lighting lump
+                                           rgbe - colors only
+                                           rgbea - plus alpha
+                                           rgbea3 - plus alpha per bump
+                                           rgbeastyle3 - plus alpha per bump per style)
+                                          
+                      -lights |  <file> | Load a lights file in addition to lights.rad
+                                          and the level lights file
+                     -loghash |         | Log the sample hash table to samplehash.txt
+                         -low |         | Run as an idle-priority process
+                -luxeldensity |       1 | Rescale all luxels by the specified amount
+                  -maxbrushes |    8192 | Set maximum brush limit
+               -maxbrushsides |   65536 | Set maximum brushside limit
+                     -maxchop |       4 | Coarsest allowed number of luxel widths for a patch
+                                          Used in face interiors
+                 -maxdispinfo |    2048 | Set maximum displacement limit
+           -maxdispsamplesize |     512 | Set max displacement sample size
+                  -maxtexinfo |   12288 | Set maximum texinfo limit
+       -minlightcullintensity |    0.01 | Minimum light threshold where non-styled lights should be cutoff
+ -minstyledlightcullintensity |     0.5 | Minimum light threshold where styled (i.e. named) lights should be cutoff
+                                          Lowering this can increase lightmap filesize and lower in-game performance
+               -nodetaillight |         | Don't light detail props
+                     -noextra |         | Disable supersampling
+                 -nolightcull |         | Don't cull lights by distance
+                 -nopairedges |         | Don't pair brush edges for radial accumulation
+        -nopairgeometricedges |         | Don't pair brush edges geometrically to prevent
+                                          lighting seams when in contact with neighboring brush entities
+             -noskyboxrecurse |         | Turn off recursion into 3d skybox (skybox shadows on world)
+                   -nossprops |         | Globally disable self-shadowing on static props
+                  -notexscale |         | Disable scaling texlights based on texture scale
+                  -onlydetail |         | Only light detail props and per-leaf lighting
+             -OnlyStaticProps |         | Only perform direct static prop lighting
+           -patchlightmapsize |      16 | Minimum lightmap scale for patch chopping
+                   -propalpha |         | Bake the direct sun amount into the prop vertex lighting's alpha
+                 -propambient |         | Trace props for ambient lighting
+                   -propdebug |         | List props being processed for debugging
+                   -rederrors |         | Show radial light errors as black instead of red
+           -reflectivityscale |       1 | Scale the $reflectivity of all textures
+                                          This only affects bounced lighting between brushes
+         -report_search_paths |         | Show search paths for assets
+                       -scale |       1 | Intensity multiplier of all lights
+           -skipAmbientLights |         | Skip ambient lights
+             -skipLocalLights |         | Skip point and spotlights for baking
+                     -skipPVS |         | Skip PVS optimization for lights
+               -skipSunLights |         | Skip sun lights
+                      -smooth |      45 | Set the threshold for smoothing groups, in degrees
+                     -softsun |       0 | Treat the sun as an area light source of size <n> degrees
+                                          Produces soft shadows
+      -StaticPropIndirectMode |       1 | Override prop indirect lighting algorithm
+                                          (0 - default, 1 - TF2, 2 - Orangebox)
+          -StaticPropLighting |         | Generate backed static prop vertex lighting
+           -StaticPropNormals |         | When lighting static props, just show their normal vector
+             -StaticPropPolys |         | Perform shadow tests of static props at polygon precision
+       -StaticPropSampleScale |       1 | Scales the number of samples used by direct/indirect lighting on props
+                                          -final uses a scale of 4
+                  -StopOnExit |         | Wait for a keypress on exit
+    -supportslightdirectional |         | Disables classname renaming of light_directional
+      -supportslightprojected |         | Disables classname renaming of light_projected
+              -textureshadows |         | Allow texture alpha channels on props to block light
+                                          Rays intersecting alpha surfaces will sample the texture
+                     -threads |     <N> | Number of threads to use. Defaults to max CPU thread count
+          -translucentshadows |         | Enables texture shadows on $translucent surfaces
+                           -v |         | Turn on verbose output
+                     -verbose |         | Turn on verbose output
+         -worldtextureshadows |         | Same as -textureshadows but for world geometry
+
+No map name specified

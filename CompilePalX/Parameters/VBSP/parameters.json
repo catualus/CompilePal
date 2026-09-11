@@ -93,10 +93,10 @@
   {
     "Name": "Normal Priority",
     "Parameter": " -normal_priority",
+    "NotInToolHelp": true,
     "Description": "Run process with a normal process priority (be default below normal). Will prevent process from getting run on an efficiency core for certain CPUs",
     "Value": null,
     "CanHaveValue": false,
-    "IncompatibleWithToolsPlusPlus": true,
     "Warning": "Using above normal process priority can cause other applications to become slow/unresponsive"
   },
   {
@@ -350,7 +350,6 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "SupportedByToolsPlusPlus": true,
     "CompatibleGames": [
       4000 // gmod - its stock binaries carry this natively
     ]
@@ -452,7 +451,6 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "SupportedByToolsPlusPlus": true,
     "CompatibleGames": [
       4000 // gmod - its stock binaries carry this natively
     ]
@@ -464,7 +462,6 @@
     "Value": null,
     "CanHaveValue": true,
     "Warning": "",
-    "SupportedByToolsPlusPlus": true,
     "CompatibleGames": [
       4000 // gmod - its stock binaries carry this natively
     ]
@@ -618,5 +615,23 @@
     "CompatibleGames": [
       730 // csgo
     ]
+  },
+  {
+    "Name": "Insert Search Path",
+    "Parameter": " -insert_search_path",
+    "Description": "Add an extra search path in front of the ones from gameinfo.txt, so its content wins over the game's. Several paths can be given separated by commas.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Append Search Path",
+    "Parameter": " -append_search_path",
+    "Description": "Add an extra search path behind the ones from gameinfo.txt, for content the game does not already have. Several paths can be given separated by commas.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
   }
 ]

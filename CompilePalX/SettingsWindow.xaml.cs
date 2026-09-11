@@ -222,8 +222,12 @@ namespace CompilePalX
             if (wasEnabled && !settings.TelemetryEnabled)
                 TelemetryManager.Discard();
 
-            // the tools++ override may have changed, so cached verdicts are no longer valid
+            // the tools++ override or folder may have changed, so cached verdicts are no longer valid -
+            // and a different compiler reports a different option list, so the steps re-read theirs
             ToolsPlusPlusDetector.Invalidate();
+            ConfigurationManager.RefreshDiscoveredParameters();
+            foreach (var process in ConfigurationManager.CompileProcesses)
+                process.NotifyParametersChanged();
 
             // appearance applies immediately rather than needing a restart
             Theming.ThemeBridge.Apply(ConfigurationManager.Settings.Theme);

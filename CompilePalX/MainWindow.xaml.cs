@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -68,6 +69,9 @@ namespace CompilePalX
 
         private readonly List<Hyperlink> outputErrorLinks = [];
         private int currentErrorIndex = -1;
+
+        /// <summary>1 while a parameter-list rebuild is queued on the dispatcher after a compiler answered -help.</summary>
+        private int toolHelpRefreshQueued;
 
         private List<TextRange> outputSearchMatches = [];
         private int currentSearchMatchIndex = -1;
@@ -640,6 +644,34 @@ namespace CompilePalX
             ConfigurationManager.LoadSettings();
             ApplyOutputFontSettings();
             ConfigurationManager.OnSettingsSaved += ApplyOutputFontSettings;
+            // A compiler that has not been asked -help yet when the lists are built is asked in the
+            // background; when it answers, the lists are rebuilt with what it said. Subscribed before
+            // AssembleParameters starts those probes: the tools answer in under a tenth of a second,
+            // which is faster than the presets load, so an answer that arrived before anyone was
+            // listening was simply lost. BeginInvoke queues the rebuild behind this constructor.
+            ToolHelpProbe.Completed += () =>
+            {
+                // Four compilers answer within milliseconds of each other, all before the dispatcher
+                // gets to any of them, so one queued rebuild serves the whole batch - and a rebuild
+                // that runs while a probe is still out leaves the work to the next completion.
+                if (Interlocked.Exchange(ref toolHelpRefreshQueued, 1) == 1)
+                    return;
+
+                Dispatcher.BeginInvoke(() =>
+                {
+                    Interlocked.Exchange(ref toolHelpRefreshQueued, 0);
+
+                    if (ToolHelpProbe.AnyInFlight)
+                        return;
+
+                    ToolsPlusPlusDetector.ForgetVerdicts();
+                    ConfigurationManager.RefreshDiscoveredParameters();
+                    foreach (var process in ConfigurationManager.CompileProcesses)
+                        process.NotifyParametersChanged();
+                    ToolsPlusPlusDetector.LogDetectionResults();
+                });
+            };
+
             ConfigurationManager.AssembleParameters();
             ToolsPlusPlusDetector.LogDetectionResults();
             GameExeResolver.LogResolution();
@@ -1579,15 +1611,17 @@ namespace CompilePalX
 
 					if (c.ChosenItem != null)
 					{
-						if (c.ChosenItem.CanBeUsedMoreThanOnce)
-						{
-							// .clone() removes problems with parameters sometimes becoming linked
-							selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Add((ConfigItem)c.ChosenItem.Clone());
-						} 
-						else if (!selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Contains(c.ChosenItem))
-						{
-							selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset].Add(c.ChosenItem);
-						}
+						var presetParameters = selectedProcess.PresetDictionary[ConfigurationManager.CurrentPreset];
+
+						// Always a clone. The dialog hands back the entry from the step's master list,
+						// and adding that object itself meant a preset was editing the template every
+						// other preset is built from - and, since presets loaded from disk hold clones,
+						// a reference-equality Contains never found the flag already present, so the
+						// same switch could be added to a preset twice.
+						bool alreadyPresent = presetParameters.Any(p => p.Name == c.ChosenItem.Name);
+
+						if (c.ChosenItem.CanBeUsedMoreThanOnce || !alreadyPresent)
+							presetParameters.Add((ConfigItem)c.ChosenItem.Clone());
 					}
 	            }
 

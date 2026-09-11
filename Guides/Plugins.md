@@ -112,6 +112,28 @@ My Plugin/
 | Options | The values this parameter accepts, when there is a fixed set of them. The value cell becomes a list to pick from instead of a text box. Ignored unless `CanHaveValue` is `true`. See [Choice Parameters](#choice-parameters).
 | CompatibleGames | Whitelist of Steam App IDs for games that this plugin parameter is compatible with. Will override IncompatibleGames if both are set. (>=v27.29)
 | IncompatibleGames | Blacklist of Steam App IDs for games that this plugin parameter is not compatible with. (>=v27.29)
+| RequiresToolsPlusPlus | The parameter exists only in ficool2's tools++ builds of the compiler, not the stock SDK one. Only consulted when the compiler cannot be asked - see [Options The Compiler Reports](#options-the-compiler-reports). Meaningful for the VBSP, VVIS, VRAD and BSPZIP steps only.
+| NotInToolHelp | The compiler accepts this flag even though its `-help` does not list it, or Compile Pal handles the flag itself. Without it, a flag the compiler does not list is not offered.
+
+## Options The Compiler Reports
+
+The four compiler steps - VBSP, VVIS, VRAD and BSPZIP - do not rely on `parameters.json` alone.
+Every tools++ build answers `-help` with a table of every option it accepts, its default and a
+description, and Compile Pal asks each configured compiler once per build and believes the answer:
+
+* an option the compiler lists is offered, whatever the game lists in `parameters.json` say;
+* an option in `parameters.json` the compiler does not list is hidden, and skipped with a note in
+  the output if a preset still carries it;
+* an option the compiler lists that `parameters.json` does not describe is added to the step
+  under its flag, in the compiler's own words, so a new option is available the day the tools
+  ship it.
+
+`parameters.json` remains the place for what a table cannot say: a readable name, a warning, a
+fixed set of values, a file picker. The stock Valve tools print no table, so for them the file is
+the whole description and `RequiresToolsPlusPlus` entries are hidden.
+
+The answers are cached in `ToolHelpCache.json` next to the executable, keyed by the binary's path,
+size and modification time, so a compiler is only ever asked once per build.
 
 ## Choice Parameters
 

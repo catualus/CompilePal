@@ -396,6 +396,43 @@ namespace CompilePalX
         }
 
         /// <summary>
+        /// What the compiler that will actually run for <paramref name="processName"/> says it
+        /// accepts, or null when it does not say - a stock tool, nothing configured, or a process that
+        /// is not one of the four compilers. Honours the ForceOff setting, under which no binary is
+        /// asked anything and the shipped parameter lists are the whole truth.
+        /// </summary>
+        public static ToolHelp? HelpFor(string? processName)
+        {
+            if (processName is null || !ToolMarkers.ContainsKey(processName))
+                return null;
+
+            if (ConfigurationManager.Settings.ToolsPlusPlusMode == ToolsPlusPlusMode.ForceOff)
+                return null;
+
+            string? path = ResolveBinary(processName, GetConfiguredPath(processName));
+
+            // Never waits. An unasked binary is asked in the background, and the answer arrives
+            // through ToolHelpProbe.Completed, on which the parameter lists are rebuilt.
+            if (ToolHelpProbe.TryPeek(path, out var help))
+                return help;
+
+            ToolHelpProbe.EnsureProbed(path);
+            return null;
+        }
+
+        /// <summary>
+        /// Drops the cached verdicts about which binaries are tools++ and which one runs for each
+        /// step, and nothing else - not the auto-detected folder, not what the compilers said. For
+        /// when a compiler has just answered <c>-help</c> and the verdict taken before it did is stale.
+        /// </summary>
+        public static void ForgetVerdicts()
+        {
+            DetectionCache.Clear();
+            DetectionKeys.Clear();
+            ResolutionCache.Clear();
+        }
+
+        /// <summary>
         /// Clears cached detection and resolution, e.g. after the game configuration or the settings
         /// change. Also forgets the auto-detected standalone folder, so an install added while Compile
         /// Pal was open is picked up without a restart.
@@ -405,6 +442,7 @@ namespace CompilePalX
             DetectionCache.Clear();
             DetectionKeys.Clear();
             ResolutionCache.Clear();
+            ToolHelpProbe.Invalidate();
             autoDetectedFolder = null;
             autoDetectRan = false;
         }
@@ -431,7 +469,12 @@ namespace CompilePalX
                     continue;
 
                 string? resolved = ResolveBinary(processName, configured);
-                CompilePalLogger.LogLineDebug($"tools++ detection: {processName} -> \"{resolved}\" is {(resolved is not null && IsToolsPlusPlusBinary(processName, resolved) ? "tools++" : "stock")}");
+                bool toolsPlusPlus = resolved is not null && IsToolsPlusPlusBinary(processName, resolved);
+                var help = toolsPlusPlus && ToolHelpProbe.TryPeek(resolved, out var known) ? known : null;
+
+                CompilePalLogger.LogLineDebug(
+                    $"tools++ detection: {processName} -> \"{resolved}\" is {(toolsPlusPlus ? "tools++" : "stock")}" +
+                    (help is not null ? $", {help.Label}, {help.Options.Count} options" : ""));
             }
         }
 
@@ -445,6 +488,14 @@ namespace CompilePalX
             // the stock binary is bspzip.exe, and nothing but a tools++ build ships as bspzip++.exe or
             // bspzipplusplus.exe.
             if (HasToolsPlusPlusFileName(path))
+                return true;
+
+            // A binary that answers -help with an option table is tools++ by definition: nothing
+            // else prints one. Only an answer already on hand counts here - this runs on the UI
+            // thread, and under ForceOff the probe declines to answer at all - so the banner scan
+            // below is what decides until the compiler has been asked, and for a build that cannot
+            // be run: a blocked executable, a broken dependency.
+            if (ToolHelpProbe.TryPeek(path, out var help) && help is not null)
                 return true;
 
             var info = new FileInfo(path);

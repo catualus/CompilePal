@@ -54,8 +54,11 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
 
 * **Finds your Source games automatically** by scanning your Steam libraries, instead of asking
   you to point at each `gameinfo.txt` by hand.
-* **Detects Hammer++ compile tools** next to the stock ones and prefers them, so `vbsp++` and
-  friends are used without reconfiguring anything. Can be forced on or off.
+* **Finds tools++** - ficool2's `vbsp++`, `vvis++`, `vrad++` and `bspzip++` - whether they sit
+  next to the stock tools or in a folder of their own, and prefers them. Can be forced on or off.
+* **Asks each compiler what it accepts.** The tools++ binaries list every option they take, so
+  new ones (GPU lighting, `-cpu`, `-gpusubmit`) are offered the day the tools ship them, and
+  options a build no longer takes are hidden rather than passed and rejected.
 * **Says which game configuration key is missing** when one cannot be read, instead of dropping
   the game silently.
 
