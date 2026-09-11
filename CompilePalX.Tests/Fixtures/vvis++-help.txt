@@ -1,0 +1,33 @@
+Breadworks - vvis++ (Sep 10 2026)
+Unable to find gameinfo.txt. Solutions:
+
+1. Add -game <path> on the command line where <path> is the directory that gameinfo.txt is in.
+2. Read https://developer.valvesoftware.com/wiki/Gameinfo.txt
+
+---------------
+gamedir: 
+---------------
+Options:
+                 Name | Default | Description
+====================================================================================
+  -append_search_path |         | Add an extra search path behind the ones from gameinfo.txt
+                                  Multiple paths can be specified with a , (comma)
+             -basedir |         | Path to the game's base directory,
+                                  deduced from the mod directory by default
+                -fast |         | Only do first quick pass on vis calculations
+                -game |         | Path to the mod directory holding gameinfo.txt
+  -insert_search_path |         | Add an extra search path in front of the ones from gameinfo.txt
+                                  Multiple paths can be specified with a , (comma)
+                 -low |         | Run as an idle-priority process
+            -mountcfg | cfg/mount.cfg | Path to a mount.cfg listing extra content to mount
+                                  Intended for Garry's Mod
+              -nosort |         | Don't sort portals (sorting is an optimization)
+     -radius_override |     <N> | Force visibility radius, overrides fog radius
+ -report_search_paths |         | Show search paths for assets
+             -threads |     <N> | Number of threads to use. Defaults to max CPU thread count
+               -trace | <N> <N> | Writes a linefile that traces the vis
+                                  from one cluster to another for debugging map vis
+                   -v |         | Turn on verbose output
+             -verbose |         | Turn on verbose output
+
+No map name specified

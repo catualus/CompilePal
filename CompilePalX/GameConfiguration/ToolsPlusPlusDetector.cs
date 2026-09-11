@@ -396,6 +396,24 @@ namespace CompilePalX
         }
 
         /// <summary>
+        /// What the compiler that will actually run for <paramref name="processName"/> says it
+        /// accepts, or null when it does not say - a stock tool, nothing configured, or a process that
+        /// is not one of the four compilers. Honours the ForceOff setting, under which no binary is
+        /// asked anything and the shipped parameter lists are the whole truth.
+        /// </summary>
+        public static ToolHelp? HelpFor(string? processName)
+        {
+            if (processName is null || !ToolMarkers.ContainsKey(processName))
+                return null;
+
+            if (ConfigurationManager.Settings.ToolsPlusPlusMode == ToolsPlusPlusMode.ForceOff)
+                return null;
+
+            string? path = ResolveBinary(processName, GetConfiguredPath(processName));
+            return ToolHelpProbe.Probe(path);
+        }
+
+        /// <summary>
         /// Clears cached detection and resolution, e.g. after the game configuration or the settings
         /// change. Also forgets the auto-detected standalone folder, so an install added while Compile
         /// Pal was open is picked up without a restart.
@@ -405,6 +423,7 @@ namespace CompilePalX
             DetectionCache.Clear();
             DetectionKeys.Clear();
             ResolutionCache.Clear();
+            ToolHelpProbe.Invalidate();
             autoDetectedFolder = null;
             autoDetectRan = false;
         }
@@ -431,7 +450,12 @@ namespace CompilePalX
                     continue;
 
                 string? resolved = ResolveBinary(processName, configured);
-                CompilePalLogger.LogLineDebug($"tools++ detection: {processName} -> \"{resolved}\" is {(resolved is not null && IsToolsPlusPlusBinary(processName, resolved) ? "tools++" : "stock")}");
+                bool toolsPlusPlus = resolved is not null && IsToolsPlusPlusBinary(processName, resolved);
+                var help = toolsPlusPlus ? ToolHelpProbe.Probe(resolved) : null;
+
+                CompilePalLogger.LogLineDebug(
+                    $"tools++ detection: {processName} -> \"{resolved}\" is {(toolsPlusPlus ? "tools++" : "stock")}" +
+                    (help is not null ? $", {help.Label}, {help.Options.Count} options" : ""));
             }
         }
 
@@ -445,6 +469,12 @@ namespace CompilePalX
             // the stock binary is bspzip.exe, and nothing but a tools++ build ships as bspzip++.exe or
             // bspzipplusplus.exe.
             if (HasToolsPlusPlusFileName(path))
+                return true;
+
+            // A binary that answers -help with an option table is tools++ by definition: nothing
+            // else prints one. This is the detection that matters now; the banner scan below is kept
+            // for a build that somehow cannot be run - a blocked executable, a broken dependency.
+            if (ToolHelpProbe.Probe(path) is not null)
                 return true;
 
             var info = new FileInfo(path);

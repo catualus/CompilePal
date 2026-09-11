@@ -1,0 +1,31 @@
+
+Breadworks - bspzip++ (Sep 10 2026)
+Options:
+                 Name | Default | Description
+====================================================================================
+             -addfile | <bspfile> <relativepathname> <fullpathname> <newbspfile> | Adds a single file to <newbspfile>
+            -addfiles | <bspfile> <relativePathPrefix> <listfile> <newbspfile> | Adds files to <newbspfile>
+             -addlist | <bspfile> <listfile> <newbspfile> | Adds a paired relative/full path list of files to <newbspfile>
+     -addorupdatelist | <bspfile> <listfile> <newbspfile> | Same as -addlist, but replaces files that are already packed
+  -append_search_path |         | Add an extra search path behind the ones from gameinfo.txt
+                                  Multiple paths can be specified with a , (comma)
+             -basedir |         | Path to the game's base directory,
+                                  deduced from the mod directory by default
+            -compress |         | Use the compressed BSP format when repacking
+      -deletecubemaps | <bspfile> | Deletes the cubemaps from <bspfile>
+                 -dir | <bspfile> | Prints the contents of the embedded pak file
+             -extract | <bspfile> <blah.zip> | Extracts the embedded pak file to a zip file
+     -extractcubemaps | <bspfile> <targetPath> | Extracts the cubemaps to <targetPath>
+        -extractfiles | <bspfile> <targetpath> | Extracts every packed file to <targetpath>
+                -game |         | Path to the mod directory holding gameinfo.txt
+  -insert_search_path |         | Add an extra search path in front of the ones from gameinfo.txt
+                                  Multiple paths can be specified with a , (comma)
+            -mountcfg | cfg/mount.cfg | Path to a mount.cfg listing extra content to mount
+                                  Intended for Garry's Mod
+              -repack | <bspfile> | Optimally repacks a BSP file, optionally using compressed BSP format.
+                                  Using on a compressed BSP without -compress will effectively decompress
+                                  a compressed BSP. Uses all CPU threads by default.
+ -report_search_paths |         | Show search paths for assets
+             -threads |     <N> | Number of threads to use when repacking. Defaults to max CPU thread count
+             -verbose |         | Enable detailed logging of operations
+

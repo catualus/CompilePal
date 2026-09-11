@@ -1,0 +1,8 @@
+Valve Software - vrad.exe SSE (Sep  3 2026) - Garry's Mod Edition
+      Valve Radiosity Simulator     
+Compiling Standard Dynamic Range (SDR) lighting
+16 threads
+[Reading texlights from 'lights.rad']
+[51 texlights parsed from 'lights.rad']
+Loading c:\program files (x86)\steam\steamapps\common\garrysmod\bin\-help.bsp
+Error opening c:\program files (x86)\steam\steamapps\common\garrysmod\bin\-help.bsp

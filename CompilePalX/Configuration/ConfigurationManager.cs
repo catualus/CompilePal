@@ -269,7 +269,7 @@ namespace CompilePalX
         /// Serialises to a temporary file then swaps it into place, so an interrupted write can never
         /// leave a half-written meta.json behind.
         /// </summary>
-        private static void WriteFileAtomic(string path, string contents)
+        internal static void WriteFileAtomic(string path, string contents)
         {
             string? directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory))
@@ -389,7 +389,23 @@ namespace CompilePalX
 
             CompileProcesses = new ObservableCollection<CompileProcess>(CompileProcesses.OrderBy(c => c.Metadata.Order));
 
+            // Before the presets, which look their parameters up by name in these lists and so need
+            // the discovered ones to be there already.
+            RefreshDiscoveredParameters();
+
             AssemblePresets();
+        }
+
+        /// <summary>
+        /// Adds to each compiler step whatever its binary reports that the shipped parameter list does
+        /// not know about. Run after the parameter lists are built, and again whenever the binary
+        /// that will run may have changed: a different game, a different tools++ folder, the
+        /// override setting.
+        /// </summary>
+        public static void RefreshDiscoveredParameters()
+        {
+            foreach (var process in CompileProcesses)
+                process.RefreshDiscoveredParameters();
         }
 
         private static void AssemblePresets()
@@ -478,6 +494,17 @@ namespace CompilePalX
                         foreach (var parameter in parameters)
                         {
                             var configItem = process.ParameterList.FirstOrDefault(c => c.Name == parameter.Name);
+                            if (configItem is null)
+                            {
+                                // A parameter the preset took from a compiler's own -help, saved under
+                                // its flag. The compiler that listed it may not be the one configured
+                                // now, so it is not in the list - but the preset still means it, and
+                                // dropping it here would quietly change what the preset does the next
+                                // time that compiler is back. Kept as it was written; IsCompatible
+                                // decides per compile whether it is handed over.
+                                configItem = ConfigItem.FromPresetFlag(processName, parameter.Name, parameter.Value);
+                            }
+
                             if (configItem is null)
                             {
                                 CompilePalLogger.LogLine($"Failed to find parameter \"{parameter.Name}\" while loading preset \"{processName}\"");
