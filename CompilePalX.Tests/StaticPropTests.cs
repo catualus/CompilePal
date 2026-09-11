@@ -136,7 +136,7 @@ namespace CompilePalX.Tests
 
             Assert.True(props.PropsPlaced > scene.StaticProps.Count / 2, $"placed {props.PropsPlaced} of {scene.StaticProps.Count}");
             Assert.True(props.Triangles > 1000);
-            Assert.Equal(props.Indices.Length, props.Batches.Sum(b => b.Count));
+            Assert.Equal(props.Indices.Length, props.Batches.Sum(b => b.Count) + props.OverlayBatches.Sum(b => b.Count));
             Assert.All(props.Indices, i => Assert.True(i < props.Vertices.Length / PreviewScene.VertexStride));
             Assert.True(materials.Resolved.Count > worldMaterials, "prop materials were added after the world's");
             Assert.All(props.Batches, b => Assert.True(b.Material < materials.Resolved.Count));

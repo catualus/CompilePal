@@ -26,6 +26,15 @@ namespace CompilePalX.Preview
         public float[] Color { get; init; } = [1, 1, 1];
         /// <summary>The material is a compile-time tool or a decal the preview has no way to draw.</summary>
         public bool Hidden { get; init; }
+
+        /// <summary>The Water shader, drawn as a tinted translucent sheet since refraction is out of reach.</summary>
+        public bool Water { get; init; }
+
+        /// <summary>The water's colour, from $fogcolor or $refracttint, linear.</summary>
+        public float[] WaterColor { get; init; } = [0.3f, 0.5f, 0.6f];
+
+        /// <summary>DecalModulate: multiplied onto what is under it rather than drawn over it.</summary>
+        public bool Modulate { get; init; }
     }
 
     /// <summary>
@@ -195,7 +204,8 @@ namespace CompilePalX.Preview
             if (baseTexture is null && keys.TryGetValue("$hdrbasetexture", out var hdr))
                 baseTexture = hdr;
 
-            bool hidden = lowerShader is "decal" or "decalmodulate" or "modulate" or "sprite" or "spritecard" or "cable" or "splinerope"
+            bool modulate = lowerShader is "decalmodulate" or "modulate";
+            bool hidden = lowerShader is "sprite" or "spritecard" or "cable" or "splinerope"
                           || name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase) && !name.Contains("black", StringComparison.OrdinalIgnoreCase)
                           || Flag(keys, "%compilenodraw") || Flag(keys, "%compilesky") || Flag(keys, "%compile2dsky")
                           || Flag(keys, "%compiletrigger") || Flag(keys, "%compilehint") || Flag(keys, "%compileskip")
@@ -213,6 +223,9 @@ namespace CompilePalX.Preview
                 Unlit = lowerShader is "unlitgeneric" or "unlittwotexture" or "sky" or "monitorscreen",
                 Color = ParseColor(keys.TryGetValue("$color", out var c) ? c : keys.TryGetValue("$color2", out var c2) ? c2 : null),
                 Hidden = hidden,
+                Water = lowerShader is "water",
+                WaterColor = ParseColor(keys.TryGetValue("$fogcolor", out var fog) ? fog : keys.TryGetValue("$refracttint", out var tint) ? tint : "{77 128 153}"),
+                Modulate = modulate,
             };
         }
 
@@ -227,7 +240,8 @@ namespace CompilePalX.Preview
             if (baseMaterial.Translucent) merged["$translucent"] = "1";
             if (baseMaterial.AlphaTest) merged["$alphatest"] = "1";
             if (baseMaterial.NoCull) merged["$nocull"] = "1";
-            merged["$color"] = $"{{{baseMaterial.Color[0] * 255} {baseMaterial.Color[1] * 255} {baseMaterial.Color[2] * 255}}}";
+            // formatted invariantly: these strings go back through ParseColor, which reads "." decimals
+            merged["$color"] = FormattableString.Invariant($"{{{baseMaterial.Color[0] * 255} {baseMaterial.Color[1] * 255} {baseMaterial.Color[2] * 255}}}");
 
             foreach (var (key, value) in overrides)
                 if (key != "include")
@@ -236,6 +250,7 @@ namespace CompilePalX.Preview
             if (merged["$basetexture"].Length == 0) merged.Remove("$basetexture");
             if (merged["$basetexture2"].Length == 0) merged.Remove("$basetexture2");
 
+            if (baseMaterial.Water) merged.TryAdd("$fogcolor", FormattableString.Invariant($"[{baseMaterial.WaterColor[0]} {baseMaterial.WaterColor[1]} {baseMaterial.WaterColor[2]}]"));
             var patched = Build(baseMaterial.Name, baseMaterial.Shader, merged);
             return baseMaterial.Hidden ? patched with { Hidden = true } : patched;
         }

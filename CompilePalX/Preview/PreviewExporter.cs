@@ -145,16 +145,24 @@ namespace CompilePalX.Preview
                     alphaTest = m.AlphaTest,
                     noCull = m.NoCull,
                     unlit = m.Unlit,
+                    water = m.Water,
+                    waterColor = m.WaterColor,
+                    modulate = m.Modulate,
                     color = m.Color,
                     hidden = m.Hidden,
                 }).ToList(),
-                batches = scene.Batches.Select(b => new { material = b.Material, first = b.First, count = b.Count, prop = false })
-                    .Concat(props.Batches.Select(b => new { material = b.Material, first = b.First + scene.Indices.Length, count = b.Count, prop = true }))
+                batches = scene.Batches.Select(b => new { material = b.Material, first = b.First, count = b.Count, prop = false, skybox = b.Skybox, overlay = false })
+                    .Concat(props.Batches.Select(b => new { material = b.Material, first = b.First + scene.Indices.Length, count = b.Count, prop = true, skybox = b.Skybox, overlay = false }))
+                    .Concat(props.OverlayBatches.Select(b => new { material = b.Material, first = b.First + scene.Indices.Length, count = b.Count, prop = true, skybox = b.Skybox, overlay = true }))
                     .ToList(),
+                fog = scene.Fog is { } fog ? new { color = fog.Color, start = fog.Start, end = fog.End, maxDensity = fog.MaxDensity } : null,
+                sky3d = scene.Sky3D is { } sky3d ? new { scale = sky3d.Scale, faces = scene.SkyboxFaces } : null,
+                overlays = new { total = scene.Overlays.Count, placed = props.OverlaysPlaced },
                 props = new
                 {
-                    total = scene.StaticProps.Count,
+                    total = scene.StaticProps.Count + scene.EntityProps.Count,
                     placed = props.PropsPlaced,
+                    fromEntities = props.EntityPropsPlaced,
                     missing = props.PropsMissing,
                     skipped = props.PropsSkipped,
                     models = props.ModelsLoaded,
@@ -189,14 +197,15 @@ namespace CompilePalX.Preview
                 $"Preview written for {header.map}: {scene.DrawnFaces} of {scene.FaceCount} faces, {scene.TriangleCount} triangles, " +
                 $"{scene.LightingMode} lighting in a {scene.LightmapWidth}x{scene.LightmapHeight} atlas, " +
                 $"{scene.DrawnDisplacements} displacements, {scene.PlacedBrushEntities} brush entities placed, " +
-                $"{props.PropsPlaced} of {scene.StaticProps.Count} static props ({props.ModelsLoaded} models, {props.Triangles} triangles, {props.PropsWithBakedLight} with baked light, {props.PropsMissing} models missing, {props.PropsSkipped} over budget), " +
+                $"{props.PropsPlaced} of {scene.StaticProps.Count + scene.EntityProps.Count} props ({props.EntityPropsPlaced} from entities, {props.ModelsLoaded} models, {props.Triangles} triangles, {props.PropsWithBakedLight} with baked light, {props.PropsMissing} models missing, {props.PropsSkipped} over budget), " +
+                $"{props.OverlaysPlaced} overlays, {(scene.Sky3D is null ? "no 3D skybox" : $"3D skybox of {scene.SkyboxFaces} faces at 1/{scene.Sky3D.Scale}")}, {(scene.Fog is null ? "no fog" : $"fog {scene.Fog.Start}-{scene.Fog.End}")}, " +
                 $"{materials.MaterialsFound} of {scene.MaterialNames.Count} materials found ({content.PakHits} of {content.PackedFiles} packed, {content.FolderHits} loose, {content.VpkHits} in VPKs), " +
                 $"{materials.Textures.Count} textures, sky {(sky is not null ? scene.SkyName : scene.SkyPaint is not null ? "painted" : "not found")}" +
                 $"{(scene.Compressed ? ", inflated from a compressed BSP" : "")}.");
 
             return new Export(bspPath, scene, DateTime.Now, stamp,
                 materials.MaterialsFound, materials.MaterialsMissing, materials.Textures.Count, materials.TexturesMissing, sky is not null || scene.SkyPaint is not null,
-                props.PropsPlaced, scene.StaticProps.Count, props.PropsMissing);
+                props.PropsPlaced, scene.StaticProps.Count + scene.EntityProps.Count, props.PropsMissing);
         }
 
         /// <summary>Copies the viewer page into the folder when it is missing or older than the shipped one.</summary>

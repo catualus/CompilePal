@@ -27,6 +27,26 @@ namespace CompilePalX.Preview
         /// <summary>Material names per skin family; index with the prop's skin, then the mesh's material slot.</summary>
         public IReadOnlyList<IReadOnlyList<string>> Skins { get; init; } = [];
         public int TriangleCount => Meshes.Sum(m => m.Indices.Length / 3);
+
+        private float[]? centre;
+        /// <summary>The mean of every vertex, in model space: where the model's body is, as opposed to its origin.</summary>
+        public float[] Centre
+        {
+            get
+            {
+                if (centre is null)
+                {
+                    var sum = new float[3];
+                    int n = 0;
+                    foreach (var mesh in Meshes)
+                        for (int i = 0; i + 2 < mesh.Positions.Length; i += 3, n++)
+                            for (int k = 0; k < 3; k++)
+                                sum[k] += mesh.Positions[i + k];
+                    centre = n == 0 ? [0, 0, 0] : [sum[0] / n, sum[1] / n, sum[2] / n];
+                }
+                return centre;
+            }
+        }
         public int VertexCount => Meshes.Sum(m => m.Positions.Length / 3);
 
         /// <summary>The material a mesh uses under a skin, or its default when the skin is out of range.</summary>

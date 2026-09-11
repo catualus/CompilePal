@@ -7,7 +7,8 @@ using System.Text;
 namespace CompilePalX.Preview
 {
     /// <summary>One placed static prop, as the map stores it.</summary>
-    public sealed record StaticProp(int Index, string Model, float[] Origin, float[] Angles, int Skin, float Scale, float[] LightingOrigin);
+    /// <summary>Index is the prop's place in the lump, for its baked lighting file, or -1 for a prop placed by an entity. FirstLeaf is -1 when unknown.</summary>
+    public sealed record StaticProp(int Index, string Model, float[] Origin, float[] Angles, int Skin, float Scale, float[] LightingOrigin, int FirstLeaf = -1);
 
     /// <summary>
     /// Reads the static prop list out of the BSP's game lump.
@@ -105,6 +106,7 @@ namespace CompilePalX.Preview
                 var origin = new[] { BitConverter.ToSingle(data, o), BitConverter.ToSingle(data, o + 4), BitConverter.ToSingle(data, o + 8) };
                 var angles = new[] { BitConverter.ToSingle(data, o + 12), BitConverter.ToSingle(data, o + 16), BitConverter.ToSingle(data, o + 20) };
                 int type = BitConverter.ToUInt16(data, o + 24);
+                int firstLeaf = BitConverter.ToUInt16(data, o + 26);
                 int flags = data[o + 31];
                 int skin = BitConverter.ToInt32(data, o + 32);
                 var lightingOrigin = new[] { BitConverter.ToSingle(data, o + 44), BitConverter.ToSingle(data, o + 48), BitConverter.ToSingle(data, o + 52) };
@@ -116,7 +118,7 @@ namespace CompilePalX.Preview
                     continue;
 
                 props.Add(new StaticProp(i, models[type], origin, angles, skin, scale,
-                    (flags & FlagUseLightingOrigin) != 0 ? lightingOrigin : origin));
+                    (flags & FlagUseLightingOrigin) != 0 ? lightingOrigin : origin, firstLeaf));
             }
 
             return props;
@@ -194,12 +196,18 @@ namespace CompilePalX.Preview
         private readonly float[] planes;     // normal(3) + dist per plane
         private readonly int[] nodes;        // planenum, child0, child1 per node
         private readonly short[] leafBounds; // mins(3) maxs(3) per leaf
+        private readonly short[] leafAreas;
+        private readonly ushort[] leafFaceRange; // first, count per leaf
+        private readonly ushort[] leafFaces;
         private readonly ushort[] index;     // count, first per leaf
         private readonly byte[] samples;     // 28 bytes each
 
         public bool IsEmpty => nodes.Length == 0 || samples.Length == 0;
 
-        public LeafAmbient(byte[] planeLump, byte[] nodeLump, byte[] leafLump, int leafVersion, byte[] indexLump, byte[] sampleLump)
+        /// <summary>Ambient samples are stored on a 0..1 scale; the shared texel decoder assumes 0..255.</summary>
+        public const float AmbientScale = 255f;
+
+        public LeafAmbient(byte[] planeLump, byte[] nodeLump, byte[] leafLump, int leafVersion, byte[] indexLump, byte[] sampleLump, byte[]? leafFaceLump = null)
         {
             int planeCount = planeLump.Length / 20;
             planes = new float[planeCount * 4];
@@ -219,9 +227,22 @@ namespace CompilePalX.Preview
             int leafSize = leafVersion == 0 ? 56 : 32;
             int leafCount = leafLump.Length / leafSize;
             leafBounds = new short[leafCount * 6];
+            leafAreas = new short[leafCount];
+            leafFaceRange = new ushort[leafCount * 2];
             for (int i = 0; i < leafCount; i++)
+            {
                 for (int k = 0; k < 6; k++)
                     leafBounds[i * 6 + k] = BitConverter.ToInt16(leafLump, i * leafSize + 8 + k * 2);
+                // area:flags packed as 9:7 bits
+                leafAreas[i] = (short)(BitConverter.ToInt16(leafLump, i * leafSize + 6) & 0x1ff);
+                leafFaceRange[i * 2] = BitConverter.ToUInt16(leafLump, i * leafSize + 20);
+                leafFaceRange[i * 2 + 1] = BitConverter.ToUInt16(leafLump, i * leafSize + 22);
+            }
+
+            leafFaceLump ??= [];
+            leafFaces = new ushort[leafFaceLump.Length / 2];
+            for (int i = 0; i < leafFaces.Length; i++)
+                leafFaces[i] = BitConverter.ToUInt16(leafFaceLump, i * 2);
 
             int indexCount = indexLump.Length / 4;
             index = new ushort[indexCount * 2];
@@ -232,6 +253,26 @@ namespace CompilePalX.Preview
             }
 
             samples = sampleLump;
+        }
+
+        /// <summary>The map area a leaf belongs to, or -1. The 3D skybox is its own area.</summary>
+        public int AreaOf(int leaf) => leaf >= 0 && leaf < leafAreas.Length ? leafAreas[leaf] : -1;
+
+        public int LeafCount => leafAreas.Length;
+
+        /// <summary>Every face index in every leaf of <paramref name="area"/>.</summary>
+        public HashSet<int> FacesInArea(int area)
+        {
+            var faces = new HashSet<int>();
+            for (int leaf = 0; leaf < leafAreas.Length; leaf++)
+            {
+                if (leafAreas[leaf] != area)
+                    continue;
+                int first = leafFaceRange[leaf * 2], count = leafFaceRange[leaf * 2 + 1];
+                for (int i = first; i < first + count && i < leafFaces.Length; i++)
+                    faces.Add(leafFaces[i]);
+            }
+            return faces;
         }
 
         /// <summary>The leaf containing <paramref name="point"/>, or -1 when the tree is empty.</summary>
@@ -308,10 +349,12 @@ namespace CompilePalX.Preview
             for (int face = 0; face < 6; face++)
             {
                 int o = best + face * 4;
-                var (r, g, b) = BspGeometry.LinearSample(samples[o], samples[o + 1], samples[o + 2], (sbyte)samples[o + 3]);
-                cube[face * 3] = r;
-                cube[face * 3 + 1] = g;
-                cube[face * 3 + 2] = b;
+                // same RGBExp32 packing as a lightmap texel, but VRAD writes the ambient cube on a
+                // 0..1 scale where a lightmap is on 0..255: read it without the texel's /255
+                var (r, g, bl) = BspGeometry.LinearSample(samples[o], samples[o + 1], samples[o + 2], (sbyte)samples[o + 3]);
+                cube[face * 3] = r * AmbientScale;
+                cube[face * 3 + 1] = g * AmbientScale;
+                cube[face * 3 + 2] = bl * AmbientScale;
             }
             return cube;
         }

@@ -10,7 +10,8 @@ namespace CompilePalX.Preview
     /// <summary>A material as the viewer sees it: its textures by id, and how to draw it.</summary>
     public sealed record ResolvedMaterial(
         int Index, string Name, string Shader, int? Texture, int? Texture2,
-        bool Translucent, bool AlphaTest, bool NoCull, bool Unlit, float[] Color, bool Hidden);
+        bool Translucent, bool AlphaTest, bool NoCull, bool Unlit, float[] Color, bool Hidden,
+        bool Water = false, float[]? WaterColor = null, bool Modulate = false);
 
     /// <summary>
     /// Turns the material names in a BSP into textures the viewer can load.
@@ -80,7 +81,8 @@ namespace CompilePalX.Preview
                 int? texture2 = material.Hidden ? null : LoadTexture(material.BaseTexture2);
 
                 resolved.Add(new ResolvedMaterial(i, name, material.Shader, texture, texture2,
-                    material.Translucent, material.AlphaTest, material.NoCull, material.Unlit, material.Color, material.Hidden));
+                    material.Translucent, material.AlphaTest, material.NoCull, material.Unlit, material.Color, material.Hidden,
+                    material.Water, material.WaterColor, material.Modulate));
             }
 
             // the world can list one name twice under different texdata entries; the first keeps the name

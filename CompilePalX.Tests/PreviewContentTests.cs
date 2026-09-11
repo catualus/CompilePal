@@ -175,7 +175,13 @@ namespace CompilePalX.Tests
         public void ToolAndDecalMaterialsAreHidden()
         {
             Assert.True(Vmt.Parse("tools/toolsnodraw", "LightmappedGeneric { $basetexture tools/toolsnodraw %compilenodraw 1 }", _ => null).Hidden);
-            Assert.True(Vmt.Parse("decals/blood1", "DecalModulate { $basetexture decals/blood1 }", _ => null).Hidden);
+            var decal = Vmt.Parse("decals/blood1", "DecalModulate { $basetexture decals/blood1 }", _ => null);
+            Assert.False(decal.Hidden);
+            Assert.True(decal.Modulate);
+            var water = Vmt.Parse("nature/water_canals", "Water { $fogcolor \"{20 40 60}\" $refracttexture _rt_WaterRefraction }", _ => null);
+            Assert.True(water.Water);
+            Assert.Equal(20 / 255f, water.WaterColor[0], 3);
+            Assert.True(Vmt.Parse("sprites/glow", "Sprite { $basetexture sprites/glow }", _ => null).Hidden);
             Assert.False(Vmt.Parse("tools/toolsblack", "LightmappedGeneric { $basetexture tools/toolsblack }", _ => null).Hidden);
             Assert.True(Vmt.Parse("signs/screen", "UnlitGeneric { $basetexture signs/screen }", _ => null).Unlit);
         }

@@ -8,8 +8,11 @@ using System.Text.RegularExpressions;
 
 namespace CompilePalX.Preview
 {
-    /// <summary>A run of the index buffer drawn with one material.</summary>
-    public sealed record DrawBatch(int Material, int First, int Count);
+    /// <summary>A run of the index buffer drawn with one material. Skybox runs are drawn first, scaled, and behind everything.</summary>
+    public sealed record DrawBatch(int Material, int First, int Count, bool Skybox = false);
+
+    /// <summary>An overlay: four corners in world space, their texture coordinates, its material and which way it faces.</summary>
+    public sealed record Overlay(float[][] Corners, float[][] TexCoords, int Material, float[] Normal, bool Skybox);
 
     /// <summary>
     /// A compiled map reduced to what a viewer needs: triangles grouped by material, a lightmap
@@ -56,6 +59,23 @@ namespace CompilePalX.Preview
 
         /// <summary>The map's ambient light by position, for props with no baked vertex lighting.</summary>
         public LeafAmbient? Ambient { get; init; }
+
+        /// <summary>Models placed by entities - doors, dynamic and physics props - drawn where they start.</summary>
+        public IReadOnlyList<StaticProp> EntityProps { get; init; } = [];
+
+        /// <summary>The 3D skybox's camera and scale, when the map has one.</summary>
+        public BspGeometry.SkyCamera? Sky3D { get; init; }
+
+        /// <summary>Distance fog from env_fog_controller, when enabled.</summary>
+        public BspGeometry.Fog? Fog { get; init; }
+
+        /// <summary>Overlays - decals placed in Hammer - as quads with the material they show.</summary>
+        public IReadOnlyList<Overlay> Overlays { get; init; } = [];
+
+        public int SkyboxFaces { get; init; }
+
+        /// <summary>The map area holding the 3D skybox, or -1.</summary>
+        public int SkyboxArea { get; init; } = -1;
 
         public int BspVersion { get; init; }
         public bool Compressed { get; init; }
@@ -109,6 +129,8 @@ namespace CompilePalX.Preview
         private const int LumpLeafAmbientIndex = 52;
         private const int LumpLeafAmbientLightingHdr = 55;
         private const int LumpLeafAmbientLighting = 56;
+        private const int LumpLeafFaces = 16;
+        private const int LumpOverlays = 45;
 
         // texinfo flags: surfaces that never draw in the engine either
         private const int SurfSky2D = 0x2;
@@ -138,6 +160,12 @@ namespace CompilePalX.Preview
 
         /// <summary>Where a brush entity put its model: a translation and a rotation.</summary>
         public readonly record struct Placement(float[] Origin, float[] Angles);
+
+        /// <summary>sky_camera: where the 3D skybox is built, and how much smaller than the world it is.</summary>
+        public sealed record SkyCamera(float[] Origin, float Scale);
+
+        /// <summary>env_fog_controller, as the engine reads it: linear colour, start and end distances.</summary>
+        public sealed record Fog(float[] Color, float Start, float End, float MaxDensity);
 
         /// <summary>The colours env_skypaint paints the sky with. Linear 0..1, as the entity stores them.</summary>
         public sealed record SkyPaint(float[] TopColor, float[] BottomColor, float FadeBias, float[] SunColor, float[] SunNormal, float SunSize);
@@ -227,18 +255,42 @@ namespace CompilePalX.Preview
             var ambient = new LeafAmbient(
                 Data(LumpPlanes), Data(LumpNodes), Data(LumpLeafs), lumps[LumpLeafs].Version,
                 Data(hdrAmbient ? LumpLeafAmbientIndexHdr : LumpLeafAmbientIndex),
-                Data(hdrAmbient ? LumpLeafAmbientLightingHdr : LumpLeafAmbientLighting));
+                Data(hdrAmbient ? LumpLeafAmbientLightingHdr : LumpLeafAmbientLighting),
+                Data(LumpLeafFaces));
+
+            var sky3D = ReadSkyCamera(entities);
+            var fog = ReadFog(entities);
+            var entityProps = EntityProps(entities);
+            var overlayData = Data(LumpOverlays);
 
             return Build(version, compressed, vertices, edges, surfedges, planes, texinfos, texdata, models, placements,
-                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, staticProps, ambient, dispInfos, dispVerts);
+                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, staticProps, entityProps, ambient, sky3D, fog, overlayData, dispInfos, dispVerts);
         }
 
         private static PreviewScene Build(
             int version, bool compressed, float[] vertices, ushort[] edges, int[] surfedges, float[] planes,
             TexInfo[] texinfos, TexData[] texdata, Model[] models, Dictionary<int, Placement> placements,
             Face[] faces, byte[] lighting, string lightingMode, float[]? spawn, string? skyName, SkyPaint? skyPaint, byte[] pak,
-            List<StaticProp> staticProps, LeafAmbient ambient, DispInfo[] dispInfos, float[] dispVerts)
+            List<StaticProp> staticProps, List<StaticProp> entityProps, LeafAmbient ambient, SkyCamera? sky3D, Fog? fog, byte[] overlayData,
+            DispInfo[] dispInfos, float[] dispVerts)
         {
+            // the 3D skybox is the area the sky_camera sits in; its faces are drawn scaled up around it
+            var skyboxFaces = new HashSet<int>();
+            int skyArea = -1;
+            if (sky3D is not null)
+            {
+                skyArea = ambient.AreaOf(ambient.LeafAt(sky3D.Origin));
+                if (skyArea > 0)
+                    skyboxFaces = ambient.FacesInArea(skyArea);
+                else
+                    sky3D = null;
+            }
+
+            float[] ToWorld(float[] p, bool skybox) =>
+                skybox && sky3D is not null
+                    ? [(p[0] - sky3D.Origin[0]) * sky3D.Scale, (p[1] - sky3D.Origin[1]) * sky3D.Scale, (p[2] - sky3D.Origin[2]) * sky3D.Scale]
+                    : p;
+
             // which brush model each face belongs to, for the entities that moved theirs
             var faceModel = new int[faces.Length];
             for (int m = 1; m < models.Length; m++)
@@ -351,13 +403,15 @@ namespace CompilePalX.Preview
             // faces and displacements grouped by material, so each group is one draw
             var byMaterial = drawn.Select(f => (Face: f, Disp: -1))
                 .Concat(drawnDisps.Select(d => (Face: dispInfos[d].MapFace, Disp: d)))
-                .GroupBy(x => TexDataOf(faces[x.Face]))
-                .OrderBy(g => g.Key);
+                .GroupBy(x => (Material: TexDataOf(faces[x.Face]), Skybox: skyboxFaces.Contains(x.Face)))
+                .OrderBy(g => g.Key.Skybox ? 0 : 1).ThenBy(g => g.Key.Material);
 
+            int skyboxFaceCount = 0;
             foreach (var group in byMaterial)
             {
                 int batchStart = outIndices.Count;
-                var colour = ColourFor(group.Key >= 0 && group.Key < texdata.Length ? texdata[group.Key].Name : "");
+                bool inSkybox = group.Key.Skybox;
+                var colour = ColourFor(group.Key.Material >= 0 && group.Key.Material < texdata.Length ? texdata[group.Key.Material].Name : "");
 
                 foreach (var (fi, di) in group)
                 {
@@ -389,7 +443,7 @@ namespace CompilePalX.Preview
                                 ? LightmapUv(p, texinfo.LightmapVecs, face.LightMinS, face.LightMinT, place, atlas.Width, atlas.Height)
                                 : (-1f, -1f);
                             var (tu, tv) = TextureUv(p, texinfo.TextureVecs, tex.Width, tex.Height);
-                            var world = moved ? Place(p, placement) : p;
+                            var world = ToWorld(moved ? Place(p, placement) : p, inSkybox);
                             Emit(world, worldNormal, lu, lv, tu, tv, 0, colour);
                         }
 
@@ -416,7 +470,7 @@ namespace CompilePalX.Preview
                                 }
                                 var (tu, tv) = TextureUv(grid.Positions[n], texinfo.TextureVecs, tex.Width, tex.Height);
                                 float alpha = dispVerts[(disp.VertStart + n) * 5 + 4] / 255f;
-                                Emit(grid.Positions[n], grid.Normals[n], lu, lv, tu, tv, alpha, colour);
+                                Emit(ToWorld(grid.Positions[n], inSkybox), grid.Normals[n], lu, lv, tu, tv, alpha, colour);
                             }
 
                         foreach (uint index in grid.Indices)
@@ -425,8 +479,12 @@ namespace CompilePalX.Preview
                 }
 
                 if (outIndices.Count > batchStart)
-                    batches.Add(new DrawBatch(group.Key, batchStart, outIndices.Count - batchStart));
+                    batches.Add(new DrawBatch(group.Key.Material, batchStart, outIndices.Count - batchStart, inSkybox));
+                if (inSkybox)
+                    skyboxFaceCount += group.Count();
             }
+
+            var overlays = ReadOverlays(overlayData, faces, texinfos, skyboxFaces, ToWorld);
 
             if (outVerts.Count == 0)
             {
@@ -451,7 +509,13 @@ namespace CompilePalX.Preview
                 SkyPaint = skyPaint,
                 PakLump = pak,
                 StaticProps = staticProps,
+                EntityProps = entityProps,
                 Ambient = ambient,
+                Sky3D = sky3D,
+                Fog = fog,
+                Overlays = overlays,
+                SkyboxFaces = skyboxFaceCount,
+                SkyboxArea = sky3D is null ? -1 : skyArea,
                 BspVersion = version,
                 Compressed = compressed,
                 FaceCount = faces.Length,
@@ -749,6 +813,138 @@ namespace CompilePalX.Preview
                 Colour("suncolor", [0.2f, 0.1f, 0f]),
                 Colour("sunnormal", [0.4f, 0f, 1f]),
                 Number("sunsize", 2f));
+        }
+
+        /// <summary>The sky_camera, or null. Its scale is how many world units one skybox unit stands for; 16 when unsaid.</summary>
+        public static SkyCamera? ReadSkyCamera(IEnumerable<Dictionary<string, string>> entities)
+        {
+            var camera = entities.FirstOrDefault(e => string.Equals(e.GetValueOrDefault("classname"), "sky_camera", StringComparison.OrdinalIgnoreCase));
+            if (camera is null)
+                return null;
+
+            float scale = camera.TryGetValue("scale", out var s) && float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float f) && f > 0 ? f : 16f;
+            return new SkyCamera(ParseVector(camera.GetValueOrDefault("origin")), scale);
+        }
+
+        /// <summary>The map's fog, when an env_fog_controller has it enabled. Colour is "r g b" in bytes.</summary>
+        public static Fog? ReadFog(IEnumerable<Dictionary<string, string>> entities)
+        {
+            var controller = entities.FirstOrDefault(e => string.Equals(e.GetValueOrDefault("classname"), "env_fog_controller", StringComparison.OrdinalIgnoreCase));
+            if (controller is null || controller.GetValueOrDefault("fogenable") != "1")
+                return null;
+
+            float Number(string key, float fallback) =>
+                controller.TryGetValue(key, out var v) && float.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out float f) ? f : fallback;
+
+            var bytes = ParseVector(controller.GetValueOrDefault("fogcolor") ?? "255 255 255");
+            var colour = bytes.Select(b => MathF.Pow(Math.Clamp(b / 255f, 0f, 1f), 2.2f)).ToArray();
+
+            float start = Number("fogstart", 0f), end = Number("fogend", 4000f);
+            if (end <= start)
+                return null;
+
+            return new Fog(colour, start, end, Math.Clamp(Number("fogmaxdensity", 1f), 0f, 1f));
+        }
+
+        private static readonly HashSet<string> PropClasses = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "prop_dynamic", "prop_dynamic_override", "prop_physics", "prop_physics_override", "prop_physics_multiplayer",
+            "prop_door_rotating", "prop_dynamic_ornament", "prop_vehicle_jeep", "prop_vehicle_airboat", "prop_vehicle_prisoner_pod",
+            "cycler", "monster_generic", "prop_ragdoll",
+        };
+
+        /// <summary>
+        /// Models placed by entities: doors, dynamic and physics props, drawn where the map starts
+        /// them. An RP map keeps most of its doors and furniture this way rather than as static props.
+        /// Lit from the ambient cubes, as the engine lights them before anything moves.
+        /// </summary>
+        public static List<StaticProp> EntityProps(IEnumerable<Dictionary<string, string>> entities)
+        {
+            var result = new List<StaticProp>();
+            foreach (var entity in entities)
+            {
+                if (!PropClasses.Contains(entity.GetValueOrDefault("classname") ?? ""))
+                    continue;
+                if (!entity.TryGetValue("model", out var model) || !model.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                // rendermode 10 is "don't render"; an invisible prop is not part of the picture
+                if (entity.GetValueOrDefault("rendermode") == "10")
+                    continue;
+
+                int skin = int.TryParse(entity.GetValueOrDefault("skin"), out int s) ? s : 0;
+                float scale = float.TryParse(entity.GetValueOrDefault("modelscale"), NumberStyles.Float, CultureInfo.InvariantCulture, out float ms) && ms > 0 ? ms : 1f;
+                var origin = ParseVector(entity.GetValueOrDefault("origin"));
+
+                result.Add(new StaticProp(-1, model.Replace('\\', '/').ToLowerInvariant(), origin, ParseVector(entity.GetValueOrDefault("angles")), skin, scale, origin));
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Overlays as quads. Each has an origin, a normal, and four corners given in a basis the
+        /// engine builds from the texture axis of the first face it sits on and that normal (the
+        /// overlay's own texinfo is a placeholder VBSP writes only for the material), with texture
+        /// coordinates from its U and V ranges. Lifted a little off the surface so they draw on top
+        /// of it. Layout: https://developer.valvesoftware.com/wiki/Source_BSP_File_Format#Overlay.
+        /// </summary>
+        private static List<Overlay> ReadOverlays(byte[] data, Face[] faces, TexInfo[] texinfos, HashSet<int> skyboxFaces, Func<float[], bool, float[]> toWorld)
+        {
+            const int size = 352;
+            var result = new List<Overlay>();
+
+            for (int i = 0; i + size <= data.Length; i += size)
+            {
+                int texinfo = BitConverter.ToInt16(data, i + 4);
+                if (texinfo < 0 || texinfo >= texinfos.Length)
+                    continue;
+
+                int faceCount = BitConverter.ToUInt16(data, i + 6) & 0x3fff;
+                int firstFace = faceCount > 0 ? BitConverter.ToInt32(data, i + 8) : -1;
+                if (firstFace < 0 || firstFace >= faces.Length)
+                    continue;
+                int faceTexinfo = faces[firstFace].TexInfo;
+                if (faceTexinfo < 0 || faceTexinfo >= texinfos.Length)
+                    continue;
+                bool skybox = skyboxFaces.Contains(firstFace);
+
+                float u0 = BitConverter.ToSingle(data, i + 264), u1 = BitConverter.ToSingle(data, i + 268);
+                float v0 = BitConverter.ToSingle(data, i + 272), v1 = BitConverter.ToSingle(data, i + 276);
+
+                var points = new float[4][];
+                for (int k = 0; k < 4; k++)
+                    points[k] = [BitConverter.ToSingle(data, i + 280 + k * 12), BitConverter.ToSingle(data, i + 284 + k * 12), BitConverter.ToSingle(data, i + 288 + k * 12)];
+
+                float[] origin = [BitConverter.ToSingle(data, i + 328), BitConverter.ToSingle(data, i + 332), BitConverter.ToSingle(data, i + 336)];
+                float[] normal = [BitConverter.ToSingle(data, i + 340), BitConverter.ToSingle(data, i + 344), BitConverter.ToSingle(data, i + 348)];
+
+                // basis: the face texture's S axis projected off the normal, the normal, and their cross
+                var s = texinfos[faceTexinfo].TextureVecs;
+                float[] axis = [s[0], s[1], s[2]];
+                float along = axis[0] * normal[0] + axis[1] * normal[1] + axis[2] * normal[2];
+                axis = [axis[0] - normal[0] * along, axis[1] - normal[1] * along, axis[2] - normal[2] * along];
+                float length = Length(axis);
+                if (length < 1e-6f)
+                    continue;
+                axis = [axis[0] / length, axis[1] / length, axis[2] / length];
+                var cross = Cross(normal, axis);
+
+                var corners = new float[4][];
+                for (int k = 0; k < 4; k++)
+                {
+                    var p = points[k];
+                    corners[k] = toWorld(
+                    [
+                        origin[0] + axis[0] * p[0] + cross[0] * p[1] + normal[0] * (p[2] + 0.5f),
+                        origin[1] + axis[1] * p[0] + cross[1] * p[1] + normal[1] * (p[2] + 0.5f),
+                        origin[2] + axis[2] * p[0] + cross[2] * p[1] + normal[2] * (p[2] + 0.5f),
+                    ], skybox);
+                }
+
+                float[][] uv = [[u0, v0], [u0, v1], [u1, v1], [u1, v0]];
+                result.Add(new Overlay(corners, uv, texinfos[texinfo].TexData, normal, skybox));
+            }
+
+            return result;
         }
 
         /// <summary>"x y z" as three floats; zeros when absent or malformed.</summary>
