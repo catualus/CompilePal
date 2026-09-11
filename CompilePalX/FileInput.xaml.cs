@@ -11,8 +11,8 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
-using Microsoft.WindowsAPICodePack.Dialogs;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
+using OpenFolderDialog = Microsoft.Win32.OpenFolderDialog;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace CompilePalX
@@ -96,26 +96,23 @@ namespace CompilePalX
 		{
 			if (IsFolder)
 			{
-				// create new folder dialog
-				using (var folderDialog = new CommonOpenFileDialog()
+				// WPF's own folder picker (since .NET 8), which is what the Windows API Code Pack
+				// package was being carried for. That package has had no release since 2019.
+				var folderDialog = new OpenFolderDialog
 				{
 					Title = "Select Folder",
-					IsFolderPicker = true,
-					InitialDirectory = GameConfigurationManager.GameConfiguration.GameFolder,
-				})
-				{
-					var folderPath = "";
-					var result = folderDialog.ShowDialog();
-                    if (result == CommonFileDialogResult.Cancel)
-                        return;
+					InitialDirectory = GameConfigurationManager.GameConfiguration?.GameFolder ?? "",
+				};
 
-					folderPath = folderDialog.FileName;
+				if (folderDialog.ShowDialog() != true)
+					return;
 
-					if (string.IsNullOrWhiteSpace(folderPath))
-						return;
+				var folderPath = folderDialog.FolderName;
 
-					textBox.Text = folderPath;
-				}
+				if (string.IsNullOrWhiteSpace(folderPath))
+					return;
+
+				textBox.Text = folderPath;
 			}
 			else
 			{
