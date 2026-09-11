@@ -1,0 +1,34 @@
+<UserControl x:Class="CompilePalX.Preview.MapPreviewView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf">
+    <DockPanel>
+        <!-- The row above the view: what is loaded, and whether the view follows the compile. -->
+        <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <Button DockPanel.Dock="Left" Content="Load compiled map" Click="LoadButton_OnClick"
+                        ToolTip="Read the selected map's compiled .bsp and show it"/>
+                <CheckBox DockPanel.Dock="Left" x:Name="FollowCheckBox" IsChecked="True" Margin="14,0,0,0" VerticalAlignment="Center"
+                          Content="Follow the compile"
+                          ToolTip="Reload the preview when VBSP finishes (unlit geometry) and again when VRAD finishes (lit)"/>
+                <TextBlock x:Name="StatusText" Margin="16,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                           Text="Nothing loaded. Compile a map, or load one that is already compiled."/>
+            </DockPanel>
+        </Border>
+
+        <Grid>
+            <wv2:WebView2 x:Name="Browser" Visibility="Collapsed"/>
+
+            <!-- Shown until a map is loaded, and instead of the browser when WebView2 cannot start. -->
+            <StackPanel x:Name="Placeholder" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="520">
+                <TextBlock x:Name="PlaceholderTitle" Text="Map preview" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                <TextBlock x:Name="PlaceholderText" Margin="0,8,0,0" TextWrapping="Wrap" TextAlignment="Center"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                           Text="Shows the compiled map's brush geometry with the lightmaps VRAD baked into it - flat colours per material, no textures, no props, no displacements. With Follow the compile on, the view refreshes as each step finishes."/>
+            </StackPanel>
+        </Grid>
+    </DockPanel>
+</UserControl>

@@ -1,0 +1,248 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Map preview</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1c1c1c; color: #ddd;
+               font: 12px "Segoe UI Variable Text", "Segoe UI", sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hud { position: absolute; left: 10px; top: 10px; background: rgba(20,20,20,.82); border: 1px solid #3a3a3a;
+         border-radius: 6px; padding: 8px 10px; min-width: 220px; user-select: none; }
+  #hud h1 { font-size: 13px; margin: 0 0 6px; font-weight: 600; }
+  #hud .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  #hud label { min-width: 62px; color: #aaa; }
+  #hud select, #hud input[type=range] { flex: 1; }
+  #hud .stat { color: #aaa; }
+  #hud .warn { color: #e0b64a; }
+  #help { position: absolute; right: 10px; bottom: 10px; color: #888; background: rgba(20,20,20,.7);
+          padding: 6px 8px; border-radius: 6px; }
+  #message { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); color: #aaa; font-size: 14px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <h1 id="title">Map preview</h1>
+  <div class="row"><label>Show</label>
+    <select id="mode">
+      <option value="0">Lit surfaces</option>
+      <option value="1">Lightmap only</option>
+      <option value="2">Flat (no lighting)</option>
+    </select></div>
+  <div class="row"><label>Brightness</label><input id="gain" type="range" min="0.25" max="4" step="0.05" value="1"><span id="gainv">1.0</span></div>
+  <div class="stat" id="stats"></div>
+  <div class="warn" id="warn"></div>
+</div>
+<div id="help">WASD move · drag to look · Q/E down/up · Shift faster · R return to spawn</div>
+<div id="message">Loading…</div>
+
+<script>
+(async function () {
+  const canvas = document.getElementById('c');
+  const message = document.getElementById('message');
+  const stamp = new URLSearchParams(location.search).get('v') || Date.now();
+
+  const gl = canvas.getContext('webgl2', { antialias: true, depth: true });
+  if (!gl) { message.textContent = 'WebGL 2 is not available in this WebView.'; return; }
+
+  // ---- data ------------------------------------------------------------------------------
+  let scene, geometry, lightmap;
+  try {
+    scene = await (await fetch('scene.json?v=' + stamp)).json();
+    geometry = await (await fetch('geometry.bin?v=' + stamp)).arrayBuffer();
+    lightmap = await (await fetch('lightmap.bin?v=' + stamp)).arrayBuffer();
+  } catch (e) {
+    message.textContent = 'No preview has been written yet.';
+    return;
+  }
+
+  const view = new DataView(geometry);
+  const vertexCount = view.getInt32(0, true);
+  const indexCount = view.getInt32(4, true);
+  const stride = scene.vertexStride;
+  const vertices = new Float32Array(geometry, 8, vertexCount * stride);
+  const indices = new Uint32Array(geometry, 8 + vertexCount * stride * 4, indexCount);
+
+  document.getElementById('title').textContent = scene.map;
+  const lightingLabel = { hdr: 'HDR lighting', ldr: 'LDR lighting', none: 'no lighting yet' }[scene.lightmap.mode] || scene.lightmap.mode;
+  document.getElementById('stats').textContent =
+    `${scene.faces.drawn.toLocaleString()} faces · ${(indexCount / 3).toLocaleString()} triangles · ${lightingLabel} · written ${scene.writtenAt.replace('T', ' ')}`;
+  const warnings = [];
+  if (scene.faces.displacements > 0) warnings.push(`${scene.faces.displacements.toLocaleString()} displacement faces are not drawn`);
+  warnings.push('static props are not drawn');
+  if (scene.faces.unlit > 0 && scene.lightmap.mode !== 'none') warnings.push(`${scene.faces.unlit.toLocaleString()} faces have no lightmap`);
+  document.getElementById('warn').textContent = warnings.join(' · ');
+
+  if (vertexCount === 0) { message.textContent = 'The map has no drawable faces.'; return; }
+  message.remove();
+
+  // ---- GL setup --------------------------------------------------------------------------
+  const vsSource = `#version 300 es
+    layout(location=0) in vec3 aPos;
+    layout(location=1) in vec3 aNormal;
+    layout(location=2) in vec2 aUv;
+    layout(location=3) in vec3 aColor;
+    uniform mat4 uViewProj;
+    out vec3 vNormal; out vec2 vUv; out vec3 vColor;
+    void main() {
+      vNormal = aNormal; vUv = aUv; vColor = aColor;
+      gl_Position = uViewProj * vec4(aPos, 1.0);
+    }`;
+  const fsSource = `#version 300 es
+    precision mediump float;
+    in vec3 vNormal; in vec2 vUv; in vec3 vColor;
+    uniform sampler2D uLightmap;
+    uniform int uMode;
+    uniform float uGain;
+    uniform bool uHasLightmap;
+    out vec4 outColor;
+    void main() {
+      vec3 n = normalize(vNormal);
+      // a fixed sun-ish direction so unlit geometry still reads as 3D
+      float shade = 0.55 + 0.45 * max(dot(n, normalize(vec3(0.4, 0.3, 0.85))), 0.0);
+      vec3 flat_ = vColor * shade;
+      vec3 lm = vec3(shade);
+      bool lit = uHasLightmap && vUv.x >= 0.0;
+      if (lit) lm = texture(uLightmap, vUv).rgb * uGain;
+      if (uMode == 2) { outColor = vec4(flat_, 1.0); return; }
+      if (uMode == 1) { outColor = vec4(lit ? lm : vec3(0.15), 1.0); return; }
+      outColor = vec4(lit ? vColor * lm : flat_ * 0.8, 1.0);
+    }`;
+
+  function compile(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const program = gl.createProgram();
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, vsSource));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fsSource));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+  gl.useProgram(program);
+
+  const uViewProj = gl.getUniformLocation(program, 'uViewProj');
+  const uMode = gl.getUniformLocation(program, 'uMode');
+  const uGain = gl.getUniformLocation(program, 'uGain');
+  const uHasLightmap = gl.getUniformLocation(program, 'uHasLightmap');
+  gl.uniform1i(gl.getUniformLocation(program, 'uLightmap'), 0);
+
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+  const bytes = stride * 4;
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, bytes, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, bytes, 12);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, bytes, 24);
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.FLOAT, false, bytes, 32);
+  const ibo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+  const hasLightmap = scene.lightmap.width > 0 && lightmap.byteLength >= scene.lightmap.width * scene.lightmap.height * 4;
+  const tex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  if (hasLightmap) {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, scene.lightmap.width, scene.lightmap.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(lightmap));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
+  }
+  gl.uniform1i(uHasLightmap, hasLightmap ? 1 : 0);
+  if (!hasLightmap) document.getElementById('mode').value = '2';
+
+  gl.enable(gl.DEPTH_TEST);
+  gl.clearColor(0.11, 0.11, 0.12, 1);
+
+  // ---- camera ----------------------------------------------------------------------------
+  const mins = scene.bounds.mins, maxs = scene.bounds.maxs;
+  const extent = Math.max(maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2], 512);
+  const home = scene.spawn
+    ? [scene.spawn[0], scene.spawn[1], scene.spawn[2] + 64]
+    : [(mins[0] + maxs[0]) / 2, (mins[1] + maxs[1]) / 2, (mins[2] + maxs[2]) / 2];
+  const cam = { pos: home.slice(), yaw: 0, pitch: 0 };
+  const keys = new Set();
+  let dragging = false, lastX = 0, lastY = 0;
+
+  canvas.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.focus(); });
+  window.addEventListener('mouseup', () => dragging = false);
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    cam.yaw -= (e.clientX - lastX) * 0.004;
+    cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch - (e.clientY - lastY) * 0.004));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  window.addEventListener('keydown', e => { keys.add(e.code); if (e.code === 'KeyR') { cam.pos = home.slice(); cam.yaw = 0; cam.pitch = 0; } });
+  window.addEventListener('keyup', e => keys.delete(e.code));
+  window.addEventListener('blur', () => keys.clear());
+  canvas.tabIndex = 0;
+
+  // ---- matrices (column-major, Z up) -----------------------------------------------------
+  function perspective(fovy, aspect, near, far) {
+    const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
+  }
+  function lookAt(eye, dir, up) {
+    const z = norm([-dir[0], -dir[1], -dir[2]]);
+    const x = norm(cross(up, z));
+    const y = cross(z, x);
+    return new Float32Array([
+      x[0], y[0], z[0], 0,
+      x[1], y[1], z[1], 0,
+      x[2], y[2], z[2], 0,
+      -dot(x, eye), -dot(y, eye), -dot(z, eye), 1]);
+  }
+  function mul(a, b) {
+    const o = new Float32Array(16);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++)
+      o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+    return o;
+  }
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+
+  // ---- loop ------------------------------------------------------------------------------
+  const modeSelect = document.getElementById('mode');
+  const gainInput = document.getElementById('gain');
+  gainInput.addEventListener('input', () => document.getElementById('gainv').textContent = Number(gainInput.value).toFixed(2));
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.1); last = now;
+
+    const forward = [Math.cos(cam.pitch) * Math.cos(cam.yaw), Math.cos(cam.pitch) * Math.sin(cam.yaw), Math.sin(cam.pitch)];
+    const right = norm(cross(forward, [0, 0, 1]));
+    let speed = extent * 0.15 * dt * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 4 : 1);
+    if (keys.has('KeyW')) for (let i = 0; i < 3; i++) cam.pos[i] += forward[i] * speed;
+    if (keys.has('KeyS')) for (let i = 0; i < 3; i++) cam.pos[i] -= forward[i] * speed;
+    if (keys.has('KeyD')) for (let i = 0; i < 3; i++) cam.pos[i] += right[i] * speed;
+    if (keys.has('KeyA')) for (let i = 0; i < 3; i++) cam.pos[i] -= right[i] * speed;
+    if (keys.has('KeyE') || keys.has('Space')) cam.pos[2] += speed;
+    if (keys.has('KeyQ') || keys.has('ControlLeft')) cam.pos[2] -= speed;
+
+    const w = canvas.clientWidth * devicePixelRatio, h = canvas.clientHeight * devicePixelRatio;
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    gl.viewport(0, 0, w, h);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const proj = perspective(75 * Math.PI / 180, w / h, 4, 65536);
+    gl.uniformMatrix4fv(uViewProj, false, mul(proj, lookAt(cam.pos, forward, [0, 0, 1])));
+    gl.uniform1i(uMode, Number(modeSelect.value));
+    gl.uniform1f(uGain, Number(gainInput.value));
+    gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

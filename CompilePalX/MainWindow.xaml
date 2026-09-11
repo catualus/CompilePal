@@ -6,6 +6,7 @@
             xmlns:config="clr-namespace:CompilePalX.Configuration"
             xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
             xmlns:compilePalX="clr-namespace:CompilePalX"
+            xmlns:preview="clr-namespace:CompilePalX.Preview"
             xmlns:sys="clr-namespace:System;assembly=mscorlib"
             Name="CompileWindow"
 
@@ -1044,6 +1045,12 @@
                     </Grid>
                 </Grid>
 
+            </TabItem>
+
+            <!-- The compiled map itself, drawn from the BSP with VRAD's lightmaps. What a compile
+                 produced used to be answerable only by launching the game. -->
+            <TabItem Name="PreviewTab" Header="PREVIEW">
+                <preview:MapPreviewView x:Name="PreviewView"/>
             </TabItem>
         </TabControl>
     </Grid>
