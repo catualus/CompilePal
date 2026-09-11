@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -68,6 +69,9 @@ namespace CompilePalX
 
         private readonly List<Hyperlink> outputErrorLinks = [];
         private int currentErrorIndex = -1;
+
+        /// <summary>1 while a parameter-list rebuild is queued on the dispatcher after a compiler answered -help.</summary>
+        private int toolHelpRefreshQueued;
 
         private List<TextRange> outputSearchMatches = [];
         private int currentSearchMatchIndex = -1;
@@ -645,18 +649,28 @@ namespace CompilePalX
             // AssembleParameters starts those probes: the tools answer in under a tenth of a second,
             // which is faster than the presets load, so an answer that arrived before anyone was
             // listening was simply lost. BeginInvoke queues the rebuild behind this constructor.
-            ToolHelpProbe.Completed += () => Dispatcher.BeginInvoke(() =>
+            ToolHelpProbe.Completed += () =>
             {
-                // four compilers answer within a few milliseconds of each other; one rebuild will do
-                if (ToolHelpProbe.AnyInFlight)
+                // Four compilers answer within milliseconds of each other, all before the dispatcher
+                // gets to any of them, so one queued rebuild serves the whole batch - and a rebuild
+                // that runs while a probe is still out leaves the work to the next completion.
+                if (Interlocked.Exchange(ref toolHelpRefreshQueued, 1) == 1)
                     return;
 
-                ToolsPlusPlusDetector.ForgetVerdicts();
-                ConfigurationManager.RefreshDiscoveredParameters();
-                foreach (var process in ConfigurationManager.CompileProcesses)
-                    process.NotifyParametersChanged();
-                ToolsPlusPlusDetector.LogDetectionResults();
-            });
+                Dispatcher.BeginInvoke(() =>
+                {
+                    Interlocked.Exchange(ref toolHelpRefreshQueued, 0);
+
+                    if (ToolHelpProbe.AnyInFlight)
+                        return;
+
+                    ToolsPlusPlusDetector.ForgetVerdicts();
+                    ConfigurationManager.RefreshDiscoveredParameters();
+                    foreach (var process in ConfigurationManager.CompileProcesses)
+                        process.NotifyParametersChanged();
+                    ToolsPlusPlusDetector.LogDetectionResults();
+                });
+            };
 
             ConfigurationManager.AssembleParameters();
             ToolsPlusPlusDetector.LogDetectionResults();
