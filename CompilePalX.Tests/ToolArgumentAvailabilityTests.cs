@@ -158,10 +158,62 @@ namespace CompilePalX.Tests
         {
             ConfigurationManager.Settings.ToolsPlusPlusMode = ToolsPlusPlusMode.ForceOff;
 
+            // "never asks" is literal: not one call reaches the binary, through any path
+            int asked = 0;
+            ToolHelpProbe.Override = _ => { asked++; return VradPlusPlus; };
+            ToolsPlusPlusDetector.Invalidate();
+
             // the stub would list it; the setting says not to look
             Assert.False(Vrad(" -aoradius", i => i.RequiresToolsPlusPlus = true).IsCompatible);
             // and an entry the compiler would have rejected is back to the game rules
             Assert.True(Vrad(" -StaticPropLightingFinal").IsCompatible);
+
+            Assert.Null(ToolsPlusPlusDetector.HelpFor("VRAD"));
+            Assert.Null(ToolHelpProbe.Probe(VradPath));
+            Assert.True(ToolHelpProbe.TryPeek(VradPath, out var peeked));
+            Assert.Null(peeked);
+            ToolHelpProbe.EnsureProbed(VradPath);
+            ToolsPlusPlusDetector.LogDetectionResults();
+
+            Assert.Equal(0, asked);
+        }
+
+        [Fact]
+        public void ADiscoveredOptionIsNeverHandedToAStockCompiler()
+        {
+            // Discovered under vrad++, then the configuration moves to a stock vrad. The preset still
+            // carries the flag; the stock tool would reject it, so it must be withheld - both for one
+            // discovered this session and for one read back out of a preset.
+            var help = ToolHelpParser.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "vrad++-help.txt")))!;
+            help.TryGet("-gpusubmit", out var option);
+
+            var discovered = ConfigItem.FromToolOption("VRAD", option);
+            var fromPreset = ConfigItem.FromPresetFlag("VRAD", "-gpusubmit", "0.25")!;
+
+            Assert.True(discovered.IsCompatible);
+            Assert.True(fromPreset.IsCompatible);
+
+            UseCompiler(null);
+
+            Assert.False(discovered.IsCompatible);
+            Assert.False(fromPreset.IsCompatible);
+            Assert.Equal("requires the Hammer++ compile tools", discovered.IncompatibilityReason);
+
+            // and under ForceOn, with no listing to check against, a tools++ option is offered
+            ConfigurationManager.Settings.ToolsPlusPlusMode = ToolsPlusPlusMode.ForceOn;
+            Assert.True(discovered.IsCompatible);
+        }
+
+        [Fact]
+        public void AnUnaskedCompilerIsAskedInTheBackgroundNotOnTheCaller()
+        {
+            // No override: a real path that is not cached must come back "not yet" without running
+            // anything on this thread. The file does not exist, which settles it as "no help".
+            ToolHelpProbe.Override = null;
+            ToolsPlusPlusDetector.Invalidate();
+
+            Assert.True(ToolHelpProbe.TryPeek(@"C:\not-real\missing-vrad.exe", out var help));
+            Assert.Null(help);
         }
 
         [Fact]

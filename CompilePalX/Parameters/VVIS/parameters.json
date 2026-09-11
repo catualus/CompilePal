@@ -73,5 +73,23 @@
     "Value": null,
     "CanHaveValue": false,
     "Warning": ""
+  },
+  {
+    "Name": "Insert Search Path",
+    "Parameter": " -insert_search_path",
+    "Description": "Add an extra search path in front of the ones from gameinfo.txt, so its content wins over the game's. Several paths can be given separated by commas.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
+  },
+  {
+    "Name": "Append Search Path",
+    "Parameter": " -append_search_path",
+    "Description": "Add an extra search path behind the ones from gameinfo.txt, for content the game does not already have. Several paths can be given separated by commas.",
+    "Value": null,
+    "CanHaveValue": true,
+    "Warning": "",
+    "RequiresToolsPlusPlus": true
   }
 ]

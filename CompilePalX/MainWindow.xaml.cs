@@ -640,6 +640,24 @@ namespace CompilePalX
             ConfigurationManager.LoadSettings();
             ApplyOutputFontSettings();
             ConfigurationManager.OnSettingsSaved += ApplyOutputFontSettings;
+            // A compiler that has not been asked -help yet when the lists are built is asked in the
+            // background; when it answers, the lists are rebuilt with what it said. Subscribed before
+            // AssembleParameters starts those probes: the tools answer in under a tenth of a second,
+            // which is faster than the presets load, so an answer that arrived before anyone was
+            // listening was simply lost. BeginInvoke queues the rebuild behind this constructor.
+            ToolHelpProbe.Completed += () => Dispatcher.BeginInvoke(() =>
+            {
+                // four compilers answer within a few milliseconds of each other; one rebuild will do
+                if (ToolHelpProbe.AnyInFlight)
+                    return;
+
+                ToolsPlusPlusDetector.ForgetVerdicts();
+                ConfigurationManager.RefreshDiscoveredParameters();
+                foreach (var process in ConfigurationManager.CompileProcesses)
+                    process.NotifyParametersChanged();
+                ToolsPlusPlusDetector.LogDetectionResults();
+            });
+
             ConfigurationManager.AssembleParameters();
             ToolsPlusPlusDetector.LogDetectionResults();
             GameExeResolver.LogResolution();

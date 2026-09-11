@@ -18,6 +18,11 @@ namespace CompilePalX
         /// Whether the option expects something after it. The table leaves the Default column empty
         /// for a plain switch and fills it - with a number, a word, or a placeholder like
         /// <c>&lt;N&gt;</c> - for anything that takes a value.
+        ///
+        /// An inference, not a fact: the table has no arity column, and a handful of options take a
+        /// value while printing no default (<c>-insert_search_path</c>, vbsp's <c>-forcematerial</c>).
+        /// Those are described in parameters.json, whose entry wins over anything inferred here, and
+        /// ShippedParameterDriftTests lists them so a new one is noticed.
         /// </summary>
         [JsonIgnore]
         public bool TakesValue => !string.IsNullOrWhiteSpace(Default);
@@ -241,6 +246,7 @@ namespace CompilePalX
         }
 
         private static Dictionary<string, CacheEntry>? entries;
+        private static readonly HashSet<string> InFlight = new(StringComparer.OrdinalIgnoreCase);
         private static readonly object Gate = new();
 
         /// <summary>
@@ -250,43 +256,144 @@ namespace CompilePalX
         internal static Func<string, ToolHelp?>? Override;
 
         /// <summary>
-        /// What the binary at <paramref name="path"/> accepts, or null if it does not describe itself.
-        /// Never throws: a tool that cannot be started is a tool with no help.
+        /// Raised on a worker thread when a probe started by <see cref="EnsureProbed"/> has finished
+        /// and its answer is in the cache. Whoever listens re-reads the parameter lists on the UI
+        /// thread; nothing here touches the UI.
         /// </summary>
-        public static ToolHelp? Probe(string? path)
+        public static event Action? Completed;
+
+        /// <summary>
+        /// Whether any probe started by <see cref="EnsureProbed"/> is still running. Lets a listener
+        /// wait for the last of a batch rather than rebuilding once per compiler.
+        /// </summary>
+        public static bool AnyInFlight
         {
-            if (string.IsNullOrWhiteSpace(path))
-                return null;
+            get
+            {
+                lock (Gate)
+                {
+                    return InFlight.Count > 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Under ForceOff no compiler is ever asked anything: the shipped lists are the whole truth,
+        /// and "never asks" has to mean never - not "asks, then ignores the answer".
+        /// </summary>
+        private static bool Disabled =>
+            ConfigurationManager.Settings.ToolsPlusPlusMode == Configuration.ToolsPlusPlusMode.ForceOff;
+
+        /// <summary>
+        /// The answer already on hand for <paramref name="path"/>, without running anything.
+        ///
+        /// Returns true when the question is settled - the cache holds an answer, the binary does not
+        /// exist, or asking is disabled - and <paramref name="help"/> is that answer (null meaning
+        /// "prints no table"). Returns false when the binary has not been asked yet; call
+        /// <see cref="EnsureProbed"/> and expect <see cref="Completed"/>.
+        /// </summary>
+        public static bool TryPeek(string? path, out ToolHelp? help)
+        {
+            help = null;
+
+            if (string.IsNullOrWhiteSpace(path) || Disabled)
+                return true;
 
             if (Override is { } stub)
-                return stub(path);
+            {
+                help = stub(path);
+                return true;
+            }
 
-            FileInfo info;
-            try
-            {
-                info = new FileInfo(path);
-                if (!info.Exists)
-                    return null;
-            }
-            catch (Exception)
-            {
-                // a path typed by hand can be anything
-                return null;
-            }
+            if (Identify(path) is not { } info)
+                return true;
 
             lock (Gate)
             {
                 entries ??= LoadCache();
 
-                if (entries.TryGetValue(path, out var cached)
-                    && cached.Length == info.Length && cached.LastWriteUtc == info.LastWriteTimeUtc)
+                if (entries.TryGetValue(path, out var cached) && Matches(cached, info))
+                {
+                    help = cached.Help;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Asks the binary at <paramref name="path"/> on a worker thread if it has not been asked
+        /// already, and raises <see cref="Completed"/> when the answer is in. Asking the same binary
+        /// twice at once is collapsed into one run.
+        ///
+        /// This is how the UI thread gets its answers: the parameter lists are built while the main
+        /// window is being constructed, and four compilers that each get five seconds to answer are
+        /// twenty seconds the window would otherwise spend frozen if one of them stalled.
+        /// </summary>
+        public static void EnsureProbed(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || Disabled || Override is not null)
+                return;
+
+            lock (Gate)
+            {
+                if (!InFlight.Add(path))
+                    return;
+            }
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    Probe(path);
+                }
+                finally
+                {
+                    lock (Gate)
+                    {
+                        InFlight.Remove(path);
+                    }
+                }
+
+                try
+                {
+                    Completed?.Invoke();
+                }
+                catch (Exception e)
+                {
+                    CompilePalLogger.LogLineDebug($"A tool help listener failed: {e}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// What the binary at <paramref name="path"/> accepts, or null if it does not describe itself.
+        /// Runs the binary here and now if it has not been asked before, so this is for callers that
+        /// can wait - tests, the settings window's Detect button, a worker thread. The UI uses
+        /// <see cref="TryPeek"/> and <see cref="EnsureProbed"/>. Never throws: a tool that cannot be
+        /// started is a tool with no help.
+        /// </summary>
+        public static ToolHelp? Probe(string? path)
+        {
+            if (TryPeek(path, out var known))
+                return known;
+
+            var info = Identify(path!)!;
+
+            lock (Gate)
+            {
+                entries ??= LoadCache();
+
+                // settled by someone else while this call waited for the lock
+                if (entries.TryGetValue(path!, out var cached) && Matches(cached, info))
                     return cached.Help;
 
-                var help = Run(path);
+                var help = Run(path!);
 
-                entries[path] = new CacheEntry
+                entries[path!] = new CacheEntry
                 {
-                    Path = path,
+                    Path = path!,
                     Length = info.Length,
                     LastWriteUtc = info.LastWriteTimeUtc,
                     Help = help,
@@ -301,6 +408,23 @@ namespace CompilePalX
                 return help;
             }
         }
+
+        private static FileInfo? Identify(string path)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                return info.Exists ? info : null;
+            }
+            catch (Exception)
+            {
+                // a path typed by hand can be anything
+                return null;
+            }
+        }
+
+        private static bool Matches(CacheEntry cached, FileInfo info) =>
+            cached.Length == info.Length && cached.LastWriteUtc == info.LastWriteTimeUtc;
 
         /// <summary>
         /// Drops the in-memory copy. The disk cache is keyed by file identity and stays valid, so this

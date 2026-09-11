@@ -410,7 +410,26 @@ namespace CompilePalX
                 return null;
 
             string? path = ResolveBinary(processName, GetConfiguredPath(processName));
-            return ToolHelpProbe.Probe(path);
+
+            // Never waits. An unasked binary is asked in the background, and the answer arrives
+            // through ToolHelpProbe.Completed, on which the parameter lists are rebuilt.
+            if (ToolHelpProbe.TryPeek(path, out var help))
+                return help;
+
+            ToolHelpProbe.EnsureProbed(path);
+            return null;
+        }
+
+        /// <summary>
+        /// Drops the cached verdicts about which binaries are tools++ and which one runs for each
+        /// step, and nothing else - not the auto-detected folder, not what the compilers said. For
+        /// when a compiler has just answered <c>-help</c> and the verdict taken before it did is stale.
+        /// </summary>
+        public static void ForgetVerdicts()
+        {
+            DetectionCache.Clear();
+            DetectionKeys.Clear();
+            ResolutionCache.Clear();
         }
 
         /// <summary>
@@ -451,7 +470,7 @@ namespace CompilePalX
 
                 string? resolved = ResolveBinary(processName, configured);
                 bool toolsPlusPlus = resolved is not null && IsToolsPlusPlusBinary(processName, resolved);
-                var help = toolsPlusPlus ? ToolHelpProbe.Probe(resolved) : null;
+                var help = toolsPlusPlus && ToolHelpProbe.TryPeek(resolved, out var known) ? known : null;
 
                 CompilePalLogger.LogLineDebug(
                     $"tools++ detection: {processName} -> \"{resolved}\" is {(toolsPlusPlus ? "tools++" : "stock")}" +
@@ -472,9 +491,11 @@ namespace CompilePalX
                 return true;
 
             // A binary that answers -help with an option table is tools++ by definition: nothing
-            // else prints one. This is the detection that matters now; the banner scan below is kept
-            // for a build that somehow cannot be run - a blocked executable, a broken dependency.
-            if (ToolHelpProbe.Probe(path) is not null)
+            // else prints one. Only an answer already on hand counts here - this runs on the UI
+            // thread, and under ForceOff the probe declines to answer at all - so the banner scan
+            // below is what decides until the compiler has been asked, and for a build that cannot
+            // be run: a blocked executable, a broken dependency.
+            if (ToolHelpProbe.TryPeek(path, out var help) && help is not null)
                 return true;
 
             var info = new FileInfo(path);

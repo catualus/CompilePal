@@ -115,6 +115,32 @@ namespace CompilePalX.Tests
             Assert.True(rejected.Count == 0, $"{presetName} uses flags tools++ does not accept: {string.Join(", ", rejected)}");
         }
 
+        /// <summary>
+        /// The help table has no column saying whether an option takes a value; discovery infers it
+        /// from the Default column, and an option with a value but no default is read as a switch.
+        /// Those have to be described by hand or they are offered as flags that emit nothing after
+        /// them. This is the list of the ones the tools print that way.
+        /// </summary>
+        [Theory]
+        [InlineData("VBSP", "vbsp++-help.txt", "-insert_search_path", "-append_search_path", "-entfirst", "-forcematerial", "-missingmaterial")]
+        [InlineData("VVIS", "vvis++-help.txt", "-insert_search_path", "-append_search_path")]
+        [InlineData("VRAD", "vrad++-help.txt", "-insert_search_path", "-append_search_path")]
+        [InlineData("BSPZIP", "bspzip++-help.txt", "-insert_search_path", "-append_search_path")]
+        public void AnOptionThatTakesAValueButPrintsNoDefaultIsCurated(string step, string fixture, params string[] flags)
+        {
+            var help = Help(fixture);
+            var curated = Parameters(step).ToDictionary(p => p.Flag, p => p, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var flag in flags)
+            {
+                Assert.True(help.TryGet(flag, out var option), $"{step}: {flag} is no longer listed; drop it from this test");
+                Assert.False(option.TakesValue, $"{step}: {flag} now prints a default; discovery handles it and the curated entry is optional");
+
+                Assert.True(curated.TryGetValue(flag, out var item), $"{step}: {flag} takes a value but prints no default, so it needs a parameters.json entry");
+                Assert.True(item!.CanHaveValue, $"{step}: the entry for {flag} must allow a value");
+            }
+        }
+
         [Fact]
         public void TheGpuOptionsAreDescribed()
         {

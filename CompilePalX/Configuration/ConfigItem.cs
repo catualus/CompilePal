@@ -206,6 +206,9 @@ namespace CompilePalX
                 CanHaveValue = option.TakesValue,
                 ToolDefault = option.TakesValue ? option.Default : null,
                 FromToolHelp = true,
+                // Only ever seen in a tools++ listing, so when there is no listing to check against -
+                // a stock compiler, or ForceOff - this must not be handed over on the game rules alone.
+                RequiresToolsPlusPlus = true,
                 OwningProcess = processName,
             };
         }
@@ -227,6 +230,7 @@ namespace CompilePalX
                 Warning = "",
                 CanHaveValue = !string.IsNullOrEmpty(value),
                 FromToolHelp = true,
+                RequiresToolsPlusPlus = true,
                 OwningProcess = processName,
             };
         }
