@@ -381,7 +381,15 @@
                                      IsEnabled="{Binding IsNotCompiling, ElementName=CompileWindow}"
                                      SelectionChanged="CompileProcessesListBox_SelectionChanged"
                                      HorizontalContentAlignment="Stretch"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.CanContentScroll="False"
+                                     VirtualizingPanel.IsVirtualizing="False">
+                                <!-- Scrolls by pixel, not by item. A list that scrolls by item treats an
+                                     expanded step - a header, a parameter grid and the command box, easily
+                                     the height of the window - as one line, so a single wheel notch threw
+                                     the whole of it off the top and the command box could never be scrolled
+                                     into view. Pixel scrolling disables virtualisation, which is fine for a
+                                     dozen or so steps. -->
                                 <ListBox.ItemContainerStyle>
                                     <!-- No selection highlight: on a stepper the row that matters is the one
                                          you expanded, and a full-width accent bar behind an open step made
@@ -428,21 +436,35 @@
                                                         <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold"
                                                                    VerticalAlignment="Center" MinWidth="86"/>
 
-                                                        <iconPacks:PackIconMaterial Grid.Column="2" Kind="Alert" VerticalAlignment="Center"
-                                                                                    Height="11" Width="11" Margin="0,0,8,0"
-                                                                                    Foreground="{DynamicResource CompilePal.Brushes.Warning}"
-                                                                                    ToolTip="This step is potentially incompatible with the current game">
-                                                            <iconPacks:PackIconMaterial.Style>
-                                                                <Style TargetType="iconPacks:PackIconMaterial">
-                                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsCompatible}" Value="False">
-                                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </iconPacks:PackIconMaterial.Style>
-                                                        </iconPacks:PackIconMaterial>
+                                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <iconPacks:PackIconMaterial Kind="Alert" VerticalAlignment="Center"
+                                                                                        Height="11" Width="11" Margin="0,0,8,0"
+                                                                                        Foreground="{DynamicResource CompilePal.Brushes.Warning}"
+                                                                                        ToolTip="This step is potentially incompatible with the current game">
+                                                                <iconPacks:PackIconMaterial.Style>
+                                                                    <Style TargetType="iconPacks:PackIconMaterial">
+                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsCompatible}" Value="False">
+                                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </iconPacks:PackIconMaterial.Style>
+                                                            </iconPacks:PackIconMaterial>
+
+                                                            <!-- Which compiler this step will run. Whether a compile is about to
+                                                                 use tools++, and whether VRAD will light on the GPU, used to be
+                                                                 answerable only from the debug log. -->
+                                                            <Border CornerRadius="3" Padding="6,1" Margin="0,0,10,0" VerticalAlignment="Center"
+                                                                    Background="{DynamicResource ControlFillColorDefaultBrush}"
+                                                                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
+                                                                    ToolTip="{Binding CompilerBadgeDetail}"
+                                                                    Visibility="{Binding HasCompilerBadge, Converter={StaticResource BoolToVisibility}}">
+                                                                <TextBlock Text="{Binding CompilerBadge}" FontSize="10.5"
+                                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                                                            </Border>
+                                                        </StackPanel>
 
                                                         <!-- The step's own arguments on the collapsed row, so a
                                                              whole preset reads at a glance. -->
@@ -558,6 +580,26 @@
                                                                                                 <Setter Property="Visibility" Value="Collapsed"/>
                                                                                             </DataTrigger>
                                                                                             <DataTrigger Binding="{Binding Description}" Value="{x:Null}">
+                                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </TextBlock.Style>
+                                                                            </TextBlock>
+                                                                            <!-- What the compiler uses when the value is left blank, in its own
+                                                                                 words. The default is the thing most likely to differ between
+                                                                                 builds, so it comes from the binary rather than the description. -->
+                                                                            <TextBlock Margin="0,2,0,0" FontSize="11" FontStyle="Italic"
+                                                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}">
+                                                                                <Run Text="Compiler default:"/>
+                                                                                <Run Text="{Binding ToolDefault, Mode=OneWay}" FontFamily="Cascadia Mono, Consolas, Courier New"/>
+                                                                                <TextBlock.Style>
+                                                                                    <Style TargetType="TextBlock">
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding ToolDefault}" Value="{x:Null}">
+                                                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                            </DataTrigger>
+                                                                                            <DataTrigger Binding="{Binding CanHaveValue}" Value="False">
                                                                                                 <Setter Property="Visibility" Value="Collapsed"/>
                                                                                             </DataTrigger>
                                                                                         </Style.Triggers>
@@ -691,11 +733,13 @@
                                                         </DataGrid.Columns>
                                                     </DataGrid>
 
-                                                    <!-- The literal command line this step will run. It used to be a single
-                                                         read-only line clipped mid-flag in a 560px box. -->
+                                                    <!-- The literal command line this step will run, for the map selected in
+                                                         the queue: real paths, not placeholders. It used to be a single
+                                                         read-only line clipped mid-flag in a 560px box, and it used to show
+                                                         "-game $game$ $vmfFile$". -->
                                                     <Border Grid.Row="2" Margin="0,8,0,0" Padding="8,6" CornerRadius="4"
                                                             Background="{DynamicResource ControlFillColorDefaultBrush}">
-                                                        <TextBox Text="{Binding ArgumentSummary, Mode=OneWay}" IsReadOnly="True"
+                                                        <TextBox Text="{Binding CommandPreview, Mode=OneWay}" IsReadOnly="True"
                                                                  BorderThickness="0" Background="Transparent" TextWrapping="Wrap"
                                                                  FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="11"
                                                                  Foreground="{DynamicResource TextFillColorSecondaryBrush}"

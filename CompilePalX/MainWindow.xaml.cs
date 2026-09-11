@@ -2231,6 +2231,9 @@ namespace CompilePalX
                 SelectedMapIndex = MapListBox.SelectedIndex;
             }
 
+            // the expanded rows show the command for this map, so they follow the selection
+            ConfigurationManager.PreviewMap = (MapListBox.SelectedItem as Map)?.File;
+
             // refresh preset config listbox to filter the presets
             CollectionViewSource.GetDefaultView(ConfigurationManager.KnownPresets).Refresh();
             UpdateConfigGrid();
