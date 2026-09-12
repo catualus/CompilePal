@@ -140,10 +140,11 @@ namespace CompilePalX.Preview
         {
             switch (format)
             {
+                // 4x4 blocks, a partial block still being one
                 case 13: case 20: // DXT1
-                    return Math.Max(1, width / 4) * Math.Max(1, height / 4) * 8;
+                    return ((width + 3) / 4) * ((height + 3) / 4) * 8;
                 case 14: case 15: // DXT3, DXT5
-                    return Math.Max(1, width / 4) * Math.Max(1, height / 4) * 16;
+                    return ((width + 3) / 4) * ((height + 3) / 4) * 16;
                 default:
                     return width * height * BytesPerPixel(format);
             }

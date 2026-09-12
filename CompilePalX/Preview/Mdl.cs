@@ -100,16 +100,16 @@ namespace CompilePalX.Preview
 
             try
             {
-                return Parse(mdlPath, mdl, vvd, vtx);
+                return Parse(mdlPath, mdl, vvd, vtx, read);
             }
-            catch (Exception e) when (e is ArgumentOutOfRangeException or IndexOutOfRangeException or ArgumentException)
+            catch (Exception e) when (e is ArgumentOutOfRangeException or IndexOutOfRangeException or ArgumentException or InvalidDataException or IOException)
             {
                 // a truncated or unusual file; better no prop than a crash
                 return null;
             }
         }
 
-        private static StudioModel Parse(string path, byte[] mdl, byte[] vvd, byte[] vtx)
+        private static StudioModel Parse(string path, byte[] mdl, byte[] vvd, byte[] vtx, Func<string, byte[]?> read)
         {
             int version = BitConverter.ToInt32(mdl, 4);
             int numTextures = BitConverter.ToInt32(mdl, 204);
@@ -122,7 +122,7 @@ namespace CompilePalX.Preview
             int numBodyParts = BitConverter.ToInt32(mdl, 232);
             int bodyPartIndex = BitConverter.ToInt32(mdl, 236);
 
-            // material names, joined with the first texture directory that is not empty
+            // material names, each joined with the first of the model's texture directories that has it
             var directories = new List<string>();
             for (int i = 0; i < numCdTextures; i++)
             {
@@ -131,6 +131,13 @@ namespace CompilePalX.Preview
             }
             if (directories.Count == 0)
                 directories.Add("");
+            var qualified = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string Qualify(string texture)
+            {
+                if (!qualified.TryGetValue(texture, out var name))
+                    qualified[texture] = name = QualifyIn(texture, directories, read);
+                return name;
+            }
 
             var textures = new List<string>();
             for (int i = 0; i < numTextures; i++)
@@ -149,7 +156,7 @@ namespace CompilePalX.Preview
                 for (int r = 0; r < numSkinRef; r++)
                 {
                     int t = BitConverter.ToInt16(mdl, skinIndex + (f * numSkinRef + r) * 2);
-                    family.Add(t >= 0 && t < textures.Count ? Qualify(textures[t], directories) : "");
+                    family.Add(t >= 0 && t < textures.Count ? Qualify(textures[t]) : "");
                 }
                 skins.Add(family);
             }
@@ -276,7 +283,7 @@ namespace CompilePalX.Preview
 
                     string material = skins.Count > 0 && materialSlot >= 0 && materialSlot < skins[0].Count
                         ? skins[0][materialSlot]
-                        : materialSlot >= 0 && materialSlot < textures.Count ? Qualify(textures[materialSlot], directories) : "";
+                        : materialSlot >= 0 && materialSlot < textures.Count ? Qualify(textures[materialSlot]) : "";
 
                     meshes.Add(new ModelMesh(material, positions.ToArray(), normals.ToArray(), texcoords.ToArray(), vvdIndices.ToArray(), modelVertexIndex + meshVertexOffset, indices.ToArray()));
                     slots.Add(materialSlot);
@@ -332,11 +339,22 @@ namespace CompilePalX.Preview
             return result;
         }
 
-        /// <summary>A material name under the first directory the model lists, as a path under materials/.</summary>
-        private static string Qualify(string texture, List<string> directories)
+        /// <summary>
+        /// A material name as a path under materials/: the engine tries each $cdmaterials directory
+        /// in order and takes the first that has the VMT, so this does the same, settling for the
+        /// first directory when none has it.
+        /// </summary>
+        private static string QualifyIn(string texture, List<string> directories, Func<string, byte[]?> read)
         {
-            string dir = directories[0];
-            return dir.Length == 0 ? texture : $"{dir}/{texture}";
+            string? first = null;
+            foreach (var dir in directories)
+            {
+                string name = dir.Length == 0 ? texture : $"{dir}/{texture}";
+                first ??= name;
+                if (read($"materials/{name}.vmt") is not null)
+                    return name;
+            }
+            return first ?? texture;
         }
 
         private static string CString(byte[] bytes, int offset)

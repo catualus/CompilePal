@@ -20,6 +20,8 @@ namespace CompilePalX.Preview
         private readonly PakArchive? pak;
         private readonly List<string> folders = [];
         private readonly List<Vpk> vpks = [];
+        /// <summary>Every place after the pak in the order the engine would try it: a folder, then the archives it mounts.</summary>
+        private readonly List<(string? Folder, Vpk? Vpk)> sources = [];
         private readonly Dictionary<string, byte[]?> cache = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Where a lookup was answered from, for the log.</summary>
@@ -76,7 +78,9 @@ namespace CompilePalX.Preview
                     return;
                 try
                 {
-                    vpks.Add(Vpk.Open(path));
+                    var vpk = Vpk.Open(path);
+                    vpks.Add(vpk);
+                    sources.Add((null, vpk));
                 }
                 catch (Exception e)
                 {
@@ -90,6 +94,7 @@ namespace CompilePalX.Preview
                     continue;
 
                 folders.Add(searchPath);
+                sources.Add((searchPath, null));
 
                 // every archive the folder mounts, its own and the engine's shared ones
                 foreach (var vpk in Directory.EnumerateFiles(searchPath, "*_dir.vpk", SearchOption.TopDirectoryOnly))
@@ -127,29 +132,41 @@ namespace CompilePalX.Preview
                 return packed;
             }
 
-            foreach (var folder in folders)
+            // a key is a relative path under a mount; a map must not be able to name anything else
+            if (Path.IsPathRooted(key) || key.Split('/').Any(part => part is ".." or "."))
             {
-                string path = Path.Combine(folder, key.Replace('/', Path.DirectorySeparatorChar));
-                if (File.Exists(path))
-                {
-                    try
-                    {
-                        FolderHits++;
-                        return File.ReadAllBytes(path);
-                    }
-                    catch (IOException)
-                    {
-                        // fall through to the next place it might be
-                    }
-                }
+                Misses++;
+                return null;
             }
 
-            foreach (var vpk in vpks)
+            foreach (var (folder, vpk) in sources)
             {
-                if (vpk.Read(key) is { } bytes)
+                if (vpk is not null)
                 {
-                    VpkHits++;
-                    return bytes;
+                    if (vpk.Read(key) is { } bytes)
+                    {
+                        VpkHits++;
+                        return bytes;
+                    }
+                    continue;
+                }
+
+                string path = Path.GetFullPath(Path.Combine(folder!, key.Replace('/', Path.DirectorySeparatorChar)));
+                string root = Path.GetFullPath(folder!).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+                    continue;
+
+                try
+                {
+                    FolderHits++;
+                    return File.ReadAllBytes(path);
+                }
+                catch (IOException)
+                {
+                    // fall through to the next place it might be
+                }
+                catch (UnauthorizedAccessException)
+                {
                 }
             }
 

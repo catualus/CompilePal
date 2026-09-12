@@ -82,7 +82,7 @@
   if (!scene.sky) warnings.push('sky not found');
   if (scene.faces.displacementsSkipped > 0) warnings.push(`${scene.faces.displacementsSkipped.toLocaleString()} displacements could not be read`);
   if (scene.faces.unlit > 0) warnings.push(`${scene.faces.unlit.toLocaleString()} faces have no lightmap and are drawn fullbright, as the game does`);
-  if (scene.lightingMode !== 'none' && !scene.sun) warnings.push('no light_environment, so props without baked light get no sun');
+  if (scene.lightmap.mode !== 'none' && !scene.sun) warnings.push('no light_environment, so props without baked light get no sun');
   if (scene.props && scene.props.missing > 0) warnings.push(`${scene.props.missing.toLocaleString()} props whose model could not be found`);
   if (scene.props && scene.props.skipped > 0) warnings.push(`${scene.props.skipped.toLocaleString()} props skipped to stay within the triangle budget`);
   if (scene.overlays && scene.overlays.total > scene.overlays.placed) warnings.push(`${(scene.overlays.total - scene.overlays.placed).toLocaleString()} overlays could not be placed`);
@@ -345,6 +345,8 @@
   const skyScale = scene.sky3d ? scene.sky3d.scale : 1;
 
   gl.enable(gl.DEPTH_TEST);
+  // Source winds its faces clockwise; their backs are culled unless the material says $nocull
+  gl.frontFace(gl.CW);
   gl.clearColor(0.11, 0.11, 0.12, 1);
 
   // ---- camera ----------------------------------------------------------------------------
@@ -422,10 +424,12 @@
     gl.uniform1i(u.alphaTest, m.alphaTest ? 1 : 0);
     gl.uniform1i(u.translucent, m.translucent ? 1 : 0);
     gl.uniform1i(u.prop, b.prop ? 1 : 0);
+    if (m.noCull || b.overlay) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
     gl.uniform1i(u.water, m.water ? 1 : 0);
     if (m.water && m.waterColor) gl.uniform3fv(u.waterColor, m.waterColor);
     gl.uniform3f(u.tint, m.color ? m.color[0] : 1, m.color ? m.color[1] : 1, m.color ? m.color[2] : 1);
     gl.uniform1f(u.fogScale, b.skybox ? 1 / skyScale : 1);
+    // DecalModulate is the engine's DST_COLOR/SRC_COLOR blend: 2 * decal * surface, with mid-grey as "no change"
     if (m.modulate) gl.blendFunc(gl.DST_COLOR, gl.SRC_COLOR); else gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.first * 4);
   }
@@ -457,6 +461,7 @@
     // the sky, around the camera, behind everything
     if (sky && mode !== 1 && mode !== 2) {
       gl.useProgram(skyProgram);
+      gl.disable(gl.CULL_FACE);
       gl.depthMask(false);
       gl.depthFunc(gl.LEQUAL);
       gl.uniformMatrix4fv(U(skyProgram, 'uViewProj'), false, mul(proj, lookAt([0, 0, 0], forward, [0, 0, 1])));

@@ -29,7 +29,7 @@ namespace CompilePalX.Preview
         /// where it sits in the file, because sub-lump offsets are absolute; <paramref name="readFile"/>
         /// reads a span of the file, for sub-lumps that lie outside the lump's own bytes.
         /// </summary>
-        public static List<StaticProp> Read(byte[] gameLump, int lumpOffset, Func<int, int, byte[]> readFile)
+        public static List<StaticProp> Read(byte[] gameLump, int lumpOffset, Func<int, int, byte[]> readFile, int bspVersion = 20)
         {
             var props = new List<StaticProp>();
             if (gameLump.Length < 4)
@@ -86,9 +86,15 @@ namespace CompilePalX.Preview
                 p += 128;
             }
 
+            // the leaf list: every leaf each prop touches; a prop's FirstLeaf indexes into it.
+            // BSP 25 widened the entries to 32 bits.
             if (p + 4 > data.Length)
                 return props;
-            int leafEntries = BitConverter.ToInt32(data, p); p += 4 + Math.Max(0, leafEntries) * 2;
+            int leafEntries = BitConverter.ToInt32(data, p); p += 4;
+            int leafEntrySize = bspVersion >= 25 ? 4 : 2;
+            var leafList = new int[Math.Max(0, leafEntries)];
+            for (int i = 0; i < leafList.Length && p + leafEntrySize <= data.Length; i++, p += leafEntrySize)
+                leafList[i] = leafEntrySize == 4 ? BitConverter.ToInt32(data, p) : BitConverter.ToUInt16(data, p);
 
             if (p + 4 > data.Length)
                 return props;
@@ -106,7 +112,8 @@ namespace CompilePalX.Preview
                 var origin = new[] { BitConverter.ToSingle(data, o), BitConverter.ToSingle(data, o + 4), BitConverter.ToSingle(data, o + 8) };
                 var angles = new[] { BitConverter.ToSingle(data, o + 12), BitConverter.ToSingle(data, o + 16), BitConverter.ToSingle(data, o + 20) };
                 int type = BitConverter.ToUInt16(data, o + 24);
-                int firstLeaf = BitConverter.ToUInt16(data, o + 26);
+                int firstLeafEntry = BitConverter.ToUInt16(data, o + 26);
+                int firstLeaf = firstLeafEntry < leafList.Length ? leafList[firstLeafEntry] : -1;
                 int flags = data[o + 31];
                 int skin = BitConverter.ToInt32(data, o + 32);
                 var lightingOrigin = new[] { BitConverter.ToSingle(data, o + 44), BitConverter.ToSingle(data, o + 48), BitConverter.ToSingle(data, o + 52) };

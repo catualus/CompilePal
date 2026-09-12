@@ -109,9 +109,10 @@ namespace CompilePalX.Preview
     ///
     /// The format is https://developer.valvesoftware.com/wiki/Source_BSP_File_Format. Only the lumps
     /// a renderer needs are touched: vertices, edges, surfedges, faces, planes, texinfo, texdata,
-    /// models, displacements and the lighting lump, plus the entity text for a spawn point, the sky
-    /// name and where brush entities sit. Static props are not read; they live in the game lump
-    /// and need the models, which are not in the BSP.
+    /// models, displacements, overlays, the lighting and ambient lumps, the world lights for the
+    /// sun, the static prop game lump, and the entity text for the spawn, the sky, fog, the 3D
+    /// skybox camera and the props and brushes entities place. The models props need are not in
+    /// the BSP; <see cref="PropBuilder"/> finds them.
     ///
     /// Lumps that bspzip compressed with <c>-compress</c> are inflated on the way in, so a repacked
     /// map previews the same as the one it was made from.
@@ -241,7 +242,7 @@ namespace CompilePalX.Preview
 
             // ENTLUMP moves the entities out of the BSP into a file beside it; when that file exists
             // it is the map's entity list and the lump inside is empty or a stub
-            string entityText = ReadEntityLumpFile(path) ?? Encoding.ASCII.GetString(Data(LumpEntities));
+            string entityText = ReadEntityLumpFile(path, ReadMapRevision(stream, reader)) ?? Encoding.ASCII.GetString(Data(LumpEntities));
             var entities = ParseEntities(entityText);
 
             float[]? spawn = FindSpawn(entityText);
@@ -258,7 +259,7 @@ namespace CompilePalX.Preview
             try
             {
                 staticProps = StaticPropLump.Read(RawLump(stream, reader, lumps[LumpGameLump]), lumps[LumpGameLump].Offset,
-                    (offset, length) => RawLump(stream, reader, new Lump(offset, length, 0)));
+                    (offset, length) => RawLump(stream, reader, new Lump(offset, length, 0)), version);
             }
             catch (Exception e) when (e is InvalidDataException or ArgumentException or IndexOutOfRangeException)
             {
@@ -297,7 +298,7 @@ namespace CompilePalX.Preview
             if (sky3D is not null)
             {
                 skyArea = ambient.AreaOf(ambient.LeafAt(sky3D.Origin));
-                if (skyArea > 0)
+                if (skyArea >= 0)
                     skyboxFaces = ambient.FacesInArea(skyArea);
                 else
                     sky3D = null;
@@ -333,8 +334,7 @@ namespace CompilePalX.Preview
                 var texinfo = texinfos[face.TexInfo];
                 string material = MaterialOf(texinfo, texdata);
 
-                if ((texinfo.Flags & (SurfSky | SurfSky2D | SurfNoDraw | SurfTrigger | SurfHint | SurfSkip)) != 0
-                    || (material.StartsWith("tools/", StringComparison.OrdinalIgnoreCase) && !material.Contains("black", StringComparison.OrdinalIgnoreCase)))
+                if (IsToolSurface(texinfo, texdata))
                 {
                     skippedTool++;
                     continue;
@@ -355,6 +355,7 @@ namespace CompilePalX.Preview
 
                 bool usable = disp.MapFace >= 0 && disp.MapFace < faces.Length
                               && faces[disp.MapFace].NumEdges == 4
+                              && faces[disp.MapFace].TexInfo >= 0 && faces[disp.MapFace].TexInfo < texinfos.Length
                               && disp.Power is >= 0 and <= 4
                               && disp.VertStart >= 0
                               && (disp.VertStart + side * side) * 5 <= dispVerts.Length;
@@ -362,6 +363,13 @@ namespace CompilePalX.Preview
                 if (!usable)
                 {
                     skippedDisp++;
+                    continue;
+                }
+
+                // a displacement on a tool or sky surface is as invisible as the face would be
+                if (IsToolSurface(texinfos[faces[disp.MapFace].TexInfo], texdata))
+                {
+                    skippedTool++;
                     continue;
                 }
 
@@ -611,6 +619,25 @@ namespace CompilePalX.Preview
             }
 
             return lumps;
+        }
+
+        /// <summary>Sky, nodraw, trigger, hint, skip and the tools/ materials: surfaces the engine never draws.</summary>
+        private static bool IsToolSurface(TexInfo texinfo, TexData[] texdata)
+        {
+            if ((texinfo.Flags & (SurfSky | SurfSky2D | SurfNoDraw | SurfTrigger | SurfHint | SurfSkip)) != 0)
+                return true;
+            string material = texinfo.TexData >= 0 && texinfo.TexData < texdata.Length ? texdata[texinfo.TexData].Name : "";
+            return material.StartsWith("tools/", StringComparison.OrdinalIgnoreCase) && !material.Contains("black", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The map revision from the BSP header, after the 64 lump entries; -1 when the file is too short.</summary>
+        private static int ReadMapRevision(Stream stream, BinaryReader reader)
+        {
+            const int position = 8 + 64 * 16;
+            if (stream.Length < position + 4)
+                return -1;
+            stream.Position = position;
+            return reader.ReadInt32();
         }
 
         private static byte[] RawLump(Stream stream, BinaryReader reader, Lump lump)
@@ -1122,7 +1149,8 @@ namespace CompilePalX.Preview
         /// position comes first. Row i runs from corner 0 towards corner 1 on the left and from
         /// corner 3 towards corner 2 on the right; column j interpolates between the two. Each grid
         /// point is that base point moved along its stored vector by its stored distance. Triangles
-        /// alternate their diagonal from quad to quad, as the engine's do.
+        /// alternate their diagonal from quad to quad, as the engine's do, and wind clockwise seen
+        /// from the front like the map's faces, so the viewer can cull their backs the same way.
         /// </summary>
         public static DisplacementMesh BuildDisplacement(IReadOnlyList<float[]> faceCorners, float[] startPosition, int power, float[] dispVerts, int vertStart)
         {
@@ -1202,9 +1230,9 @@ namespace CompilePalX.Preview
                     uint d = (uint)((i + 1) * side + j);
 
                     if (((i + j) & 1) == 0)
-                        indices.AddRange([a, b, c, a, c, d]);
+                        indices.AddRange([a, c, b, a, d, c]);
                     else
-                        indices.AddRange([a, b, d, b, c, d]);
+                        indices.AddRange([a, d, b, b, d, c]);
                 }
 
             return new DisplacementMesh(positions, normals, indices.ToArray());
@@ -1358,7 +1386,7 @@ namespace CompilePalX.Preview
         /// lump offset, id, version, length and map revision - followed by the lump's bytes, which
         /// for the entity lump is text.
         /// </summary>
-        public static string? ReadEntityLumpFile(string bspPath)
+        public static string? ReadEntityLumpFile(string bspPath, int mapRevision = -1)
         {
             string lumpFile = Path.Combine(Path.GetDirectoryName(bspPath) ?? "", Path.GetFileNameWithoutExtension(bspPath) + "_l_0.lmp");
 
@@ -1373,6 +1401,10 @@ namespace CompilePalX.Preview
 
                 int offset = BitConverter.ToInt32(bytes, 0);
                 int length = BitConverter.ToInt32(bytes, 12);
+                int revision = BitConverter.ToInt32(bytes, 16);
+                // the engine ignores a lump file made for another revision of the map; so does this
+                if (mapRevision >= 0 && revision != mapRevision)
+                    return null;
                 if (offset < 20 || offset > bytes.Length)
                     offset = 20;
                 if (length <= 0 || offset + length > bytes.Length)

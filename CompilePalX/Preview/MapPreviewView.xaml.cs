@@ -152,7 +152,7 @@ namespace CompilePalX.Preview
                         name = Path.GetFileName(candidate);
                         break;
                     }
-                    catch (InvalidDataException e)
+                    catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
                     {
                         // an unreadable copy; the next candidate may be fine
                         CompilePalLogger.LogLineDebug($"Preview skipped \"{candidate}\": {e.Message}");

@@ -119,7 +119,11 @@ namespace CompilePalX.Preview
             if (!entries.TryGetValue(Normalise(path), out var entry))
                 return null;
 
-            var result = new byte[entry.Preload.Length + entry.Length];
+            // a sane file; a corrupt directory can claim gigabytes
+            if (entry.Length > 256 * 1024 * 1024)
+                return null;
+
+            var result = new byte[entry.Preload.Length + (int)entry.Length];
             entry.Preload.CopyTo(result, 0);
 
             if (entry.Length == 0)
