@@ -33,11 +33,12 @@ namespace CompilePalX.Tests
 
             var meshes = VertexLighting.Read(file.ToArray())!;
 
+            float full = MathF.Pow(VertexLighting.Overbright, 2.2f);
             Assert.Equal(2, meshes.Count);
-            Assert.Equal(VertexLighting.Overbright, meshes[0][0], 3);   // red channel of the first vertex
+            Assert.Equal(full, meshes[0][0], 3);   // red channel of the first vertex
             Assert.Equal(0f, meshes[0][1], 3);
-            Assert.Equal(VertexLighting.Overbright, meshes[0][4], 3);   // white
-            Assert.Equal(VertexLighting.Overbright, meshes[1][2], 3);   // blue
+            Assert.Equal(full, meshes[0][4], 3);   // white
+            Assert.Equal(full, meshes[1][2], 3);   // blue
             Assert.Equal(0f, meshes[1][0], 3);
         }
 
@@ -136,7 +137,7 @@ namespace CompilePalX.Tests
 
             Assert.True(props.PropsPlaced > scene.StaticProps.Count / 2, $"placed {props.PropsPlaced} of {scene.StaticProps.Count}");
             Assert.True(props.Triangles > 1000);
-            Assert.Equal(props.Indices.Length, props.Batches.Sum(b => b.Count) + props.OverlayBatches.Sum(b => b.Count));
+            Assert.Equal(props.Indices.Length, props.Batches.Sum(b => b.Count));
             Assert.All(props.Indices, i => Assert.True(i < props.Vertices.Length / PreviewScene.VertexStride));
             Assert.True(materials.Resolved.Count > worldMaterials, "prop materials were added after the world's");
             Assert.All(props.Batches, b => Assert.True(b.Material < materials.Resolved.Count));

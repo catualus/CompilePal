@@ -44,7 +44,7 @@
   const message = document.getElementById('message');
   const stamp = new URLSearchParams(location.search).get('v') || Date.now();
 
-  const gl = canvas.getContext('webgl2', { antialias: true, depth: true });
+  const gl = canvas.getContext('webgl2', { antialias: true, depth: true, preserveDrawingBuffer: true });
   if (!gl) { message.textContent = 'WebGL 2 is not available in this WebView.'; return; }
   const s3tc = gl.getExtension('WEBGL_compressed_texture_s3tc');
   const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
@@ -81,6 +81,8 @@
   if (scene.content.texturesMissing > 0) warnings.push(`${scene.content.texturesMissing.toLocaleString()} textures not found`);
   if (!scene.sky) warnings.push('sky not found');
   if (scene.faces.displacementsSkipped > 0) warnings.push(`${scene.faces.displacementsSkipped.toLocaleString()} displacements could not be read`);
+  if (scene.faces.unlit > 0) warnings.push(`${scene.faces.unlit.toLocaleString()} faces have no lightmap and are drawn fullbright, as the game does`);
+  if (scene.lightingMode !== 'none' && !scene.sun) warnings.push('no light_environment, so props without baked light get no sun');
   if (scene.props && scene.props.missing > 0) warnings.push(`${scene.props.missing.toLocaleString()} props whose model could not be found`);
   if (scene.props && scene.props.skipped > 0) warnings.push(`${scene.props.skipped.toLocaleString()} props skipped to stay within the triangle budget`);
   if (scene.overlays && scene.overlays.total > scene.overlays.placed) warnings.push(`${(scene.overlays.total - scene.overlays.placed).toLocaleString()} overlays could not be placed`);
@@ -153,7 +155,8 @@
 
       // light: the lightmap where there is one, a fixed sun where there is not
       bool lit = uProp || (uHasLightmap && vLmUv.x >= 0.0);
-      vec3 light = uProp ? vColor : lit ? toLinear(texture(uLightmap, vLmUv).rgb) * uRange : vec3(shade);
+      // a face with no lightmap is drawn fullbright, which is what the engine does with it
+      vec3 light = uProp ? vColor : lit ? toLinear(texture(uLightmap, vLmUv).rgb) * uRange : vec3(1.0);
 
       vec3 c;
       if (uWater && uMode != 1 && uMode != 2) { c = uWaterColor * (lit ? light : vec3(0.9)); alpha = 0.6; textured = true; }

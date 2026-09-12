@@ -174,12 +174,14 @@ namespace CompilePalX.Preview
         }
 
         /// <summary>
-        /// How much brighter a baked vertex colour is than its byte suggests. The engine stores
-        /// vertex light with the same headroom as lightmaps and doubles it in the shader.
+        /// VRAD writes each byte through its vertex-light table: linear light (1.0 is a surface in
+        /// full sun) raised to 1/2.2 and scaled so that 2.0 lands on 255 - which is why a baked
+        /// file never holds a byte above 239, the table's ceiling of 4.0. The engine undoes it the
+        /// same way: the byte doubled, then gamma to linear.
         /// </summary>
         public const float Overbright = 2f;
 
-        private static float Decode(byte b) => MathF.Pow(b / 255f, 2.2f) * Overbright;
+        private static float Decode(byte b) => MathF.Pow(b / 255f * Overbright, 2.2f);
     }
 
     /// <summary>
@@ -197,6 +199,7 @@ namespace CompilePalX.Preview
         private readonly int[] nodes;        // planenum, child0, child1 per node
         private readonly short[] leafBounds; // mins(3) maxs(3) per leaf
         private readonly short[] leafAreas;
+        private readonly int[] leafContents;
         private readonly ushort[] leafFaceRange; // first, count per leaf
         private readonly ushort[] leafFaces;
         private readonly ushort[] index;     // count, first per leaf
@@ -228,9 +231,11 @@ namespace CompilePalX.Preview
             int leafCount = leafLump.Length / leafSize;
             leafBounds = new short[leafCount * 6];
             leafAreas = new short[leafCount];
+            leafContents = new int[leafCount];
             leafFaceRange = new ushort[leafCount * 2];
             for (int i = 0; i < leafCount; i++)
             {
+                leafContents[i] = BitConverter.ToInt32(leafLump, i * leafSize);
                 for (int k = 0; k < 6; k++)
                     leafBounds[i * 6 + k] = BitConverter.ToInt16(leafLump, i * leafSize + 8 + k * 2);
                 // area:flags packed as 9:7 bits
@@ -253,6 +258,82 @@ namespace CompilePalX.Preview
             }
 
             samples = sampleLump;
+        }
+
+        private const int ContentsSolid = 1;
+        private enum Hit { Miss, Sky, Blocked }
+
+        /// <summary>
+        /// Whether a ray from <paramref name="from"/> in the direction <paramref name="toward"/>
+        /// reaches the sky before anything solid: the test the engine's sun needs. The ray walks
+        /// the tree; when it enters a solid leaf, it reached the sky if the leaf it came from has a
+        /// sky face on the plane it just crossed. <paramref name="facePlane"/> and
+        /// <paramref name="isSkyFace"/> describe the faces the leaves list.
+        /// </summary>
+        public bool SeesSky(float[] from, float[] toward, Func<int, int> facePlane, Func<int, bool> isSkyFace)
+        {
+            if (nodes.Length == 0 || leafContents.Length == 0)
+                return true;
+
+            float[] end = [from[0] + toward[0] * 65536f, from[1] + toward[1] * 65536f, from[2] + toward[2] * 65536f];
+            int lastLeaf = -1, lastPlane = -1;
+            return Trace(0, from, end, ref lastLeaf, ref lastPlane, facePlane, isSkyFace, 0) != Hit.Blocked;
+        }
+
+        private Hit Trace(int node, float[] p1, float[] p2, ref int lastLeaf, ref int lastPlane, Func<int, int> facePlane, Func<int, bool> isSkyFace, int depth)
+        {
+            if (depth > 1024)
+                return Hit.Blocked;
+
+            if (node < 0)
+            {
+                int leaf = -1 - node;
+                if (leaf >= leafContents.Length)
+                    return Hit.Miss;
+
+                if ((leafContents[leaf] & ContentsSolid) != 0)
+                {
+                    if (lastLeaf >= 0 && lastPlane >= 0)
+                    {
+                        int first = leafFaceRange[lastLeaf * 2], count = leafFaceRange[lastLeaf * 2 + 1];
+                        for (int i = first; i < first + count && i < leafFaces.Length; i++)
+                        {
+                            int face = leafFaces[i];
+                            // planes come in facing pairs; a face may name either half
+                            if (isSkyFace(face) && facePlane(face) >> 1 == lastPlane >> 1)
+                                return Hit.Sky;
+                        }
+                    }
+                    return Hit.Blocked;
+                }
+
+                lastLeaf = leaf;
+                return Hit.Miss;
+            }
+
+            int plane = nodes[node * 3];
+            if (plane < 0 || plane * 4 + 3 >= planes.Length)
+                return Hit.Blocked;
+
+            float d1 = planes[plane * 4] * p1[0] + planes[plane * 4 + 1] * p1[1] + planes[plane * 4 + 2] * p1[2] - planes[plane * 4 + 3];
+            float d2 = planes[plane * 4] * p2[0] + planes[plane * 4 + 1] * p2[1] + planes[plane * 4 + 2] * p2[2] - planes[plane * 4 + 3];
+            int front = nodes[node * 3 + 1], back = nodes[node * 3 + 2];
+
+            if (d1 >= 0 && d2 >= 0)
+                return Trace(front, p1, p2, ref lastLeaf, ref lastPlane, facePlane, isSkyFace, depth + 1);
+            if (d1 < 0 && d2 < 0)
+                return Trace(back, p1, p2, ref lastLeaf, ref lastPlane, facePlane, isSkyFace, depth + 1);
+
+            float frac = d1 / (d1 - d2);
+            float[] mid = [p1[0] + (p2[0] - p1[0]) * frac, p1[1] + (p2[1] - p1[1]) * frac, p1[2] + (p2[2] - p1[2]) * frac];
+            int near = d1 < 0 ? back : front, far = d1 < 0 ? front : back;
+
+            var hit = Trace(near, p1, mid, ref lastLeaf, ref lastPlane, facePlane, isSkyFace, depth + 1);
+            if (hit != Hit.Miss)
+                return hit;
+
+            lastPlane = plane;
+            return Trace(far, mid, p2, ref lastLeaf, ref lastPlane, facePlane, isSkyFace, depth + 1);
         }
 
         /// <summary>The map area a leaf belongs to, or -1. The 3D skybox is its own area.</summary>

@@ -12,8 +12,8 @@ namespace CompilePalX.Preview
         float[] Positions,   // 3 per vertex
         float[] Normals,     // 3 per vertex
         float[] TexCoords,   // 2 per vertex
-        int[] VvdIndices,    // which VVD vertex each mesh vertex came from, for vertex lighting files
-        int VertexStart,     // the mesh's first VVD vertex, so VvdIndices - VertexStart is the mesh-local index
+        int[] VvdIndices,    // which VVD vertex each mesh vertex came from
+        int VertexStart,     // the mesh's first VVD vertex
         uint[] Indices);
 
     /// <summary>

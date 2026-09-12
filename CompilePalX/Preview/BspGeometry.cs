@@ -9,10 +9,14 @@ using System.Text.RegularExpressions;
 namespace CompilePalX.Preview
 {
     /// <summary>A run of the index buffer drawn with one material. Skybox runs are drawn first, scaled, and behind everything.</summary>
-    public sealed record DrawBatch(int Material, int First, int Count, bool Skybox = false);
+    public sealed record DrawBatch(int Material, int First, int Count, bool Skybox = false, bool Overlay = false);
 
     /// <summary>An overlay: four corners in world space, their texture coordinates, its material and which way it faces.</summary>
-    public sealed record Overlay(float[][] Corners, float[][] TexCoords, int Material, float[] Normal, bool Skybox);
+    /// <summary>An overlay's quad in map space (before any 3D skybox scaling), on the face it was placed on.</summary>
+    public sealed record Overlay(float[][] Corners, float[][] TexCoords, int Material, float[] Normal, bool Skybox, int FirstFace);
+
+    /// <summary>The map's sun: light_environment as VRAD wrote it. Direction is the way its light travels.</summary>
+    public sealed record Sun(float[] Color, float[] Direction);
 
     /// <summary>
     /// A compiled map reduced to what a viewer needs: triangles grouped by material, a lightmap
@@ -71,6 +75,15 @@ namespace CompilePalX.Preview
 
         /// <summary>Overlays - decals placed in Hammer - as quads with the material they show.</summary>
         public IReadOnlyList<Overlay> Overlays { get; init; } = [];
+
+        /// <summary>Overlays drawn into the world geometry, lit by their face's lightmap.</summary>
+        public int PlacedOverlays { get; init; }
+
+        /// <summary>The sun, for anything lit at runtime rather than baked: props without vertex lighting, entities.</summary>
+        public Sun? Sun { get; init; }
+
+        /// <summary>Whether a point sees the sun, by tracing toward it through the map; null without a sun.</summary>
+        public Func<float[], bool>? SunVisibleAt { get; init; }
 
         public int SkyboxFaces { get; init; }
 
@@ -131,6 +144,8 @@ namespace CompilePalX.Preview
         private const int LumpLeafAmbientLighting = 56;
         private const int LumpLeafFaces = 16;
         private const int LumpOverlays = 45;
+        private const int LumpWorldLights = 15;
+        private const int LumpWorldLightsHdr = 54;
 
         // texinfo flags: surfaces that never draw in the engine either
         private const int SurfSky2D = 0x2;
@@ -260,18 +275,20 @@ namespace CompilePalX.Preview
 
             var sky3D = ReadSkyCamera(entities);
             var fog = ReadFog(entities);
+            bool hdrLights = lightingMode == "hdr" && lumps[LumpWorldLightsHdr].Length > 0;
+            var sun = ReadSun(Data(hdrLights ? LumpWorldLightsHdr : LumpWorldLights), lumps[hdrLights ? LumpWorldLightsHdr : LumpWorldLights].Version);
             var entityProps = EntityProps(entities);
             var overlayData = Data(LumpOverlays);
 
             return Build(version, compressed, vertices, edges, surfedges, planes, texinfos, texdata, models, placements,
-                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, staticProps, entityProps, ambient, sky3D, fog, overlayData, dispInfos, dispVerts);
+                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, staticProps, entityProps, ambient, sky3D, fog, sun, overlayData, dispInfos, dispVerts);
         }
 
         private static PreviewScene Build(
             int version, bool compressed, float[] vertices, ushort[] edges, int[] surfedges, float[] planes,
             TexInfo[] texinfos, TexData[] texdata, Model[] models, Dictionary<int, Placement> placements,
             Face[] faces, byte[] lighting, string lightingMode, float[]? spawn, string? skyName, SkyPaint? skyPaint, byte[] pak,
-            List<StaticProp> staticProps, List<StaticProp> entityProps, LeafAmbient ambient, SkyCamera? sky3D, Fog? fog, byte[] overlayData,
+            List<StaticProp> staticProps, List<StaticProp> entityProps, LeafAmbient ambient, SkyCamera? sky3D, Fog? fog, Sun? sun, byte[] overlayData,
             DispInfo[] dispInfos, float[] dispVerts)
         {
             // the 3D skybox is the area the sky_camera sits in; its faces are drawn scaled up around it
@@ -484,7 +501,37 @@ namespace CompilePalX.Preview
                     skyboxFaceCount += group.Count();
             }
 
-            var overlays = ReadOverlays(overlayData, faces, texinfos, skyboxFaces, ToWorld);
+            var overlays = ReadOverlays(overlayData, faces, texinfos, skyboxFaces);
+
+            // overlays: quads on their face, lit by that face's lightmap, drawn after the world
+            int placedOverlays = 0;
+            foreach (var group in overlays.GroupBy(o => (o.Material, o.Skybox)).OrderBy(g => g.Key.Skybox ? 0 : 1).ThenBy(g => g.Key.Material))
+            {
+                int batchStart = outIndices.Count;
+                var colour = ColourFor(group.Key.Material >= 0 && group.Key.Material < texdata.Length ? texdata[group.Key.Material].Name : "");
+                foreach (var overlay in group)
+                {
+                    var face = faces[overlay.FirstFace];
+                    var texinfo = texinfos[face.TexInfo];
+                    bool lit = placed.TryGetValue(overlay.FirstFace, out var place);
+                    uint baseIndex = (uint)(outVerts.Count / PreviewScene.VertexStride);
+                    for (int k = 0; k < 4; k++)
+                    {
+                        var p = overlay.Corners[k];
+                        var (lu, lv) = lit ? LightmapUv(p, texinfo.LightmapVecs, face.LightMinS, face.LightMinT, place, atlas.Width, atlas.Height) : (-1f, -1f);
+                        Emit(ToWorld(p, overlay.Skybox), overlay.Normal, lu, lv, overlay.TexCoords[k][0], overlay.TexCoords[k][1], 0, colour);
+                    }
+                    foreach (uint index in new uint[] { 0, 1, 2, 0, 2, 3 })
+                        outIndices.Add(baseIndex + index);
+                    placedOverlays++;
+                }
+                batches.Add(new DrawBatch(group.Key.Material, batchStart, outIndices.Count - batchStart, group.Key.Skybox, Overlay: true));
+            }
+
+            Func<float[], bool>? sunVisibleAt = sun is null || ambient.IsEmpty ? null : point =>
+                ambient.SeesSky(point, [-sun.Direction[0], -sun.Direction[1], -sun.Direction[2]],
+                    f => f >= 0 && f < faces.Length ? faces[f].PlaneNum : -1,
+                    f => f >= 0 && f < faces.Length && faces[f].TexInfo >= 0 && faces[f].TexInfo < texinfos.Length && (texinfos[faces[f].TexInfo].Flags & (SurfSky | SurfSky2D)) != 0);
 
             if (outVerts.Count == 0)
             {
@@ -514,6 +561,9 @@ namespace CompilePalX.Preview
                 Sky3D = sky3D,
                 Fog = fog,
                 Overlays = overlays,
+                PlacedOverlays = placedOverlays,
+                Sun = sun,
+                SunVisibleAt = sunVisibleAt,
                 SkyboxFaces = skyboxFaceCount,
                 SkyboxArea = sky3D is null ? -1 : skyArea,
                 BspVersion = version,
@@ -887,7 +937,7 @@ namespace CompilePalX.Preview
         /// coordinates from its U and V ranges. Lifted a little off the surface so they draw on top
         /// of it. Layout: https://developer.valvesoftware.com/wiki/Source_BSP_File_Format#Overlay.
         /// </summary>
-        private static List<Overlay> ReadOverlays(byte[] data, Face[] faces, TexInfo[] texinfos, HashSet<int> skyboxFaces, Func<float[], bool, float[]> toWorld)
+        private static List<Overlay> ReadOverlays(byte[] data, Face[] faces, TexInfo[] texinfos, HashSet<int> skyboxFaces)
         {
             const int size = 352;
             var result = new List<Overlay>();
@@ -932,19 +982,41 @@ namespace CompilePalX.Preview
                 for (int k = 0; k < 4; k++)
                 {
                     var p = points[k];
-                    corners[k] = toWorld(
+                    corners[k] =
                     [
                         origin[0] + axis[0] * p[0] + cross[0] * p[1] + normal[0] * (p[2] + 0.5f),
                         origin[1] + axis[1] * p[0] + cross[1] * p[1] + normal[1] * (p[2] + 0.5f),
                         origin[2] + axis[2] * p[0] + cross[2] * p[1] + normal[2] * (p[2] + 0.5f),
-                    ], skybox);
+                    ];
                 }
 
                 float[][] uv = [[u0, v0], [u0, v1], [u1, v1], [u1, v0]];
-                result.Add(new Overlay(corners, uv, texinfos[texinfo].TexData, normal, skybox));
+                result.Add(new Overlay(corners, uv, texinfos[texinfo].TexData, normal, skybox, firstFace));
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The sun from the world lights lump: the entry of type 3 (skylight), whose intensity is
+        /// already in the linear units the engine lights models with and whose normal is the way
+        /// the light travels. Entries are 88 bytes, or 100 in version 1.
+        /// </summary>
+        public static Sun? ReadSun(byte[] worldLights, int version)
+        {
+            int size = version >= 1 ? 100 : 88;
+            for (int o = 0; o + size <= worldLights.Length; o += size)
+            {
+                if (BitConverter.ToInt32(worldLights, o + 40) != 3)
+                    continue;
+                float[] colour = [BitConverter.ToSingle(worldLights, o + 12), BitConverter.ToSingle(worldLights, o + 16), BitConverter.ToSingle(worldLights, o + 20)];
+                float[] direction = [BitConverter.ToSingle(worldLights, o + 24), BitConverter.ToSingle(worldLights, o + 28), BitConverter.ToSingle(worldLights, o + 32)];
+                float length = Length(direction);
+                if (length < 1e-6f || colour.All(c => c <= 0))
+                    continue;
+                return new Sun(colour, [direction[0] / length, direction[1] / length, direction[2] / length]);
+            }
+            return null;
         }
 
         /// <summary>"x y z" as three floats; zeros when absent or malformed.</summary>
@@ -1219,6 +1291,8 @@ namespace CompilePalX.Preview
         /// <summary>
         /// A sample as stored in the atlas: linear light divided by <see cref="LightmapRange"/>, then
         /// gamma-encoded so the 8 bits are spent where the eye can tell. The viewer inverts both.
+        /// A luxel is already on the scale the engine lights models with: a floor in full sun reads
+        /// about 1.2, the same as the sun's intensity plus the sky's, so nothing is rescaled here.
         /// </summary>
         public static (byte R, byte G, byte B) EncodeSample(byte r, byte g, byte b, sbyte exponent)
         {

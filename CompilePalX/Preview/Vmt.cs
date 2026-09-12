@@ -221,7 +221,8 @@ namespace CompilePalX.Preview
                 AlphaTest = Flag(keys, "$alphatest"),
                 NoCull = Flag(keys, "$nocull"),
                 Unlit = lowerShader is "unlitgeneric" or "unlittwotexture" or "sky" or "monitorscreen",
-                Color = ParseColor(keys.TryGetValue("$color", out var c) ? c : keys.TryGetValue("$color2", out var c2) ? c2 : null),
+                // $color2 is a model-shader tint; LightmappedGeneric and friends ignore it
+                Color = ParseColor(keys.TryGetValue("$color", out var c) ? c : lowerShader is "vertexlitgeneric" && keys.TryGetValue("$color2", out var c2) ? c2 : null),
                 Hidden = hidden,
                 Water = lowerShader is "water",
                 WaterColor = ParseColor(keys.TryGetValue("$fogcolor", out var fog) ? fog : keys.TryGetValue("$refracttint", out var tint) ? tint : "{77 128 153}"),

@@ -151,13 +151,13 @@ namespace CompilePalX.Preview
                     color = m.Color,
                     hidden = m.Hidden,
                 }).ToList(),
-                batches = scene.Batches.Select(b => new { material = b.Material, first = b.First, count = b.Count, prop = false, skybox = b.Skybox, overlay = false })
+                batches = scene.Batches.Select(b => new { material = b.Material, first = b.First, count = b.Count, prop = false, skybox = b.Skybox, overlay = b.Overlay })
                     .Concat(props.Batches.Select(b => new { material = b.Material, first = b.First + scene.Indices.Length, count = b.Count, prop = true, skybox = b.Skybox, overlay = false }))
-                    .Concat(props.OverlayBatches.Select(b => new { material = b.Material, first = b.First + scene.Indices.Length, count = b.Count, prop = true, skybox = b.Skybox, overlay = true }))
                     .ToList(),
+                sun = scene.Sun is { } sun ? new { color = sun.Color, direction = sun.Direction } : null,
                 fog = scene.Fog is { } fog ? new { color = fog.Color, start = fog.Start, end = fog.End, maxDensity = fog.MaxDensity } : null,
                 sky3d = scene.Sky3D is { } sky3d ? new { scale = sky3d.Scale, faces = scene.SkyboxFaces } : null,
-                overlays = new { total = scene.Overlays.Count, placed = props.OverlaysPlaced },
+                overlays = new { total = scene.Overlays.Count, placed = scene.PlacedOverlays },
                 props = new
                 {
                     total = scene.StaticProps.Count + scene.EntityProps.Count,
@@ -198,7 +198,7 @@ namespace CompilePalX.Preview
                 $"{scene.LightingMode} lighting in a {scene.LightmapWidth}x{scene.LightmapHeight} atlas, " +
                 $"{scene.DrawnDisplacements} displacements, {scene.PlacedBrushEntities} brush entities placed, " +
                 $"{props.PropsPlaced} of {scene.StaticProps.Count + scene.EntityProps.Count} props ({props.EntityPropsPlaced} from entities, {props.ModelsLoaded} models, {props.Triangles} triangles, {props.PropsWithBakedLight} with baked light, {props.PropsMissing} models missing, {props.PropsSkipped} over budget), " +
-                $"{props.OverlaysPlaced} overlays, {(scene.Sky3D is null ? "no 3D skybox" : $"3D skybox of {scene.SkyboxFaces} faces at 1/{scene.Sky3D.Scale}")}, {(scene.Fog is null ? "no fog" : $"fog {scene.Fog.Start}-{scene.Fog.End}")}, " +
+                $"{scene.PlacedOverlays} overlays, {(scene.Sun is null ? "no sun" : "sun")}, {(scene.Sky3D is null ? "no 3D skybox" : $"3D skybox of {scene.SkyboxFaces} faces at 1/{scene.Sky3D.Scale}")}, {(scene.Fog is null ? "no fog" : $"fog {scene.Fog.Start}-{scene.Fog.End}")}, " +
                 $"{materials.MaterialsFound} of {scene.MaterialNames.Count} materials found ({content.PakHits} of {content.PackedFiles} packed, {content.FolderHits} loose, {content.VpkHits} in VPKs), " +
                 $"{materials.Textures.Count} textures, sky {(sky is not null ? scene.SkyName : scene.SkyPaint is not null ? "painted" : "not found")}" +
                 $"{(scene.Compressed ? ", inflated from a compressed BSP" : "")}.");

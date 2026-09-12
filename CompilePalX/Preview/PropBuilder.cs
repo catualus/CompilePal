@@ -1,35 +1,34 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using CompilePalX.Compiling;
 
 namespace CompilePalX.Preview
 {
-    /// <summary>The props and overlays of a map as drawable geometry, in the world's vertex layout.</summary>
+    /// <summary>The props of a map as drawable geometry, in the world's vertex layout.</summary>
     public sealed class PropGeometry
     {
         public float[] Vertices { get; init; } = [];
         public uint[] Indices { get; init; } = [];
-        /// <summary>Prop batches: light in the colour slot. Overlay batches are flagged and drawn on top of the world.</summary>
+        /// <summary>Prop batches: light in the colour slot.</summary>
         public IReadOnlyList<DrawBatch> Batches { get; init; } = [];
-        public IReadOnlyList<DrawBatch> OverlayBatches { get; init; } = [];
         public int PropsPlaced { get; init; }
         public int EntityPropsPlaced { get; init; }
         public int PropsMissing { get; init; }
         public int PropsSkipped { get; init; }
         public int ModelsLoaded { get; init; }
         public int PropsWithBakedLight { get; init; }
-        public int OverlaysPlaced { get; init; }
+        public int PropsInSun { get; init; }
         public int Triangles => Indices.Length / 3;
     }
 
     /// <summary>
     /// Places every prop - static props from the lump, and the doors and dynamic props entities
-    /// put down - and every overlay: loads each model once, transforms its LOD 0 triangles by the
-    /// prop's origin, angles and scale, and lights every vertex - from VRAD's baked vertex colours
-    /// when the map has them, otherwise from the ambient cube at the prop's position - so the
-    /// viewer needs no per-prop state at all and can draw all props of one material in one call.
+    /// put down: loads each model once, transforms its LOD 0 triangles by the prop's origin,
+    /// angles and scale, and lights every vertex - from VRAD's baked vertex colours when the map
+    /// has them, otherwise the way the engine lights a model at runtime: the ambient cube at its
+    /// position plus the sun, when a trace toward it reaches the sky - so the viewer needs no
+    /// per-prop state at all and can draw all props of one material in one call.
     ///
     /// Vertices use the world layout with the lightmap coordinate set to "none" and the colour slot
     /// carrying the light, which the viewer multiplies the texture by. Props inside the 3D skybox
@@ -45,7 +44,7 @@ namespace CompilePalX.Preview
             var models = new Dictionary<string, StudioModel?>(StringComparer.OrdinalIgnoreCase);
             var vertices = new List<float>();
             var byMaterial = new Dictionary<(int Material, bool Skybox), List<uint>>();
-            int placed = 0, entityPlaced = 0, missing = 0, skipped = 0, baked = 0;
+            int placed = 0, entityPlaced = 0, missing = 0, skipped = 0, baked = 0, inSun = 0;
             long triangles = 0;
 
             var centre = scene.Spawn ?? [(scene.Mins[0] + scene.Maxs[0]) / 2, (scene.Mins[1] + scene.Maxs[1]) / 2, (scene.Mins[2] + scene.Maxs[2]) / 2];
@@ -112,13 +111,18 @@ namespace CompilePalX.Preview
                         lighting = VertexLighting.Read(vhv);
                 }
 
-                // one colour list per mesh, in mesh order; anything else is a file for a different model
-                bool bakedOk = lighting is not null && lighting.Count == model.Meshes.Count;
+                // one colour list per mesh, in mesh order, with a colour per vertex in the order the
+                // VTX strips list them - the order VRAD lit them in; anything else is a file for a
+                // different build of the model, and lighting it at runtime beats garbling it
+                bool bakedOk = lighting is not null && lighting.Count == model.Meshes.Count
+                               && lighting.Zip(model.Meshes).All(pair => pair.First.Length == pair.Second.Positions.Length);
                 if (bakedOk)
                     baked++;
 
                 var placement = new BspGeometry.Placement(prop.Origin, prop.Angles);
-                float[]? cube = bakedOk ? null : AmbientFor(scene, prop, model, placement);
+                var runtime = bakedOk ? null : RuntimeLight.For(scene, prop, model, placement);
+                if (runtime is { SeesSun: true })
+                    inSun++;
 
                 for (int m = 0; m < model.Meshes.Count; m++)
                 {
@@ -142,13 +146,11 @@ namespace CompilePalX.Preview
                         float[] light;
                         if (meshLight is not null)
                         {
-                            // the file's vertices follow the mesh's own order in the VVD
-                            int li = Math.Clamp(mesh.VvdIndices[v] - mesh.VertexStart, 0, meshLight.Length / 3 - 1);
-                            light = [meshLight[li * 3], meshLight[li * 3 + 1], meshLight[li * 3 + 2]];
+                            light = [meshLight[v * 3], meshLight[v * 3 + 1], meshLight[v * 3 + 2]];
                         }
                         else
                         {
-                            light = cube is null ? [0.5f, 0.5f, 0.5f] : LeafAmbient.Light(cube, worldNormal);
+                            light = runtime is null ? [0.5f, 0.5f, 0.5f] : runtime.Light(worldNormal);
                         }
 
                         Emit(world, worldNormal, mesh.TexCoords[v * 2], mesh.TexCoords[v * 2 + 1], light);
@@ -164,33 +166,6 @@ namespace CompilePalX.Preview
                     entityPlaced++;
             }
 
-            // overlays: a quad each, lit like a prop from the ambient cube where it sits
-            var overlaysByMaterial = new Dictionary<(int Material, bool Skybox), List<uint>>();
-            int overlaysPlaced = 0;
-            foreach (var overlay in scene.Overlays)
-            {
-                if (overlay.Material < 0 || overlay.Material >= scene.MaterialNames.Count)
-                    continue;
-
-                var key = (materials.IndexOf(scene.MaterialNames[overlay.Material]), overlay.Skybox);
-                if (!overlaysByMaterial.TryGetValue(key, out var list))
-                    overlaysByMaterial[key] = list = [];
-
-                var centreOfQuad = new float[3];
-                foreach (var c in overlay.Corners)
-                    for (int k = 0; k < 3; k++)
-                        centreOfQuad[k] += c[k] / 4;
-                var cube = scene.Ambient?.CubeAt(centreOfQuad);
-                var light = cube is null ? [0.6f, 0.6f, 0.6f] : LeafAmbient.Light(cube, overlay.Normal);
-
-                uint baseIndex = (uint)(vertices.Count / PreviewScene.VertexStride);
-                for (int k = 0; k < 4; k++)
-                    Emit(overlay.Corners[k], overlay.Normal, overlay.TexCoords[k][0], overlay.TexCoords[k][1], light);
-
-                list.AddRange([baseIndex, baseIndex + 1, baseIndex + 2, baseIndex, baseIndex + 2, baseIndex + 3]);
-                overlaysPlaced++;
-            }
-
             var indices = new List<uint>();
             var batches = new List<DrawBatch>();
             foreach (var (key, list) in byMaterial.OrderBy(kv => kv.Key.Skybox ? 0 : 1).ThenBy(kv => kv.Key.Material))
@@ -199,51 +174,68 @@ namespace CompilePalX.Preview
                 indices.AddRange(list);
             }
 
-            var overlayBatches = new List<DrawBatch>();
-            foreach (var (key, list) in overlaysByMaterial.OrderBy(kv => kv.Key.Skybox ? 0 : 1).ThenBy(kv => kv.Key.Material))
-            {
-                overlayBatches.Add(new DrawBatch(key.Material, indices.Count, list.Count, key.Skybox));
-                indices.AddRange(list);
-            }
-
             return new PropGeometry
             {
                 Vertices = vertices.ToArray(),
                 Indices = indices.ToArray(),
                 Batches = batches,
-                OverlayBatches = overlayBatches,
                 PropsPlaced = placed,
                 EntityPropsPlaced = entityPlaced,
                 PropsMissing = missing,
                 PropsSkipped = skipped,
                 ModelsLoaded = models.Values.Count(m => m is not null),
                 PropsWithBakedLight = baked,
-                OverlaysPlaced = overlaysPlaced,
+                PropsInSun = inSun,
             };
         }
 
         /// <summary>
-        /// The ambient cube to light a prop by. A static prop names its lighting origin. An entity's
-        /// origin is often its hinge or its base, inside a wall or a floor where the leaf is dark or
-        /// solid, so those are lit from where their body is and fall back to the origin only when
-        /// that sample is black too.
+        /// How the engine lights a model that has no baked light: the ambient cube where its body
+        /// is, plus the sun when the body can see the sky. An entity's origin is often its hinge or
+        /// its base, inside a wall or a floor where the leaf is dark or solid, so the sample is
+        /// taken at the model's centre and falls back to the origin only when that is black too.
         /// </summary>
-        private static float[]? AmbientFor(PreviewScene scene, StaticProp prop, StudioModel model, BspGeometry.Placement placement)
+        public sealed class RuntimeLight
         {
-            if (scene.Ambient is null)
-                return null;
-            if (prop.Index >= 0)
-                return scene.Ambient.CubeAt(prop.LightingOrigin);
+            public required float[] Cube { get; init; }
+            public bool SeesSun { get; init; }
+            public Sun? Sun { get; init; }
 
-            var c = model.Centre;
-            var body = BspGeometry.Place([c[0] * prop.Scale, c[1] * prop.Scale, c[2] * prop.Scale], placement);
-            var cube = scene.Ambient.CubeAt(body);
-            if (cube.Any(v => v > 0.002f))
-                return cube;
-            cube = scene.Ambient.CubeAt(prop.Origin);
-            if (cube.Any(v => v > 0.002f))
-                return cube;
-            return scene.Ambient.CubeAt([body[0], body[1], body[2] + 32]);
+            public float[] Light(float[] normal)
+            {
+                var light = LeafAmbient.Light(Cube, normal);
+                if (SeesSun && Sun is not null)
+                {
+                    float facing = Math.Max(-(normal[0] * Sun.Direction[0] + normal[1] * Sun.Direction[1] + normal[2] * Sun.Direction[2]), 0f);
+                    for (int k = 0; k < 3; k++)
+                        light[k] += Sun.Color[k] * facing;
+                }
+                return light;
+            }
+
+            public static RuntimeLight? For(PreviewScene scene, StaticProp prop, StudioModel model, BspGeometry.Placement placement)
+            {
+                if (scene.Ambient is null)
+                    return null;
+
+                var c = model.Centre;
+                var body = BspGeometry.Place([c[0] * prop.Scale, c[1] * prop.Scale, c[2] * prop.Scale], placement);
+                var samplePoint = prop.Index >= 0 ? prop.LightingOrigin : body;
+
+                var cube = scene.Ambient.CubeAt(samplePoint);
+                if (prop.Index < 0 && cube.All(v => v <= 0.002f))
+                {
+                    cube = scene.Ambient.CubeAt(prop.Origin);
+                    if (cube.All(v => v <= 0.002f))
+                        cube = scene.Ambient.CubeAt([body[0], body[1], body[2] + 32]);
+                }
+
+                // the sun: traced from a little above the body, so a prop standing on the ground is not its own shadow
+                bool seesSun = scene.Sun is not null && scene.SunVisibleAt is not null
+                               && (scene.SunVisibleAt([body[0], body[1], body[2] + 8]) || scene.SunVisibleAt([prop.Origin[0], prop.Origin[1], prop.Origin[2] + 8]));
+
+                return new RuntimeLight { Cube = cube, SeesSun = seesSun, Sun = scene.Sun };
+            }
         }
 
         private static float Distance2(float[] a, float[] b)
