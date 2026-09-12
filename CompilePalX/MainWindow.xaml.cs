@@ -475,6 +475,9 @@ namespace CompilePalX
 
                 currentStepName = info.StepName;
 
+                // the step before this one has just written its output, which the preview may want
+                PreviewView.OnStepStarting(info);
+
                 // Flushed first so the divider is in the document: it is logged immediately before this
                 // event is raised, and the last inline is therefore the divider itself - which is what
                 // the jump should land on.
@@ -1252,6 +1255,8 @@ namespace CompilePalX
             // edited back to that map's - otherwise the grids show one map's parameters under another
             // map's name until something else happens to reselect.
             UpdateConfigGrid();
+
+            PreviewView.OnCompileFinished();
 
             CompileStartStopButton.Content = "Compile";
 

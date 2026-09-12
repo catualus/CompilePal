@@ -138,6 +138,9 @@ namespace CompilePalX.Compiling
             return cachedStyle;
         }
 
+        /// <summary>The process-wide environment, for any other WebView2 in the application - the map preview uses it too.</summary>
+        internal static Task<CoreWebView2Environment> SharedEnvironment() => Environment();
+
         private static Task<CoreWebView2Environment> Environment()
         {
             lock (environmentLock)

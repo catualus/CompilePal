@@ -8,6 +8,12 @@
         "resolved": "1.1.9",
         "contentHash": "AfK5+ECWYTP7G3AAdnU8IfVj+QpGjrh9GC2mpdcJzCvtQ4pnerAGwHsxJ9D4/RnhDUz2DSzd951O/lQjQby2Sw=="
       },
+      "LZMA-SDK": {
+        "type": "Direct",
+        "requested": "[22.1.1, )",
+        "resolved": "22.1.1",
+        "contentHash": "lxG8/H53OCqebnDFlTStwzbgtmUN/DqnXN8kffa/ctHcSEHhIPDyEa3jLzpZxVX5F8bmJgvb1mna6gnhetykIw=="
+      },
       "MahApps.Metro.IconPacks": {
         "type": "Direct",
         "requested": "[6.2.1, )",

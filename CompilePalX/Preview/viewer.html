@@ -1,0 +1,539 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Map preview</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1c1c1c; color: #ddd;
+               font: 12px "Segoe UI Variable Text", "Segoe UI", sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hud { position: absolute; left: 10px; top: 10px; background: rgba(20,20,20,.82); border: 1px solid #3a3a3a;
+         border-radius: 6px; padding: 8px 10px; min-width: 220px; max-width: 60%; user-select: none; }
+  #hud h1 { font-size: 13px; margin: 0 0 6px; font-weight: 600; }
+  #hud .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  #hud label { min-width: 62px; color: #aaa; }
+  #hud select, #hud input[type=range] { flex: 1; }
+  #hud .stat { color: #aaa; }
+  #hud .warn { color: #e0b64a; }
+  #help { position: absolute; right: 10px; bottom: 10px; color: #888; background: rgba(20,20,20,.7);
+          padding: 6px 8px; border-radius: 6px; }
+  #message { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); color: #aaa; font-size: 14px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <h1 id="title">Map preview</h1>
+  <div class="row"><label>Show</label>
+    <select id="mode">
+      <option value="0">Textured, lit</option>
+      <option value="3">Textured, unlit</option>
+      <option value="1">Flat colours, lit</option>
+      <option value="2">Lightmap only</option>
+    </select></div>
+  <div class="row"><label>Exposure</label><input id="gain" type="range" min="0.25" max="4" step="0.05" value="1"><span id="gainv">1.00</span></div>
+  <div class="stat" id="stats"></div>
+  <div class="warn" id="warn"></div>
+</div>
+<div id="help">WASD move · wheel forward/back · drag to look · Q/E down/up · Shift faster · R return to spawn</div>
+<div id="message">Loading…</div>
+
+<script>
+(async function () {
+  const canvas = document.getElementById('c');
+  const message = document.getElementById('message');
+  const stamp = new URLSearchParams(location.search).get('v') || Date.now();
+
+  const gl = canvas.getContext('webgl2', { antialias: true, depth: true, preserveDrawingBuffer: true });
+  if (!gl) { message.textContent = 'WebGL 2 is not available in this WebView.'; return; }
+  const s3tc = gl.getExtension('WEBGL_compressed_texture_s3tc');
+  const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+
+  // ---- data ------------------------------------------------------------------------------
+  let scene, geometry, lightmap;
+  try {
+    scene = await (await fetch('scene.json?v=' + stamp)).json();
+    geometry = await (await fetch('geometry.bin?v=' + stamp)).arrayBuffer();
+    lightmap = await (await fetch('lightmap.bin?v=' + stamp)).arrayBuffer();
+  } catch (e) {
+    message.textContent = 'No preview has been written yet.';
+    return;
+  }
+
+  const view = new DataView(geometry);
+  const vertexCount = view.getInt32(0, true);
+  const indexCount = view.getInt32(4, true);
+  const stride = scene.vertexStride;
+  const vertices = new Float32Array(geometry, 8, vertexCount * stride);
+  const indices = new Uint32Array(geometry, 8 + vertexCount * stride * 4, indexCount);
+
+  document.getElementById('title').textContent = scene.map;
+  const lightingLabel = { hdr: 'HDR lighting', ldr: 'LDR lighting', none: 'no lighting yet' }[scene.lightmap.mode] || scene.lightmap.mode;
+  document.getElementById('stats').textContent =
+    `${scene.faces.drawn.toLocaleString()} faces · ${scene.faces.displacements.toLocaleString()} displacements · ${(indexCount / 3).toLocaleString()} triangles · ${lightingLabel}` +
+    ` · ${scene.props ? scene.props.placed.toLocaleString() + ' of ' + scene.props.total.toLocaleString() + ' props' + (scene.props.baked > 0 ? ' (' + scene.props.baked.toLocaleString() + ' with baked light)' : '') : 'no props'}` +
+    ` · ${scene.content.materialsFound.toLocaleString()} of ${scene.materials.length.toLocaleString()} materials, ${scene.textures.length.toLocaleString()} textures` +
+    `${scene.overlays && scene.overlays.placed ? ' · ' + scene.overlays.placed.toLocaleString() + ' overlays' : ''}${scene.sky3d ? ' · 3D skybox' : ''}${scene.fog ? ' · fog' : ''}` +
+    `${scene.compressed ? ' · from a compressed BSP' : ''} · written ${scene.writtenAt.replace('T', ' ')}`;
+  const warnings = [];
+  if (!scene.content.gameContent) warnings.push('no game folder configured, so only the map\'s own packed content could be found');
+  if (scene.content.materialsMissing > 0) warnings.push(`${scene.content.materialsMissing.toLocaleString()} materials not found`);
+  if (scene.content.texturesMissing > 0) warnings.push(`${scene.content.texturesMissing.toLocaleString()} textures not found`);
+  if (!scene.sky) warnings.push('sky not found');
+  if (scene.faces.displacementsSkipped > 0) warnings.push(`${scene.faces.displacementsSkipped.toLocaleString()} displacements could not be read`);
+  if (scene.faces.unlit > 0) warnings.push(`${scene.faces.unlit.toLocaleString()} faces have no lightmap and are drawn fullbright, as the game does`);
+  if (scene.lightmap.mode !== 'none' && !scene.sun) warnings.push('no light_environment, so props without baked light get no sun');
+  if (scene.props && scene.props.missing > 0) warnings.push(`${scene.props.missing.toLocaleString()} props whose model could not be found`);
+  if (scene.props && scene.props.skipped > 0) warnings.push(`${scene.props.skipped.toLocaleString()} props skipped to stay within the triangle budget`);
+  if (scene.overlays && scene.overlays.total > scene.overlays.placed) warnings.push(`${(scene.overlays.total - scene.overlays.placed).toLocaleString()} overlays could not be placed`);
+  if (!s3tc) warnings.push('this WebView cannot use DXT textures, so most textures will be missing');
+  document.getElementById('warn').textContent = warnings.join(' · ');
+
+  if (vertexCount === 0) { message.textContent = 'The map has no drawable faces.'; return; }
+
+  // ---- shaders ---------------------------------------------------------------------------
+  function compile(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  function program(vs, fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  }
+
+  const worldProgram = program(`#version 300 es
+    layout(location=0) in vec3 aPos;
+    layout(location=1) in vec3 aNormal;
+    layout(location=2) in vec2 aLmUv;
+    layout(location=3) in vec2 aTexUv;
+    layout(location=4) in float aBlend;
+    layout(location=5) in vec3 aColor;
+    uniform mat4 uViewProj;
+    uniform vec3 uEye;
+    out vec3 vNormal; out vec2 vLmUv; out vec2 vTexUv; out float vBlend; out vec3 vColor; out float vDistance;
+    void main() {
+      vNormal = aNormal; vLmUv = aLmUv; vTexUv = aTexUv; vBlend = aBlend; vColor = aColor;
+      vDistance = distance(aPos, uEye);
+      gl_Position = uViewProj * vec4(aPos, 1.0);
+    }`, `#version 300 es
+    precision mediump float;
+    in vec3 vNormal; in vec2 vLmUv; in vec2 vTexUv; in float vBlend; in vec3 vColor; in float vDistance;
+    uniform sampler2D uLightmap; uniform sampler2D uTex; uniform sampler2D uTex2;
+    uniform bool uHasLightmap, uHasTex, uHasTex2, uUnlit, uAlphaTest, uTranslucent, uProp, uWater;
+    uniform vec3 uTint, uWaterColor;
+    uniform int uMode;
+    uniform float uExposure, uRange;
+    uniform bool uFog; uniform vec3 uFogColor; uniform float uFogStart, uFogEnd, uFogMax, uFogScale;
+    out vec4 outColor;
+
+    vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
+    vec3 toDisplay(vec3 c) { return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2)); }
+    // keeps sunlit surfaces from flattening to the same white, the way a clamp would
+    vec3 softClip(vec3 c) { return mix(c, 0.85 + 0.15 * (1.0 - exp(-(c - 0.85) / 0.15)), step(0.85, c)); }
+
+    void main() {
+      vec3 n = normalize(vNormal);
+      float shade = 0.55 + 0.45 * max(dot(n, normalize(vec3(0.4, 0.3, 0.85))), 0.0);
+
+      // albedo: the texture, blended with the second one on displacements, tinted; or the flat colour.
+      // A prop carries its light in the colour slot instead, so its untextured fallback is grey.
+      vec3 albedo = uProp ? vec3(0.6) : vColor;
+      float alpha = 1.0;
+      bool textured = uHasTex && uMode != 1 && uMode != 2;
+      if (textured) {
+        vec4 t = texture(uTex, vTexUv);
+        if (uHasTex2) t = mix(t, texture(uTex2, vTexUv), vBlend);
+        albedo = toLinear(t.rgb) * uTint;
+        alpha = t.a;
+        if (uAlphaTest && alpha < 0.5) discard;
+      }
+
+      // light: the lightmap where there is one, a fixed sun where there is not
+      bool lit = uProp || (uHasLightmap && vLmUv.x >= 0.0);
+      // a face with no lightmap is drawn fullbright, which is what the engine does with it
+      vec3 light = uProp ? vColor : lit ? toLinear(texture(uLightmap, vLmUv).rgb) * uRange : vec3(1.0);
+
+      vec3 c;
+      if (uWater && uMode != 1 && uMode != 2) { c = uWaterColor * (lit ? light : vec3(0.9)); alpha = 0.6; textured = true; }
+      else if (uMode == 2) c = light;
+      else if (uMode == 3) c = albedo * (lit ? 1.0 : shade);
+      else if (uUnlit && textured) c = albedo;
+      else c = albedo * light;
+
+      if (uFog) {
+        float f = clamp((vDistance * uFogScale - uFogStart) / (uFogEnd - uFogStart), 0.0, uFogMax);
+        c = mix(c, uFogColor, f);
+      }
+
+      c = softClip(c * uExposure);
+      outColor = vec4(toDisplay(c), (uTranslucent || uWater) && textured ? alpha : 1.0);
+    }`);
+
+  const skyProgram = program(`#version 300 es
+    layout(location=0) in vec3 aPos;
+    layout(location=1) in vec2 aUv;
+    uniform mat4 uViewProj;
+    out vec2 vUv; out vec3 vDir;
+    void main() { vUv = aUv; vDir = aPos; gl_Position = (uViewProj * vec4(aPos, 1.0)).xyww; }`, `#version 300 es
+    precision mediump float;
+    in vec2 vUv; in vec3 vDir;
+    uniform sampler2D uTex;
+    uniform float uExposure;
+    uniform bool uPainted;
+    uniform vec3 uTop, uBottom, uSunColor, uSunNormal;
+    uniform float uFadeBias, uSunSize;
+    out vec4 outColor;
+    void main() {
+      vec3 c;
+      if (uPainted) {
+        // Garry's Mod's painted sky: a gradient by height, biased, with a sun disc and glow
+        vec3 d = normalize(vDir);
+        float t = pow(clamp(d.z * 0.5 + 0.5, 0.0, 1.0), max(uFadeBias, 0.01));
+        c = mix(uBottom, uTop, t);
+        float sun = max(dot(d, normalize(uSunNormal)), 0.0);
+        c += uSunColor * (pow(sun, 256.0 / max(uSunSize, 0.5)) * 3.0 + pow(sun, 8.0) * 0.4);
+        c *= uExposure;
+      } else {
+        c = pow(texture(uTex, vUv).rgb, vec3(2.2)) * uExposure;
+      }
+      outColor = vec4(pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
+    }`);
+
+  const U = (p, n) => gl.getUniformLocation(p, n);
+  const u = {
+    viewProj: U(worldProgram, 'uViewProj'), hasLightmap: U(worldProgram, 'uHasLightmap'),
+    hasTex: U(worldProgram, 'uHasTex'), hasTex2: U(worldProgram, 'uHasTex2'), unlit: U(worldProgram, 'uUnlit'),
+    alphaTest: U(worldProgram, 'uAlphaTest'), translucent: U(worldProgram, 'uTranslucent'), tint: U(worldProgram, 'uTint'),
+    mode: U(worldProgram, 'uMode'), exposure: U(worldProgram, 'uExposure'), range: U(worldProgram, 'uRange'), prop: U(worldProgram, 'uProp'),
+    water: U(worldProgram, 'uWater'), waterColor: U(worldProgram, 'uWaterColor'), eye: U(worldProgram, 'uEye'),
+    fog: U(worldProgram, 'uFog'), fogColor: U(worldProgram, 'uFogColor'), fogStart: U(worldProgram, 'uFogStart'), fogEnd: U(worldProgram, 'uFogEnd'), fogMax: U(worldProgram, 'uFogMax'), fogScale: U(worldProgram, 'uFogScale'),
+  };
+  gl.useProgram(worldProgram);
+  gl.uniform1i(U(worldProgram, 'uLightmap'), 0);
+  gl.uniform1i(U(worldProgram, 'uTex'), 1);
+  gl.uniform1i(U(worldProgram, 'uTex2'), 2);
+  gl.uniform1f(u.range, scene.lightmap.range || 4);
+  gl.useProgram(skyProgram);
+  gl.uniform1i(U(skyProgram, 'uTex'), 1);
+
+  // ---- geometry --------------------------------------------------------------------------
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+  const bytes = stride * 4;
+  const attribs = [[0, 3, 0], [1, 3, 12], [2, 2, 24], [3, 2, 32], [4, 1, 40], [5, 3, 44]];
+  for (const [loc, size, off] of attribs) { gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, bytes, off); }
+  const ibo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+
+  // ---- lightmap --------------------------------------------------------------------------
+  const hasLightmap = scene.lightmap.width > 0 && lightmap.byteLength >= scene.lightmap.width * scene.lightmap.height * 4;
+  const lmTex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, lmTex);
+  if (hasLightmap) {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, scene.lightmap.width, scene.lightmap.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(lightmap));
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
+  }
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  // ---- textures --------------------------------------------------------------------------
+  const white = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, white);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+
+  const textures = new Array(scene.textures.length).fill(null);
+  let loaded = 0;
+  async function loadTexture(entry) {
+    try {
+      const data = await (await fetch(`textures/t${entry.id}.bin?v=${stamp}`)).arrayBuffer();
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      let ok = true;
+      entry.levels.forEach((level, i) => {
+        const bytes = new Uint8Array(data, level.offset, level.size);
+        if (entry.format === 'rgba8') {
+          gl.texImage2D(gl.TEXTURE_2D, i, gl.RGBA, level.w, level.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+        } else if (s3tc) {
+          const fmt = entry.format === 'dxt1' ? (entry.hasAlpha ? s3tc.COMPRESSED_RGBA_S3TC_DXT1_EXT : s3tc.COMPRESSED_RGB_S3TC_DXT1_EXT)
+                    : entry.format === 'dxt3' ? s3tc.COMPRESSED_RGBA_S3TC_DXT3_EXT : s3tc.COMPRESSED_RGBA_S3TC_DXT5_EXT;
+          gl.compressedTexImage2D(gl.TEXTURE_2D, i, fmt, level.w, level.h, 0, bytes);
+        } else {
+          ok = false;
+        }
+      });
+      if (!ok) return;
+      const full = entry.levels.length > 1 && entry.levels[entry.levels.length - 1].w === 1 && entry.levels[entry.levels.length - 1].h === 1;
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, entry.levels.length - 1);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, entry.levels.length > 1 ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      textures[entry.id] = tex;
+    } catch (e) {
+      // a texture that fails to load leaves its material flat-coloured
+    } finally {
+      loaded++;
+      message.textContent = `Loading textures ${loaded} / ${scene.textures.length}…`;
+    }
+  }
+  // a handful at a time keeps the WebView responsive on maps with hundreds of textures
+  const queue = scene.textures.slice();
+  async function worker() { while (queue.length) await loadTexture(queue.shift()); }
+  await Promise.all(Array.from({ length: 6 }, worker));
+  message.remove();
+
+  // ---- sky -------------------------------------------------------------------------------
+  let sky = null;
+  if (scene.sky && (scene.sky.faces || scene.sky.painted)) {
+    // face → outward normal, up vector; the image's top edge lies along "up"
+    const faces = {
+      rt: [[1, 0, 0], [0, 0, 1]], lf: [[-1, 0, 0], [0, 0, 1]],
+      bk: [[0, 1, 0], [0, 0, 1]], ft: [[0, -1, 0], [0, 0, 1]],
+      up: [[0, 0, 1], [-1, 0, 0]], dn: [[0, 0, -1], [1, 0, 0]],
+    };
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const verts = [], idx = [];
+    const draws = [];
+    for (const [suffix, [n, up]] of Object.entries(faces)) {
+      const r = cross(n, up);
+      const corner = (sr, su) => [n[0] + r[0] * sr + up[0] * su, n[1] + r[1] * sr + up[1] * su, n[2] + r[2] * sr + up[2] * su];
+      const base = verts.length / 5;
+      verts.push(...corner(-1, 1), 0, 0, ...corner(1, 1), 1, 0, ...corner(1, -1), 1, 1, ...corner(-1, -1), 0, 1);
+      idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      draws.push({ texture: scene.sky.faces ? scene.sky.faces[suffix] : null, first: idx.length - 6 });
+    }
+    const svao = gl.createVertexArray();
+    gl.bindVertexArray(svao);
+    const svbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, svbo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 20, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12);
+    const sibo = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    sky = { vao: svao, draws, painted: scene.sky.painted };
+    // sky faces must not repeat at their edges
+    for (const d of draws) if (d.texture != null && textures[d.texture]) {
+      gl.bindTexture(gl.TEXTURE_2D, textures[d.texture]);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+  }
+
+  // ---- batches ---------------------------------------------------------------------------
+  const batches = scene.batches.map(b => ({ ...b, material: scene.materials[b.material] || {} }));
+  const isTranslucent = b => b.material.translucent || b.material.water || b.material.modulate;
+  const skyboxOpaque = batches.filter(b => b.skybox && !b.overlay && !isTranslucent(b));
+  const skyboxTranslucent = batches.filter(b => b.skybox && !b.overlay && isTranslucent(b));
+  const skyboxOverlays = batches.filter(b => b.skybox && b.overlay);
+  const opaque = batches.filter(b => !b.skybox && !b.overlay && !isTranslucent(b));
+  const translucent = batches.filter(b => !b.skybox && !b.overlay && isTranslucent(b));
+  const overlays = batches.filter(b => !b.skybox && b.overlay);
+  const skyScale = scene.sky3d ? scene.sky3d.scale : 1;
+
+  gl.enable(gl.DEPTH_TEST);
+  // Source winds its faces clockwise; their backs are culled unless the material says $nocull
+  gl.frontFace(gl.CW);
+  gl.clearColor(0.11, 0.11, 0.12, 1);
+
+  // ---- camera ----------------------------------------------------------------------------
+  const mins = scene.bounds.mins, maxs = scene.bounds.maxs;
+  const extent = Math.max(maxs[0] - mins[0], maxs[1] - mins[1], maxs[2] - mins[2], 512);
+  const home = scene.spawn
+    ? { pos: [scene.spawn[0], scene.spawn[1], scene.spawn[2] + 64], yaw: 0, pitch: 0 }
+    : { pos: [(mins[0] + maxs[0]) / 2, (mins[1] + maxs[1]) / 2 - extent * 0.35, maxs[2] + extent * 0.45], yaw: Math.PI / 2, pitch: -0.9 };
+  const cam = { pos: home.pos.slice(), yaw: home.yaw, pitch: home.pitch };
+  // for the host and for debugging: the camera and scene, reachable from a script
+  window.preview = { cam, home, scene };
+  const keys = new Set();
+  let dragging = false, lastX = 0, lastY = 0;
+
+  canvas.addEventListener('mousedown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.focus(); });
+  window.addEventListener('mouseup', () => dragging = false);
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    cam.yaw -= (e.clientX - lastX) * 0.004;
+    cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch - (e.clientY - lastY) * 0.004));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  // the wheel moves along the view direction, so a map can be explored with the mouse alone
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const forward = [Math.cos(cam.pitch) * Math.cos(cam.yaw), Math.cos(cam.pitch) * Math.sin(cam.yaw), Math.sin(cam.pitch)];
+    const step = -Math.sign(e.deltaY) * extent * 0.03;
+    for (let i = 0; i < 3; i++) cam.pos[i] += forward[i] * step;
+  }, { passive: false });
+  window.addEventListener('keydown', e => { keys.add(e.code); if (e.code === 'KeyR') { cam.pos = home.pos.slice(); cam.yaw = home.yaw; cam.pitch = home.pitch; } });
+  window.addEventListener('keyup', e => keys.delete(e.code));
+  window.addEventListener('blur', () => keys.clear());
+  canvas.tabIndex = 0;
+
+  // ---- matrices (column-major, Z up) -----------------------------------------------------
+  function perspective(fovy, aspect, near, far) {
+    const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0]);
+  }
+  function lookAt(eye, dir, up) {
+    const z = norm([-dir[0], -dir[1], -dir[2]]);
+    const x = norm(cross3(up, z));
+    const y = cross3(z, x);
+    return new Float32Array([
+      x[0], y[0], z[0], 0,
+      x[1], y[1], z[1], 0,
+      x[2], y[2], z[2], 0,
+      -dot(x, eye), -dot(y, eye), -dot(z, eye), 1]);
+  }
+  function mul(a, b) {
+    const o = new Float32Array(16);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++)
+      o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+    return o;
+  }
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+
+  // ---- loop ------------------------------------------------------------------------------
+  const modeSelect = document.getElementById('mode');
+  const gainInput = document.getElementById('gain');
+  gainInput.addEventListener('input', () => document.getElementById('gainv').textContent = Number(gainInput.value).toFixed(2));
+
+  function drawBatch(b, mode) {
+    const m = b.material;
+    if (m.hidden && mode !== 1 && mode !== 2) return;
+    const tex = m.texture != null ? textures[m.texture] : null;
+    const tex2 = m.texture2 != null ? textures[m.texture2] : null;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tex || white);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tex2 || white);
+    gl.uniform1i(u.hasTex, tex ? 1 : 0);
+    gl.uniform1i(u.hasTex2, tex && tex2 ? 1 : 0);
+    gl.uniform1i(u.unlit, m.unlit ? 1 : 0);
+    gl.uniform1i(u.alphaTest, m.alphaTest ? 1 : 0);
+    gl.uniform1i(u.translucent, m.translucent ? 1 : 0);
+    gl.uniform1i(u.prop, b.prop ? 1 : 0);
+    if (m.noCull || b.overlay) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
+    gl.uniform1i(u.water, m.water ? 1 : 0);
+    if (m.water && m.waterColor) gl.uniform3fv(u.waterColor, m.waterColor);
+    gl.uniform3f(u.tint, m.color ? m.color[0] : 1, m.color ? m.color[1] : 1, m.color ? m.color[2] : 1);
+    gl.uniform1f(u.fogScale, b.skybox ? 1 / skyScale : 1);
+    // DecalModulate is the engine's DST_COLOR/SRC_COLOR blend: 2 * decal * surface, with mid-grey as "no change"
+    if (m.modulate) gl.blendFunc(gl.DST_COLOR, gl.SRC_COLOR); else gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_INT, b.first * 4);
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.1); last = now;
+
+    const forward = [Math.cos(cam.pitch) * Math.cos(cam.yaw), Math.cos(cam.pitch) * Math.sin(cam.yaw), Math.sin(cam.pitch)];
+    const right = norm(cross3(forward, [0, 0, 1]));
+    let speed = extent * 0.15 * dt * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 4 : 1);
+    if (keys.has('KeyW')) for (let i = 0; i < 3; i++) cam.pos[i] += forward[i] * speed;
+    if (keys.has('KeyS')) for (let i = 0; i < 3; i++) cam.pos[i] -= forward[i] * speed;
+    if (keys.has('KeyD')) for (let i = 0; i < 3; i++) cam.pos[i] += right[i] * speed;
+    if (keys.has('KeyA')) for (let i = 0; i < 3; i++) cam.pos[i] -= right[i] * speed;
+    if (keys.has('KeyE') || keys.has('Space')) cam.pos[2] += speed;
+    if (keys.has('KeyQ') || keys.has('ControlLeft')) cam.pos[2] -= speed;
+
+    const w = canvas.clientWidth * devicePixelRatio, h = canvas.clientHeight * devicePixelRatio;
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    gl.viewport(0, 0, w, h);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const mode = Number(modeSelect.value);
+    const exposure = Number(gainInput.value);
+    const proj = perspective(75 * Math.PI / 180, w / h, 4, 65536);
+    const viewProj = mul(proj, lookAt(cam.pos, forward, [0, 0, 1]));
+
+    // the sky, around the camera, behind everything
+    if (sky && mode !== 1 && mode !== 2) {
+      gl.useProgram(skyProgram);
+      gl.disable(gl.CULL_FACE);
+      gl.depthMask(false);
+      gl.depthFunc(gl.LEQUAL);
+      gl.uniformMatrix4fv(U(skyProgram, 'uViewProj'), false, mul(proj, lookAt([0, 0, 0], forward, [0, 0, 1])));
+      gl.uniform1f(U(skyProgram, 'uExposure'), exposure);
+      gl.uniform1i(U(skyProgram, 'uPainted'), sky.painted ? 1 : 0);
+      if (sky.painted) {
+        const p = sky.painted;
+        gl.uniform3fv(U(skyProgram, 'uTop'), p.top);
+        gl.uniform3fv(U(skyProgram, 'uBottom'), p.bottom);
+        gl.uniform3fv(U(skyProgram, 'uSunColor'), p.sunColor);
+        gl.uniform3fv(U(skyProgram, 'uSunNormal'), p.sunNormal);
+        gl.uniform1f(U(skyProgram, 'uFadeBias'), p.fadeBias);
+        gl.uniform1f(U(skyProgram, 'uSunSize'), p.sunSize);
+      }
+      gl.bindVertexArray(sky.vao);
+      gl.activeTexture(gl.TEXTURE1);
+      for (const d of sky.draws) {
+        gl.bindTexture(gl.TEXTURE_2D, (d.texture != null && textures[d.texture]) || white);
+        gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, d.first * 2);
+      }
+      gl.depthMask(true);
+      gl.depthFunc(gl.LESS);
+    }
+
+    gl.useProgram(worldProgram);
+    gl.bindVertexArray(vao);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, lmTex);
+    gl.uniform1i(u.hasLightmap, hasLightmap ? 1 : 0);
+    gl.uniform1i(u.mode, mode);
+    gl.uniform1f(u.exposure, exposure);
+    gl.uniform3fv(u.eye, cam.pos);
+    const fogOn = !!scene.fog && mode !== 1 && mode !== 2;
+    gl.uniform1i(u.fog, fogOn ? 1 : 0);
+    if (fogOn) {
+      gl.uniform3fv(u.fogColor, scene.fog.color);
+      gl.uniform1f(u.fogStart, scene.fog.start);
+      gl.uniform1f(u.fogEnd, scene.fog.end);
+      gl.uniform1f(u.fogMax, scene.fog.maxDensity);
+    }
+
+    function drawGroup(opaqueList, translucentList, overlayList) {
+      gl.disable(gl.BLEND);
+      gl.depthFunc(gl.LESS);
+      for (const b of opaqueList) drawBatch(b, mode);
+
+      gl.enable(gl.BLEND);
+      gl.depthMask(false);
+      // overlays sit a hair above their surface; drawn with LEQUAL so they never lose to it
+      gl.depthFunc(gl.LEQUAL);
+      for (const b of overlayList) drawBatch(b, mode);
+      gl.depthFunc(gl.LESS);
+      for (const b of translucentList) drawBatch(b, mode);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+    }
+
+    // the 3D skybox: already scaled into world units, far away, drawn with a far plane to match
+    // and its depth cleared so the world always wins
+    if (skyboxOpaque.length || skyboxTranslucent.length) {
+      const farProj = perspective(75 * Math.PI / 180, w / h, 64, 4000000);
+      gl.uniformMatrix4fv(u.viewProj, false, mul(farProj, lookAt(cam.pos, forward, [0, 0, 1])));
+      drawGroup(skyboxOpaque, skyboxTranslucent, skyboxOverlays);
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+    }
+
+    gl.uniformMatrix4fv(u.viewProj, false, viewProj);
+    drawGroup(opaque, translucent, overlays);
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

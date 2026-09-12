@@ -22,6 +22,7 @@
     <None Include="Keys/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Compiling/errorstyle.html" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Compiling/errorpage.css" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Preview/viewer.html" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Compiling/errors.default.txt" CopyToOutputDirectory="PreserveNewest" Condition="Exists('Compiling/errors.default.txt')" />
     <None Include="Compiling/errors.supplement.json" CopyToOutputDirectory="PreserveNewest" />
     <AppDesigner Include="Properties\" />
@@ -133,6 +134,9 @@
        folder, and it works against upstream Compile Pal rather than only this fork. -->
   <ItemGroup>
     <PackageReference Include="Glob" Version="1.1.9" />
+    <!-- The reference LZMA decoder from the 7-Zip SDK, for reading the lumps of a BSP that bspzip
+         compressed. .NET has no LZMA of its own. -->
+    <PackageReference Include="LZMA-SDK" Version="22.1.1" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
     <PackageReference Include="Microsoft.Windows.Compatibility" Version="10.0.12" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
