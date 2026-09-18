@@ -480,6 +480,27 @@ namespace CompilePalX
                         continue;
                     }
 
+                    // A map with no preset has nothing to run. Every compile step is looked up by preset,
+                    // so this map would execute zero steps and then be reported as a clean compile -
+                    // the same reasoning as the empty-order check further down: a configuration mistake
+                    // is not a result.
+                    //
+                    // Reachable whenever KnownPresets is empty, because PresetForMap falls through both
+                    // of its lookups and hands back null. Before this check that map ran nothing, logged
+                    // "No compile steps will run for preset ''", and then took postCompile down with it
+                    // on the summary line.
+                    //
+                    // Skipped rather than aborting the run: one unconfigured map should not stop the
+                    // others, and it is skipped before mapNumber counts it so the numbering stays right.
+                    if (map.Preset is null)
+                    {
+                        CompilePalLogger.LogLineColor(
+                            $"Skipping {Path.GetFileNameWithoutExtension(map.File)}: no preset is selected for it, so there are no compile steps to run.",
+                            Error.GetSeverityBrush(4));
+                        UpdateMapOnUiThread(map, x => x.State = MapCompileState.Failed);
+                        continue;
+                    }
+
                     mapNumber++;
 
                     string mapFile = map.File;
@@ -719,8 +740,12 @@ namespace CompilePalX
         /// Not MapFiles.Count, which the progress maths used to divide by: that counts maps whose
         /// checkbox is clear too, so compiling one of three queued maps could only ever fill a third of
         /// the bar and reported 33% as "finished".
+        ///
+        /// Maps with no preset are excluded for the same reason: the loop skips them without running a
+        /// step, so counting them would leave the bar permanently short of the end.
         /// </summary>
-        private static int CompilingMapCount(IReadOnlyList<Map> maps) => Math.Max(1, maps.Count(m => m.Compile));
+        private static int CompilingMapCount(IReadOnlyList<Map> maps) =>
+            Math.Max(1, maps.Count(m => m.Compile && m.Preset is not null));
 
         /// <summary>
         /// How much of the whole run each step of this map accounts for, keyed by step name.
@@ -743,79 +768,109 @@ namespace CompilePalX
 
         private static void postCompile(List<MapErrors> errors, bool cancelled = false)
         {
-            // Saved even for a cancelled run: the steps that did finish before the cancel took their
-            // real time, and that is exactly as useful for weighting the next bar.
-            CompileTimings.Save();
-
-            // A map still marked Running or Queued when the run ends did not finish - either the cancel
-            // caught it mid-step, or the loop never reached it. Leaving it showing "compiling..." forever
-            // would be the worst of the three states to be wrong about.
-            foreach (var map in MapFiles)
+            try
             {
-                if (map.State is MapCompileState.Running or MapCompileState.Queued)
-                    map.State = cancelled ? MapCompileState.Cancelled : MapCompileState.None;
-            }
+                // Saved even for a cancelled run: the steps that did finish before the cancel took their
+                // real time, and that is exactly as useful for weighting the next bar.
+                CompileTimings.Save();
 
-            // Cancelling still ran this: it's the only place that resets IsCompiling/the progress bar and
-            // fires OnFinish, so the UI can leave the "compiling" state. But it must not claim success -
-            // this used to log a green "compile finished" line unconditionally, directly under "Compile
-            // forcefully ended.", telling the user a killed compile had completed normally.
-            if (cancelled)
-            {
-                CompilePalLogger.LogLineColor(
-                    $"'{ConfigurationManager.CurrentPreset!.Name}' compile cancelled after {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}. The map was not fully compiled.",
-                    (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"));
-            }
-            else
-            {
-                CompilePalLogger.LogLineColor(
-                    $"'{ConfigurationManager.CurrentPreset!.Name}' compile finished in {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Success"));
-            }
-
-            if (errors != null && errors.Any())
-            {
-                int numErrors = errors.Sum(e => e.Errors.Count);
-                int maxSeverity = errors.Max(e => e.Errors.Any() ? e.Errors.Max(e2 => e2.Severity) : 0);
-                CompilePalLogger.LogLineColor("{0} errors/warnings logged:", Error.GetSeverityBrush(maxSeverity), numErrors);
-
-                foreach (var map in errors)
+                // A map still marked Running or Queued when the run ends did not finish - either the cancel
+                // caught it mid-step, or the loop never reached it. Leaving it showing "compiling..." forever
+                // would be the worst of the three states to be wrong about.
+                foreach (var map in MapFiles)
                 {
-                    CompilePalLogger.Log("  ");
+                    if (map.State is MapCompileState.Running or MapCompileState.Queued)
+                        map.State = cancelled ? MapCompileState.Cancelled : MapCompileState.None;
+                }
 
-                    if (!map.Errors.Any())
+                // Read once, and safely.
+                //
+                // CurrentPreset is declared nullable and genuinely can be null here: the compile loop
+                // assigns it from map.Preset, which is nullable too. Both branches below used to reach
+                // through it with `!`, which silences the compiler and does nothing at runtime - so a
+                // null preset threw here on the summary line, and the handler in CompileThreaded then
+                // called straight back into this method and threw again from the cancelled branch, this
+                // time from inside its own catch block where nothing could catch it.
+                //
+                // The rest of the file already treats this as nullable (`?.Name` when the run starts,
+                // `is null` when listing the steps a preset knows about); these two lines were the only
+                // ones that did not.
+                var presetName = ConfigurationManager.CurrentPreset?.Name ?? "(none)";
+
+                // Cancelling still ran this: it's the only place that resets IsCompiling/the progress bar and
+                // fires OnFinish, so the UI can leave the "compiling" state. But it must not claim success -
+                // this used to log a green "compile finished" line unconditionally, directly under "Compile
+                // forcefully ended.", telling the user a killed compile had completed normally.
+                if (cancelled)
+                {
+                    CompilePalLogger.LogLineColor(
+                        $"'{presetName}' compile cancelled after {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}. The map was not fully compiled.",
+                        (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"));
+                }
+                else
+                {
+                    CompilePalLogger.LogLineColor(
+                        $"'{presetName}' compile finished in {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Success"));
+                }
+
+                if (errors != null && errors.Any())
+                {
+                    int numErrors = errors.Sum(e => e.Errors.Count);
+                    int maxSeverity = errors.Max(e => e.Errors.Any() ? e.Errors.Max(e2 => e2.Severity) : 0);
+                    CompilePalLogger.LogLineColor("{0} errors/warnings logged:", Error.GetSeverityBrush(maxSeverity), numErrors);
+
+                    foreach (var map in errors)
                     {
-                        CompilePalLogger.LogLineColor("No errors/warnings logged for {0}", Error.GetSeverityBrush(0), map.MapName);
-                        continue;
-                    }
+                        CompilePalLogger.Log("  ");
 
-                    int mapMaxSeverity = map.Errors.Max(e => e.Severity);
-                    CompilePalLogger.LogLineColor("{0} errors/warnings logged for {1}:", Error.GetSeverityBrush(mapMaxSeverity), map.Errors.Count, map.MapName);
+                        if (!map.Errors.Any())
+                        {
+                            CompilePalLogger.LogLineColor("No errors/warnings logged for {0}", Error.GetSeverityBrush(0), map.MapName);
+                            continue;
+                        }
 
-                    var distinctErrors = map.Errors.GroupBy(e => e.ID).OrderBy(e => e.First().Severity);
-                    foreach (var errorList in distinctErrors)
-                    {
-                        var error = errorList.First();
+                        int mapMaxSeverity = map.Errors.Max(e => e.Severity);
+                        CompilePalLogger.LogLineColor("{0} errors/warnings logged for {1}:", Error.GetSeverityBrush(mapMaxSeverity), map.Errors.Count, map.MapName);
 
-                        string errorText = $"{errorList.Count()}x: {error.SeverityText}: {error.ShortDescription}";
+                        var distinctErrors = map.Errors.GroupBy(e => e.ID).OrderBy(e => e.First().Severity);
+                        foreach (var errorList in distinctErrors)
+                        {
+                            var error = errorList.First();
 
-                        CompilePalLogger.Log("    ● ");
-                        CompilePalLogger.LogCompileError(errorText, error);
-                        CompilePalLogger.LogLine();
+                            string errorText = $"{errorList.Count()}x: {error.SeverityText}: {error.ShortDescription}";
 
-                        if (error.Severity >= 3)
-                            TelemetryManager.CompileError();
+                            CompilePalLogger.Log("    ● ");
+                            CompilePalLogger.LogCompileError(errorText, error);
+                            CompilePalLogger.LogLine();
+
+                            if (error.Severity >= 3)
+                                TelemetryManager.CompileError();
+                        }
                     }
                 }
             }
+            finally
+            {
+                // Leaving the compiling state is not optional.
+                //
+                // These four used to sit at the end of the method body, so anything that threw above them
+                // stranded the whole application: the button still reading Cancel, the progress bar frozen
+                // mid-run, OnFinish never raised, and - because the execution state is never released - the
+                // machine held awake indefinitely. A null preset did exactly that, and the error handler
+                // that exists to recover from it called back in here and threw in the same place.
+                //
+                // By the time this method is called the run is over either way, so none of this depends on
+                // the reporting above having succeeded. Anything that throws up there is a bug worth
+                // fixing, but it must not also cost the user their UI.
+                OnFinish();
 
-            OnFinish();
+                compileTimeStopwatch.Reset();
 
-            compileTimeStopwatch.Reset();
+                IsCompiling = false;
 
-            IsCompiling = false;
-
-            // Tells windows it's now okay to enter sleep
-            NativeMethods.SetThreadExecutionState(NativeMethods.ES_CONTINUOUS);
+                // Tells windows it's now okay to enter sleep
+                NativeMethods.SetThreadExecutionState(NativeMethods.ES_CONTINUOUS);
+            }
         }
 
         public static void CancelCompile()
