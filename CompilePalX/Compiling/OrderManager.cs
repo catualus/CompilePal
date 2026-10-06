@@ -28,7 +28,11 @@ namespace CompilePalX.Configuration
 
 		public static void UpdateOrder()
 		{
-			if (ConfigurationManager.CurrentPreset == null)
+			// Read once. During a compile this is the compiling map's preset, which the compile thread
+			// moves on between maps; reading it afresh at each use could build half an order from one.
+			var preset = ConfigurationManager.ActivePreset;
+
+			if (preset == null)
 			{
 				// Clear rather than return. Returning leaves whatever order was built for the last
 				// preset in place, so a compile started with no preset selected silently runs a stale
@@ -41,7 +45,7 @@ namespace CompilePalX.Configuration
 			//Get all default processes for config
 			var defaultProcs = new List<CompileProcess>(ConfigurationManager.CompileProcesses
 				.Where(c => c.Metadata.DoRun
-					        && c.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset)
+					        && c.PresetDictionary.ContainsKey(preset)
 					        && c.Name != "ORDER"
 					        && c.Name != "CUSTOM"
 				).ToList());
@@ -49,7 +53,7 @@ namespace CompilePalX.Configuration
 			//Get custom process
 			var customProcess = (CustomProcess) ConfigurationManager.CompileProcesses
 				.FirstOrDefault(c => c.Metadata.DoRun
-					                    && c.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset)
+					                    && c.PresetDictionary.ContainsKey(preset)
 					                    && c.Name == "CUSTOM"
 				);
 
@@ -74,8 +78,8 @@ namespace CompilePalX.Configuration
 			// Worth logging even when it works: a compile whose order came out empty otherwise looks
 			// like a successful compile that took no time, which is a confusing thing to debug.
 			CompilePalLogger.LogLineDebug(newOrder.Count == 0
-				? $"Compile order for preset '{ConfigurationManager.CurrentPreset.Name}' is EMPTY"
-				: $"Compile order for preset '{ConfigurationManager.CurrentPreset.Name}': " +
+				? $"Compile order for preset '{preset.Name}' is EMPTY"
+				: $"Compile order for preset '{preset.Name}': " +
 				  string.Join(", ", newOrder.Select(c => c.Name)));
 
 			//Update order

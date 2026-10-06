@@ -1726,6 +1726,9 @@ namespace CompilePalX
             var presetInfo = (Preset)dialog.DataContext;
             var preset = ConfigurationManager.NewPreset(presetInfo);
 
+            if (preset is null)
+                return;
+
             TelemetryManager.NewPreset();
 
             SetSources();
@@ -1734,7 +1737,8 @@ namespace CompilePalX
         }
         private void ClonePresetButton_OnClick(object sender, RoutedEventArgs e)
         {
-            if (ConfigurationManager.CurrentPreset == null)
+            // The preset on screen, which is the one the user is cloning.
+            if (PresetConfigListBox.SelectedItem is not Preset source)
             {
                 return;
             }
@@ -1747,7 +1751,10 @@ namespace CompilePalX
                 return;
             }
             var presetInfo = (Preset)dialog.DataContext;
-            var preset = ConfigurationManager.ClonePreset(presetInfo);
+            var preset = ConfigurationManager.ClonePreset(source, presetInfo);
+
+            if (preset is null)
+                return;
 
             TelemetryManager.NewPreset();
 
@@ -1763,7 +1770,8 @@ namespace CompilePalX
                 return;
             }
             
-            var dialog = new PresetDialog("Edit Preset", MapListBox.SelectedItem as Map, (Preset)selectedPreset.Clone());
+            var dialog = new PresetDialog("Edit Preset", MapListBox.SelectedItem as Map, (Preset)selectedPreset.Clone(),
+                replacing: selectedPreset);
             dialog.ShowDialog();
 
             if (!dialog.Result)
@@ -1771,7 +1779,10 @@ namespace CompilePalX
                 return;
             }
             var presetInfo = (Preset)dialog.DataContext;
-            var preset = ConfigurationManager.EditPreset(presetInfo);
+            var preset = ConfigurationManager.EditPreset(selectedPreset, presetInfo);
+
+            if (preset is null)
+                return;
 
             SetSources();
             CompileProcessesListBox.SelectedIndex = 0;

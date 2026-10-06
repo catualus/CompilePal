@@ -168,8 +168,11 @@ namespace CompilePalX.Compiling
         /// </summary>
         public static void ResetOutputState()
         {
-            lineBuffer.Clear();
-            tempText.Clear();
+            lock (progressiveGate)
+            {
+                lineBuffer.Clear();
+                tempText.Clear();
+            }
             errorsFound.Clear();
         }
 
@@ -264,7 +267,30 @@ namespace CompilePalX.Compiling
             LogLineCompileError(line, error);
         }
 
+        /// <summary>
+        /// Serialises the two things that feed the line buffer: a step's standard output, read on the
+        /// compile thread, and its standard error, which arrives on a thread-pool thread of its own.
+        /// </summary>
+        private static readonly object progressiveGate = new();
+
+        /// <summary>
+        /// One complete line from a step's standard error, given the same error recognition as its
+        /// output. Never buffered: stderr arrives a line at a time already, and joining it to whatever
+        /// partial stdout line is pending would glue two messages from two streams together.
+        /// </summary>
+        public static void LogStandardErrorLine(string line)
+        {
+            lock (progressiveGate)
+                LogCompletedLine(line);
+        }
+
         public static void LogProgressive(string s)
+        {
+            lock (progressiveGate)
+                LogProgressiveLocked(s);
+        }
+
+        private static void LogProgressiveLocked(string s)
         {
             lineBuffer.Append(s);
 

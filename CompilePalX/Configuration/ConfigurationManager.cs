@@ -124,6 +124,26 @@ namespace CompilePalX
         public static Preset? CurrentPreset = null;
 
         /// <summary>
+        /// The preset of the map being compiled right now, set by the compile loop for each map and
+        /// cleared when the run ends. Null whenever no compile is running.
+        ///
+        /// Separate from <see cref="CurrentPreset"/> because that one belongs to the window: it is
+        /// whatever the user is looking at, and the map queue stays clickable during a compile.
+        /// The compile loop used to write each map's preset into CurrentPreset and every step read its
+        /// arguments back out of it when it started - so clicking another queued map while VBSP ran
+        /// handed that map's arguments to VVIS and VRAD. It also left CurrentPreset on the last map's
+        /// preset after the run, while the preset box still showed the selected map's, and Edit
+        /// Preset then deleted the preset that had been compiled last rather than the one on screen.
+        /// </summary>
+        public static volatile Preset? CompilingPreset = null;
+
+        /// <summary>
+        /// The preset a step takes its arguments from: the compiling map's during a compile, the one
+        /// being edited otherwise.
+        /// </summary>
+        public static Preset? ActivePreset => CompilingPreset ?? CurrentPreset;
+
+        /// <summary>
         /// The map selected in the queue, for the command each step shows in its expanded row. Null
         /// when nothing is selected, in which case the rows show the template with its placeholders.
         ///
@@ -412,6 +432,9 @@ namespace CompilePalX
                 }
             }
 
+            // Before sorting, since Order is one of the answers being restored.
+            ApplyStepState();
+
             CompileProcesses = new ObservableCollection<CompileProcess>(CompileProcesses.OrderBy(c => c.Metadata.Order));
 
             // Before the presets, which look their parameters up by name in these lists and so need
@@ -458,7 +481,29 @@ namespace CompilePalX
 
                 Preset preset;
                 if (File.Exists(metadataFile))
-                    preset = JsonConvert.DeserializeObject<Preset>(File.ReadAllText(metadataFile)) ?? new Preset() { Name = presetName };
+                {
+                    /*
+                     * Guarded, for the reason LoadSettings is. This runs from the MainWindow
+                     * constructor, so one truncated or hand-mangled preset file threw out of
+                     * AssembleParameters and the application died on launch - over a preset it does
+                     * not need in order to run. The preset is skipped and left on disk untouched, so
+                     * nothing in it is lost and fixing the file brings it back.
+                     */
+                    try
+                    {
+                        preset = JsonConvert.DeserializeObject<Preset>(File.ReadAllText(metadataFile)) ?? new Preset() { Name = presetName };
+                    }
+                    catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+                    {
+                        CompilePalLogger.LogLineColor(
+                            $"Skipped preset \"{presetName}\": its meta.json could not be read ({e.Message}).",
+                            Error.GetSeverityBrush(3));
+                        continue;
+                    }
+
+                    // "Processes": null in the file overrides the initialiser.
+                    preset.Processes ??= [];
+                }
                 else
                     // legacy presets don't have metadata, use folder name as preset name
                     preset = new Preset() { Name = presetName };
@@ -679,53 +724,82 @@ namespace CompilePalX
             WriteFileAtomic(metadataPath, jsonSaveText);
         }
 
-        /// <summary>
-        /// Writes back the two things the application changes about a step: whether it runs, and
-        /// where it runs in the order.
-        ///
-        /// EDITED IN PLACE, NOT REWRITTEN
-        ///
-        /// This used to serialize the whole metadata object over the file, which meant Compile Pal
-        /// deleted every field of a plugin's meta.json that the running build did not have a property
-        /// for. A plugin declaring something a newer Compile Pal understands - and an older one does
-        /// not - lost that declaration from its own folder the first time a checkbox was ticked, and
-        /// stayed broken after upgrading, because the file on disk no longer said it.
-        ///
-        /// The file belongs to the plugin. Only the two fields that are the user's answer rather than
-        /// the author's are touched, and anything else in it is left exactly as written.
-        /// </summary>
-        public static void SaveProcesses()
-        {
-            foreach (var process in CompileProcesses)
-            {
-                string jsonMetadata = Path.Combine(process.ParameterFolder, process.Metadata.Name, "meta.json");
+        /// <summary>One step's answers that belong to the user rather than to whoever wrote the step.</summary>
+        public sealed record StepState(bool DoRun, float Order);
 
-                WriteFileAtomic(jsonMetadata, UpdatedMetadataJson(jsonMetadata, process.Metadata));
+        /// <summary>
+        /// Whether each step runs and where it runs in the order, written by Compile Pal into its own
+        /// folder rather than into the step's.
+        ///
+        /// These used to be written back into each step's meta.json - a plugin's own file, in the
+        /// plugin's own folder. Three things followed from that. Updating a plugin replaced the file
+        /// and with it the user's tick, so the step switched itself off after every update. A plugin
+        /// folder that is read-only - installed system-wide, or linked to a build output - could not
+        /// hold the tick at all, and the failed write was only ever logged in debug output. And the
+        /// path was rebuilt from the meta.json's Name rather than the folder the plugin was loaded
+        /// from, so a plugin unpacked under any other folder name had its tick written into a new
+        /// stray folder, never read back, and found at the next start as a broken plugin.
+        ///
+        /// A step's meta.json now only ever supplies the defaults: what a step does the first time it
+        /// is seen. Existing users keep what they had, because the values already written into those
+        /// files are read as the defaults until this file has an answer of its own.
+        /// </summary>
+        private static readonly string StepStateFile = "./StepState.json";
+
+        private static Dictionary<string, StepState> LoadStepState()
+        {
+            if (!File.Exists(StepStateFile))
+                return new(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                var read = JsonConvert.DeserializeObject<Dictionary<string, StepState>>(File.ReadAllText(StepStateFile));
+                return new(read ?? [], StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+            {
+                // The defaults from each step's meta.json stand in, which is a working application with
+                // some ticks reset - not a reason to fail to start.
+                CompilePalLogger.LogLineColor(
+                    $"Could not read {StepStateFile}, so steps start as their defaults: {e.Message}",
+                    Error.GetSeverityBrush(3));
+                return new(StringComparer.OrdinalIgnoreCase);
             }
         }
 
-        private static string UpdatedMetadataJson(string path, CompileMetadata metadata)
+        /// <summary>Applies the saved answers over each step's defaults. Run before the order is sorted.</summary>
+        private static void ApplyStepState()
         {
-            try
+            var saved = LoadStepState();
+
+            foreach (var process in CompileProcesses)
             {
-                if (File.Exists(path))
-                {
-                    var existing = JObject.Parse(File.ReadAllText(path));
+                if (process.Metadata?.Name is not { } name || !saved.TryGetValue(name, out var state))
+                    continue;
 
-                    existing["DoRun"] = metadata.DoRun;
-                    existing["Order"] = metadata.Order;
-
-                    return existing.ToString(Formatting.Indented);
-                }
+                process.Metadata.DoRun = state.DoRun;
+                process.Metadata.Order = state.Order;
             }
-            catch (Exception e) when (e is IOException or JsonException)
+        }
+
+        /// <summary>
+        /// Writes whether each step runs and where it runs in the order. See <see cref="StepStateFile"/>
+        /// for why that is Compile Pal's own file and not the step's meta.json.
+        /// </summary>
+        public static void SaveProcesses()
+        {
+            // Starts from what is on disk so a step that failed to load this session - a plugin that is
+            // temporarily missing - keeps its answer rather than losing it.
+            var state = LoadStepState();
+
+            foreach (var process in CompileProcesses)
             {
-                // Unreadable, so there is nothing to preserve. Falls through to writing it whole,
-                // which is what this always used to do.
-                CompilePalLogger.LogLineDebug($"Could not read {path} before saving it: {e.Message}");
+                if (process.Metadata?.Name is { } name)
+                    state[name] = new StepState(process.Metadata.DoRun, process.Metadata.Order);
             }
 
-            return JsonConvert.SerializeObject(metadata, Formatting.Indented);
+            WriteFileAtomic(StepStateFile, JsonConvert.SerializeObject(
+                new SortedDictionary<string, StepState>(state, StringComparer.OrdinalIgnoreCase), Formatting.Indented));
         }
 
         /// <summary>Raised after a settings save so open windows can apply changes without a restart.</summary>
@@ -755,8 +829,14 @@ namespace CompilePalX
             SaveSettings(Settings);
         }
 
-        public static Preset NewPreset(Preset preset, bool initializeDefaultProcesses = true)
+        public static Preset? NewPreset(Preset preset, bool initializeDefaultProcesses = true)
         {
+            if (PresetProblem(preset) is { } problem)
+            {
+                CompilePalLogger.LogLineColor($"Preset not created: {problem}", Error.GetSeverityBrush(3));
+                return null;
+            }
+
             if (initializeDefaultProcesses)
             {
                 string[] defaultProcesses = new string[] { "VBSP", "VVIS", "VRAD", "COPY", "GAME" };
@@ -776,19 +856,23 @@ namespace CompilePalX
             AssembleParameters();
             return preset;
         }
-        public static Preset? ClonePreset(Preset preset)
+        /// <summary>
+        /// Copies <paramref name="source"/>'s steps into the new <paramref name="preset"/>. Takes the
+        /// source rather than reading <see cref="CurrentPreset"/>, for the reason EditPreset does.
+        /// </summary>
+        public static Preset? ClonePreset(Preset source, Preset preset)
         {
-            if (CurrentPreset == null)
+            if (PresetProblem(preset) is { } problem)
+            {
+                CompilePalLogger.LogLineColor($"Preset not cloned: {problem}", Error.GetSeverityBrush(3));
                 return null;
+            }
 
             // if map specific, append map to name so you can make map specific presets with the same name as global ones
             string newFolder = GetPresetFolder(preset);
 
-            // if cloned preset is map specific, append map to name
-            string oldFolder = GetPresetFolder(CurrentPreset);
-
             // deep copy: sharing the dictionary made edits to the clone rewrite the source preset
-            preset.Processes = CurrentPreset.CopyProcesses();
+            preset.Processes = source.CopyProcesses();
 
             if (!Directory.Exists(newFolder))
             {
@@ -800,20 +884,32 @@ namespace CompilePalX
             return preset;
         }
 
-        public static Preset? EditPreset(Preset preset)
+        /// <summary>
+        /// Replaces <paramref name="original"/> with <paramref name="edited"/>.
+        ///
+        /// Takes the preset being edited rather than reading <see cref="CurrentPreset"/>. The dialog is
+        /// opened on the preset in the preset box, and CurrentPreset is not guaranteed to be that one:
+        /// when they disagreed, this deleted whichever preset CurrentPreset happened to hold and
+        /// recreated it under the new name, leaving the one being edited untouched.
+        ///
+        /// Refuses a name that is already taken. Deleting first and then finding the new folder
+        /// already there - which NewPreset treats as "nothing to save" - lost the preset outright.
+        /// </summary>
+        public static Preset? EditPreset(Preset original, Preset edited)
         {
-            if (CurrentPreset == null)
+            if (PresetProblem(edited, replacing: original) is { } problem)
             {
+                CompilePalLogger.LogLineColor($"Preset not changed: {problem}", Error.GetSeverityBrush(3));
                 return null;
             }
 
             // copy processes
-            preset.Processes = CurrentPreset.CopyProcesses();
+            edited.Processes = original.CopyProcesses();
 
             // TODO: this can be improved, deleting and recreating isn't really neccessary now that all preset info is consolidated into one file
-            // "Edit" preset by deleting the current preset and adding a new preset, then make it the currently selected preset
-            RemovePreset(CurrentPreset);
-            var newPreset = NewPreset(preset, false);
+            // "Edit" preset by deleting the preset and adding a new one, then make it the currently selected preset
+            RemovePreset(original);
+            var newPreset = NewPreset(edited, false);
 
             CurrentPreset = newPreset;
 
@@ -824,9 +920,87 @@ namespace CompilePalX
         {
             return preset.Map != null ? Path.Combine(PresetsFolder, $"{preset.Name}_{preset.Map}") : Path.Combine(PresetsFolder, preset.Name);
         }
+        /// <summary>
+        /// Whether a preset's folder is a folder directly inside Presets, as opposed to Presets itself
+        /// or somewhere outside it.
+        ///
+        /// The folder is built from the preset's name, and the name comes from whatever is in its
+        /// meta.json - including a shared one. A name of ".." resolved to the Compile Pal folder, and
+        /// removing that preset deleted the whole installation recursively.
+        /// </summary>
+        private static bool IsOwnPresetFolder(string folder)
+        {
+            string root = Path.GetFullPath(PresetsFolder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string full = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            return string.Equals(Path.GetDirectoryName(full), root, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// What is wrong with a preset's name, map or match pattern, or null if nothing is.
+        ///
+        /// A name becomes a folder, so it has to be one: not empty (that is Presets itself, which
+        /// always exists, so the preset silently failed to save), no path characters, not "." or
+        /// "..", and not a folder another preset already has. <paramref name="replacing"/> is the
+        /// preset being edited, whose own folder does not count as taken. The match pattern is
+        /// checked too, because an invalid one throws from IsValidMap every time the preset list is
+        /// filtered.
+        /// </summary>
+        public static string? PresetProblem(Preset preset, Preset? replacing = null)
+        {
+            if (string.IsNullOrWhiteSpace(preset.Name))
+                return "A preset needs a name.";
+
+            var invalid = Path.GetInvalidFileNameChars();
+
+            foreach (var (label, value) in new[] { ("name", preset.Name), ("map filter name", preset.Map) })
+            {
+                if (value is null)
+                    continue;
+
+                if (value.Trim() is "." or ".." || value.IndexOfAny(invalid) >= 0 || value != value.Trim())
+                    return $"The {label} \"{value}\" cannot be used as a folder name.";
+            }
+
+            if (preset.MapRegex is not null)
+            {
+                try
+                {
+                    _ = new Regex(preset.MapRegex);
+                }
+                catch (ArgumentException e)
+                {
+                    return $"The match pattern is not a valid regular expression: {e.Message}";
+                }
+            }
+
+            string folder = GetPresetFolder(preset);
+
+            if (!IsOwnPresetFolder(folder))
+                return "That name does not make a folder inside Presets.";
+
+            bool isOwnFolder = replacing is not null &&
+                               string.Equals(Path.GetFullPath(folder), Path.GetFullPath(GetPresetFolder(replacing)),
+                                   StringComparison.OrdinalIgnoreCase);
+
+            if (Directory.Exists(folder) && !isOwnFolder)
+                return $"A preset called \"{preset.Name}\"{(preset.Map != null ? $" for {preset.Map}" : "")} already exists.";
+
+            return null;
+        }
+
         public static void RemovePreset(Preset preset)
         {
             string folder = GetPresetFolder(preset);
+
+            if (!IsOwnPresetFolder(folder))
+            {
+                CompilePalLogger.LogLineColor(
+                    $"Not deleting preset \"{preset.Name}\": its folder would be {Path.GetFullPath(folder)}, which is not inside Presets.",
+                    Error.GetSeverityBrush(4));
+                return;
+            }
+
             if (Directory.Exists(folder))
             {
                 Directory.Delete(folder, true);

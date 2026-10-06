@@ -195,7 +195,8 @@ namespace CompilePalX
             {
                 try
                 {
-                    string summary = GetParameterString().Trim();
+                    // The row describes the preset on screen, not whichever map happens to be compiling.
+                    string summary = GetParameterString(ConfigurationManager.CurrentPreset).Trim();
 
                     // GetParameterString leads with the program's own base arguments, which are the same
                     // for every preset and so say nothing about this one.
@@ -381,7 +382,7 @@ namespace CompilePalX
         /// </summary>
         public IEnumerable<(string Name, string Flag, string Reason)> IncompatibleParameters()
         {
-            if (ConfigurationManager.CurrentPreset is not { } preset || !PresetDictionary.ContainsKey(preset))
+            if (ConfigurationManager.ActivePreset is not { } preset || !PresetDictionary.ContainsKey(preset))
                 yield break;
 
             foreach (var parameter in PresetDictionary[preset])
@@ -467,7 +468,7 @@ namespace CompilePalX
             "-game", "-vproject", "-basedir", "-StopOnExit", "-v",
         };
 
-        public string GetParameterString() => GetParameterString(ConfigurationManager.CurrentPreset);
+        public string GetParameterString() => GetParameterString(ConfigurationManager.ActivePreset);
 
         /// <summary>
         /// The arguments this step would be given under one particular preset.
@@ -513,8 +514,10 @@ namespace CompilePalX
                                 parameters += " " + parameter.ReadOutput;
                         }
                         else
-                            // protect filepaths in quotes, since they can contain -
-                        if (parameter.ValueIsFile || parameter.Value2IsFile)
+                            // protect filepaths in quotes, since they can contain - and spaces. Folders too:
+                        // a folder picked from the picker was passed bare, so "D:\Steam Library" reached
+                        // the tool as two arguments.
+                        if (parameter.ValueIsFile || parameter.Value2IsFile || parameter.ValueIsFolder)
                             parameters += $" \"{parameter.Value}\"";
                         else
                             parameters += " " + parameter.Value;

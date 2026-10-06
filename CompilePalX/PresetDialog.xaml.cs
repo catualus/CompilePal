@@ -22,9 +22,13 @@ namespace CompilePalX
     {
         public bool Result = false;
         public bool IsMapSpecific { get { return IsMapSpecificCheckbox.IsChecked ?? false; } }
-        public PresetDialog(string title, Map? selectedMap, Preset? preset = null)
+        /// <summary>The preset being edited, whose own name is not a clash. Null when adding or cloning.</summary>
+        private readonly Preset? replacing;
+
+        public PresetDialog(string title, Map? selectedMap, Preset? preset = null, Preset? replacing = null)
         {
             InitializeComponent();
+            this.replacing = replacing;
             Title = title;
 
             string? mapRegex = null;
@@ -51,12 +55,24 @@ namespace CompilePalX
 
         private void OKButton_OnClick(object sender, RoutedEventArgs e)
         {
+            var preset = (Preset)DataContext;
+
             // clear map if not map specific
             if (!IsMapSpecific)
             {
-                ((Preset)DataContext).MapRegex = null;
-                ((Preset)DataContext).Map = null;
+                preset.MapRegex = null;
+                preset.Map = null;
             }
+
+            // Checked here so the user can fix it without losing what they typed. The same check runs
+            // again where the preset is written, which is the one that actually protects the folder.
+            if (ConfigurationManager.PresetProblem(preset, replacing) is { } problem)
+            {
+                ProblemText.Text = problem;
+                ProblemText.Visibility = Visibility.Visible;
+                return;
+            }
+
             Result = true;
             Close();
         }
