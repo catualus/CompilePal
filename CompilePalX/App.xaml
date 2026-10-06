@@ -15,6 +15,17 @@
                 <ResourceDictionary Source="CompilePalTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
+            <!-- Every list ends in a font embedded in the exe, so text can always be drawn. Without one,
+                 WPF calls FailFast when none of a list's fonts exist, which is what happened under Wine.
+                 Last on purpose: on Windows Segoe UI and Cascadia are found first, as before. See
+                 Theming/AppFonts.cs. Defined here, at the root, so "./Fonts/" resolves to the app's
+                 own resources wherever the resource is used. -->
+            <FontFamily x:Key="CompilePal.Fonts.UI">Segoe UI Variable Text, Segoe UI, ./Fonts/#Liberation Sans</FontFamily>
+            <FontFamily x:Key="CompilePal.Fonts.Mono">Cascadia Mono, Cascadia Code, Consolas, Courier New, ./Fonts/#Liberation Mono</FontFamily>
+            <!-- Wpf.Ui's controls draw with this key. Its own value is plain "Segoe UI", kept as it is so
+                 those controls look exactly as before on Windows; only the fallback is added. -->
+            <FontFamily x:Key="ContentControlThemeFontFamily">Segoe UI, ./Fonts/#Liberation Sans</FontFamily>
+
             <local:ToolsPlusPlusHintConverter x:Key="ToolsPlusPlusHintConverter" />
             <ControlTemplate x:Key="LabeledTextbox" TargetType="TextBox">
                 <StackPanel Margin="0, 0, 0, 5">

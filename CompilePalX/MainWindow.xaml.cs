@@ -2524,17 +2524,11 @@ namespace CompilePalX
 
                 if (!string.IsNullOrWhiteSpace(settings.OutputFontFamily))
                 {
-                    FontFamily family;
-                    try
-                    {
-                        family = new FontFamily(settings.OutputFontFamily);
-                    }
-                    catch (Exception)
-                    {
-                        // The family string is user-typed and free-form, so keep a bad value from
-                        // taking down the settings save.
-                        family = new FontFamily("Consolas, Courier New");
-                    }
+                    // Through AppFonts, which ends the list in the embedded monospace font and copes
+                    // with a malformed setting. Built bare, a list naming only fonts that are not
+                    // installed - every default one, under Wine - made WPF FailFast on the first
+                    // line of output.
+                    FontFamily family = Theming.AppFonts.Mono(settings.OutputFontFamily);
 
                     CompileOutputTextbox.FontFamily = family;
                     if (document != null)

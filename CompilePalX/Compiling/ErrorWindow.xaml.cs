@@ -236,6 +236,10 @@ namespace CompilePalX.Compiling
             ErrorBrowser.Visibility = Visibility.Collapsed;
             FallbackScroller.Visibility = Visibility.Visible;
 
+            // "Not installed" is untrue under Wine and invites a futile download; say what is actually so.
+            if (Platform.Wine.IsRunning)
+                FallbackNotice.Text = "The formatted error page needs Microsoft Edge WebView2, which does not run under Wine. Showing the plain text instead.";
+
             // Crude, but the template is simple markup and this only has to be readable. The stylesheet
             // appended by BuildHtml is dropped whole - stripping its tags would leave the CSS text
             // itself sitting at the bottom of the description.

@@ -6,7 +6,7 @@
         Title="Compile Pal X - Interlopers Error" Icon="../CompilePalIcon.ico"
                       Height="560" Width="820"
                       MinHeight="320" MinWidth="420"
-                      FontFamily="Segoe UI Variable Text, Segoe UI" >
+                      FontFamily="{DynamicResource CompilePal.Fonts.UI}" >
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -31,7 +31,7 @@
              as plain text instead of the window coming up blank. -->
         <ScrollViewer Name="FallbackScroller" Visibility="Collapsed" Margin="16" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <TextBlock Text="This error page needs the Microsoft Edge WebView2 runtime, which is not installed. Showing the plain text instead."
+                <TextBlock Name="FallbackNotice" Text="This error page needs the Microsoft Edge WebView2 runtime, which is not installed. Showing the plain text instead."
                            TextWrapping="Wrap" Margin="0,0,0,12"
                            Foreground="{DynamicResource CompilePal.Brushes.Warning}"/>
                 <TextBox Name="FallbackText" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"

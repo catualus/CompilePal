@@ -5,7 +5,7 @@
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         Title="Add Compile Step" Height="480" Width="918"
         Icon="..\CompilePalIcon.ico"
-        FontFamily="Segoe UI Variable Text, Segoe UI"
+        FontFamily="{DynamicResource CompilePal.Fonts.UI}"
         PreviewKeyDown="Window_OnPreviewKeyDown" >
     <Grid>
         <Grid.RowDefinitions>

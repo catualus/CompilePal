@@ -5,7 +5,7 @@
         xmlns:iconPacks="http://metro.mahapps.com/winfx/xaml/iconpacks"
         Title="Compile Log" Height="640" Width="1000" MinHeight="320" MinWidth="520"
         Icon="..\CompilePalIcon.ico"
-        FontFamily="Segoe UI Variable Text, Segoe UI">
+        FontFamily="{DynamicResource CompilePal.Fonts.UI}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -34,7 +34,7 @@
         <TextBox Grid.Row="2" Name="LogBox" Margin="12,0,12,12" IsReadOnly="True"
                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                  BorderThickness="1" TextWrapping="NoWrap"
-                 FontFamily="Cascadia Mono, Cascadia Code, Consolas, Courier New" FontSize="12.5"
+                 FontFamily="{DynamicResource CompilePal.Fonts.Mono}" FontSize="12.5"
                  AutomationProperties.Name="Compile log"/>
     </Grid>
 </ui:FluentWindow>

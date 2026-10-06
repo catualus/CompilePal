@@ -5,13 +5,17 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:local="clr-namespace:CompilePalX"
+        xmlns:theming="clr-namespace:CompilePalX.Theming"
         mc:Ignorable="d"
         Title="Settings"
           Height="600" Width="720"
           MinHeight="420" MinWidth="560"
           Icon="CompilePalIcon.ico"
-          FontFamily="Segoe UI Variable Text, Segoe UI" >
+          FontFamily="{DynamicResource CompilePal.Fonts.UI}" >
     <Window.Resources>
+        <!-- The preview draws the typed list through the same fallback the output pane uses; bound
+             straight to the text, a list of fonts that are not installed made WPF FailFast. -->
+        <theming:MonoFontConverter x:Key="MonoFontConverter" />
         <!-- One row per setting: label and explanation on the left, the control on the right. The window
              used to be eight unrelated controls stacked in a single scroller, so an error-database URL
              sat directly above "play a sound when the compile finishes" with nothing to separate them. -->
@@ -117,7 +121,7 @@
                         <Border DockPanel.Dock="Right" Padding="10,6" CornerRadius="4" MinWidth="220"
                                 Background="{DynamicResource ControlFillColorDefaultBrush}">
                             <TextBlock Name="FontPreview" Text="VBSP  1024  [====]  0.00%"
-                                       FontFamily="{Binding Text, ElementName=OutputFontFamily}"
+                                       FontFamily="{Binding Text, ElementName=OutputFontFamily, Converter={StaticResource MonoFontConverter}}"
                                        FontSize="{Binding Value, ElementName=OutputFontSize}"
                                        TextTrimming="CharacterEllipsis"/>
                         </Border>

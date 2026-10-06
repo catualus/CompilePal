@@ -6,7 +6,7 @@
         SizeToContent="Height" Width="320" MaxWidth="320" MinWidth="320" Icon="CompilePalIcon.ico"
         ExtendsContentIntoTitleBar="True" WindowBackdropType="Mica"
         MinHeight="0"
-        FontFamily="Segoe UI Variable Text, Segoe UI"
+        FontFamily="{DynamicResource CompilePal.Fonts.UI}"
         Title="Input">
     <Grid>
         <Grid.RowDefinitions>

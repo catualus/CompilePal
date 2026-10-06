@@ -9,7 +9,7 @@
         ResizeMode="CanResize"
         Background="#1C1F25"
         Foreground="#E8EAEE"
-        FontFamily="Segoe UI"
+        FontFamily="{DynamicResource CompilePal.Fonts.UI}"
         FontSize="13">
 
     <!--
@@ -58,7 +58,7 @@
                      Background="Transparent"
                      Foreground="#C9CFDA"
                      BorderThickness="0"
-                     FontFamily="Consolas, Courier New"
+                     FontFamily="{DynamicResource CompilePal.Fonts.Mono}"
                      FontSize="12"
                      Padding="8" />
         </Border>
