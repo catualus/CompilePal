@@ -21,7 +21,11 @@ namespace CompilePalX.Compilers
 		public List<CustomProgram> BuildProgramList()
 		{
 			Programs = [];
-			foreach (var parameter in PresetDictionary[ConfigurationManager.CurrentPreset])
+			if (ConfigurationManager.ActivePreset is not { } preset ||
+			    !PresetDictionary.TryGetValue(preset, out var parameters))
+				return Programs;
+
+			foreach (var parameter in parameters)
 			{
 				string path = parameter.Value;
 				string args = parameter.Value2;

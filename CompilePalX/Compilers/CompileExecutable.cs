@@ -75,16 +75,46 @@ namespace CompilePalX.Compilers
                 return;
             }
 
-            if (normalPriority)
+            /*
+             * Read alongside stdout, not after it and not never.
+             *
+             * stderr was redirected and then never read. Two things followed. Everything a step wrote
+             * there was thrown away, so a plugin that reported its failure on stderr - the convention -
+             * produced "failed with exit code 1. The reason it gives is in its output above" with no
+             * reason anywhere above. And a step that wrote more to stderr than the pipe buffer holds
+             * blocked on that write forever while this waited on stdout, hanging the compile.
+             *
+             * Started before the priority change below, so a step that has already exited by then has
+             * its output read regardless.
+             */
+            if (Metadata.ReadOutput)
             {
-                Process.PriorityClass = ProcessPriorityClass.Normal;
-                CompilePalLogger.LogLine($"Running {Name} with normal priority");
+                Process.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data is { Length: > 0 } line)
+                        CompilePalLogger.LogStandardErrorLine(line);
+                };
+                Process.BeginErrorReadLine();
             }
-            else 
-                Process.PriorityClass = ProcessPriorityClass.BelowNormal;
+
+            // A step can exit before this line runs - one given bad arguments usually does - and
+            // setting the priority of an exited process throws. That escaped Run, was reported as an
+            // unhandled error with the crash dialog, and stopped every remaining map in the queue,
+            // instead of the step simply reporting its own failure through its exit code below.
+            try
+            {
+                Process.PriorityClass = normalPriority ? ProcessPriorityClass.Normal : ProcessPriorityClass.BelowNormal;
+
+                if (normalPriority)
+                    CompilePalLogger.LogLine($"Running {Name} with normal priority");
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                CompilePalLogger.LogLineDebug($"Could not set the priority of {Name}: {e.Message}");
+            }
 
             if (Metadata.ReadOutput)
-            { 
+            {
                 ReadOutput(cancellationToken);
 
                 /*
@@ -143,6 +173,12 @@ namespace CompilePalX.Compilers
             startInfo.Environment["COMPILE_PAL_ERRORS"] = CompilingManager.ErrorsThisMap.ToString();
             startInfo.Environment["COMPILE_PAL_WARNINGS"] = CompilingManager.WarningsThisMap.ToString();
             startInfo.Environment["COMPILE_PAL_VERSION"] = UpdateManager.CurrentVersion;
+
+            // So a plugin can tell this host from earlier builds, which only ever read stdout: one
+            // that also echoes its errors to stdout for those builds can stop doing so here, and the
+            // message is not shown twice.
+            if (startInfo.RedirectStandardError)
+                startInfo.Environment["COMPILE_PAL_READS_STDERR"] = "1";
         }
 
         private void ReadOutput(CancellationToken cancellationToken)

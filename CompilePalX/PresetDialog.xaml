@@ -72,6 +72,11 @@
                     </Style>
                 </StackPanel.Style>
             </StackPanel>
+            <!-- Why OK did nothing: a name that cannot be a folder, or one another preset has. Shown
+                 here rather than in a message box, which would be owned by the main window this
+                 dialog is holding modal. -->
+            <TextBlock Name="ProblemText" Margin="0,10,0,0" TextWrapping="Wrap" Visibility="Collapsed"
+                       Foreground="{DynamicResource CompilePal.Brushes.Severity4}"/>
         </StackPanel>
         <Grid Grid.Row="1" Margin="20,16,20,16">
             <Grid.ColumnDefinitions>

@@ -225,9 +225,29 @@ namespace CompilePalX.Configuration
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeout.CancelAfter(Timeout);
 
-                string output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
-                string errors = await process.StandardError.ReadToEndAsync(timeout.Token);
-                await process.WaitForExitAsync(timeout.Token);
+                string output, errors;
+
+                try
+                {
+                    // Both streams at once, so a status command that writes a lot to stderr cannot
+                    // stall on a full pipe while this waits for stdout to end.
+                    var outRead = process.StandardOutput.ReadToEndAsync(timeout.Token);
+                    var errRead = process.StandardError.ReadToEndAsync(timeout.Token);
+
+                    output = await outRead;
+                    errors = await errRead;
+                    await process.WaitForExitAsync(timeout.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Abandoned is not stopped. Disposing the Process only lets go of the handle, so a
+                    // status command that hangs kept running, and every refresh - selecting a map,
+                    // changing a preset, starting a compile - left another one behind.
+                    try { process.Kill(entireProcessTree: true); }
+                    catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+
+                    throw;
+                }
 
                 var parsed = Parse(step.Name, map, output);
 

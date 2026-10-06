@@ -624,8 +624,12 @@ namespace CompilePalX.Compilers.BSPPack
                 return;
             }
 
+            // Both streams at once. Reading stdout to the end before touching stderr deadlocks as soon
+            // as vpk writes more to stderr than the pipe holds: it blocks on that write, and stdout
+            // never reaches its end.
+            var errRead = p.StandardError.ReadToEndAsync();
             string output = p.StandardOutput.ReadToEnd();
-            string errOutput = p.StandardError.ReadToEnd();
+            string errOutput = errRead.GetAwaiter().GetResult();
             if (verbose)
             {
                 CompilePalLogger.Log(output);
@@ -705,8 +709,12 @@ namespace CompilePalX.Compilers.BSPPack
             
             p.Start();
 
+            // Both streams at once. Reading stdout to the end before touching stderr deadlocks as soon
+            // as vpk writes more to stderr than the pipe holds: it blocks on that write, and stdout
+            // never reaches its end.
+            var errRead = p.StandardError.ReadToEndAsync();
             string output = p.StandardOutput.ReadToEnd();
-            string errOutput = p.StandardError.ReadToEnd();
+            string errOutput = errRead.GetAwaiter().GetResult();
             if (verbose)
             {
                 CompilePalLogger.Log(errOutput);

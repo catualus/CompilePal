@@ -505,14 +505,14 @@ namespace CompilePalX
 
                     string mapFile = map.File;
                     string cleanMapName = Path.GetFileNameWithoutExtension(mapFile);
-                    ConfigurationManager.CurrentPreset = map.Preset;
+                    ConfigurationManager.CompilingPreset = map.Preset;
 
                     UpdateMapOnUiThread(map, x => x.State = MapCompileState.Running);
                     var mapStopwatch = Stopwatch.StartNew();
 
                     var compileErrors = new List<Error>();
                     ResetMapErrorCounts();
-                    CompilePalLogger.LogLine($"Starting a '{ConfigurationManager.CurrentPreset?.Name}' compile for {GameConfigurationManager.GameConfiguration.Name}.");
+                    CompilePalLogger.LogLine($"Starting a '{map.Preset.Name}' compile for {GameConfigurationManager.GameConfiguration.Name}.");
                     CompilePalLogger.LogLine($"Starting compilation of {cleanMapName}");
                     CompilePalLogger.LogLineDebug($"Map path: {mapFile}");
 
@@ -532,14 +532,12 @@ namespace CompilePalX
 		                // opposite fixes.
 		                var enabled = ConfigurationManager.CompileProcesses
 			                .Where(c => c.Metadata.DoRun).Select(c => c.Name).ToList();
-		                var inPreset = ConfigurationManager.CurrentPreset is null
-			                ? new List<string>()
-			                : ConfigurationManager.CompileProcesses
-				                .Where(c => c.PresetDictionary.ContainsKey(ConfigurationManager.CurrentPreset))
+		                var inPreset = ConfigurationManager.CompileProcesses
+				                .Where(c => c.PresetDictionary.ContainsKey(map.Preset))
 				                .Select(c => c.Name).ToList();
 
 		                CompilePalLogger.LogLineColor(
-			                $"No compile steps will run for preset '{ConfigurationManager.CurrentPreset?.Name}'.",
+			                $"No compile steps will run for preset '{map.Preset.Name}'.",
 			                Error.GetSeverityBrush(3));
 		                CompilePalLogger.LogLine(
 			                $"  enabled steps: {(enabled.Count == 0 ? "(none)" : string.Join(", ", enabled))}");
@@ -689,6 +687,12 @@ namespace CompilePalX
                 ProgressManager.ErrorProgress();
                 MainWindow.ActiveDispatcher.Invoke(() => postCompile(null, cancelled: true));
             }
+            finally
+            {
+                // However the run ended. Left set, every step row and the order tab would go on
+                // reading the last compiled map's preset instead of the one on screen.
+                ConfigurationManager.CompilingPreset = null;
+            }
         }
 
         /// <summary>
@@ -795,7 +799,7 @@ namespace CompilePalX
                 // The rest of the file already treats this as nullable (`?.Name` when the run starts,
                 // `is null` when listing the steps a preset knows about); these two lines were the only
                 // ones that did not.
-                var presetName = ConfigurationManager.CurrentPreset?.Name ?? "(none)";
+                var presetName = ConfigurationManager.ActivePreset?.Name ?? "(none)";
 
                 // Cancelling still ran this: it's the only place that resets IsCompiling/the progress bar and
                 // fires OnFinish, so the UI can leave the "compiling" state. But it must not claim success -
