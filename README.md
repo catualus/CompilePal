@@ -21,6 +21,9 @@
 installing** - download it and run it. ([Building](#building) from source is the only thing that
 needs a .NET SDK.)
 
+On **Linux** it runs under Wine, alongside Hammer and the compile tools. See
+[Guides/Linux.md](Guides/Linux.md) for setup and what works.
+
 #### Latest release
 
 [**Download the latest release**](https://github.com/catualus/CompilePal/releases/latest)
@@ -215,6 +218,7 @@ upstream's - this fork at 1.4.0 is not "behind" upstream at 029.
 
 ## Guides
 * [Quick Start](Guides/QuickStart.md)
+* [Running on Linux](Guides/Linux.md)
 * [Reporting An Issue](Guides/Issues.md)
 * [Plugin Development (Beta)](Guides/Plugins.md)
 * [Custom Compile Steps](Guides/Custom.md)
