@@ -56,7 +56,7 @@ and use `proton run`:
 export STEAM_COMPAT_DATA_PATH=~/.compilepal-proton
 export STEAM_COMPAT_CLIENT_INSTALL_PATH=~/.steam/steam
 mkdir -p "$STEAM_COMPAT_DATA_PATH"
-~/.steam/steam/compatibilitytools.d/GE-Proton11-7/proton run ~/CompilePal/CompilePalX.exe
+/path/to/GE-Proton11-7-x86_64/proton run ~/CompilePal/CompilePalX.exe
 ```
 
 Proton's prefix has its own placeholder Steam folder at `C:\Program Files (x86)\Steam`, so give game
