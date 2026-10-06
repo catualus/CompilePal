@@ -115,7 +115,7 @@ namespace CompilePalX.Compilers
                                 $"{staticProps.Count} props were converted to prop_dynamic_override. Each one costs an " +
                                 "edict (the engine's limit is 8192 for the whole map) and is lit by the ambient cube " +
                                 "rather than baked lighting. Recompiling those models with $staticprop is the real fix.",
-                                Error.GetSeverityBrush(3));
+                                3);
                     }
                 }
 
@@ -180,7 +180,7 @@ namespace CompilePalX.Compilers
                 {
                     var unfixable = VmfFixes.ReportUnfixableFaults(vmf);
                     foreach (string line in unfixable.Descriptions)
-                        CompilePalLogger.LogLineColor($"  {line}", Error.GetSeverityBrush(3));
+                        CompilePalLogger.LogLineColor($"  {line}", 3);
                 }
 
                 if (fixes == 0)
@@ -193,7 +193,7 @@ namespace CompilePalX.Compilers
                 {
                     CompilePalLogger.LogLineColor(
                         $"{fixes} issue(s) found. Dry run is enabled, so the VMF was not modified.",
-                        Error.GetSeverityBrush(1));
+                        1);
                     return;
                 }
 

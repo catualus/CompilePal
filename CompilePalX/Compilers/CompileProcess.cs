@@ -10,8 +10,6 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Media;
 using CompilePalX.Annotations;
 using CompilePalX.Compiling;
 using Newtonsoft.Json;
@@ -161,7 +159,7 @@ namespace CompilePalX
                 return;
 
             Process.Kill();
-            CompilePalLogger.LogLineColor("\nKilled {0}.", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"), this.Metadata.Name);
+            CompilePalLogger.LogLineColor("\nKilled {0}.", 4, this.Metadata.Name);
         }
 
         public ObservableCollection<ConfigItem> ParameterList = [];

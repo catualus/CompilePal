@@ -88,7 +88,7 @@ namespace CompilePalX.Compilers
                 {
                     // Not an error. The common reasons are "already extracted" and "nothing to do",
                     // and neither should stop a compile that has otherwise succeeded.
-                    CompilePalLogger.LogLineColor(result.Message, Error.GetSeverityBrush(1));
+                    CompilePalLogger.LogLineColor(result.Message, 1);
                     return;
                 }
 
@@ -108,7 +108,7 @@ namespace CompilePalX.Compilers
                 CompilePalLogger.LogLineColor(
                     "The .lmp must sit in the maps folder next to the .bsp. It cannot be packed " +
                     "inside the BSP, and a map shipped without it will load with no entities.",
-                    Error.GetSeverityBrush(2));
+                    2);
             }
             catch (Exception e)
             {
@@ -126,7 +126,7 @@ namespace CompilePalX.Compilers
             if (revision is null)
             {
                 CompilePalLogger.LogLineColor($"{Path.GetFileName(bsp)} is not a readable BSP.",
-                    Error.GetSeverityBrush(3));
+                    3);
                 return;
             }
 
@@ -150,7 +150,7 @@ namespace CompilePalX.Compilers
             if (bspRevision is null || lumpRevision is null)
             {
                 CompilePalLogger.LogLineColor("Could not read back the map revision to check the pair.",
-                    Error.GetSeverityBrush(3));
+                    3);
                 return;
             }
 
@@ -218,7 +218,7 @@ namespace CompilePalX.Compilers
                 CompilePalLogger.LogLineColor(
                     $"Not copying the lump file to {Path.GetDirectoryName(other)}: the BSP there is a " +
                     "different revision, so the pair would not match.",
-                    Error.GetSeverityBrush(2));
+                    2);
                 return;
             }
 
@@ -231,7 +231,7 @@ namespace CompilePalX.Compilers
             catch (IOException e)
             {
                 CompilePalLogger.LogLineColor($"Could not copy the lump file: {e.Message}",
-                    Error.GetSeverityBrush(3));
+                    3);
             }
         }
     }

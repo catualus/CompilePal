@@ -21,6 +21,14 @@ namespace CompilePalX
     {
 	    protected override void OnStartup(StartupEventArgs e)
 	    {
+            // Before anything that might need to hand work back to this thread. Built from the
+            // Dispatcher rather than read from SynchronizationContext.Current, which WPF does not
+            // promise to have installed this early - and at Send priority, which is what the
+            // Dispatcher.Invoke calls this replaces ran at. The default context uses Normal, which
+            // would let queued work run ahead of a compile's results.
+            UiThread.Capture(new System.Windows.Threading.DispatcherSynchronizationContext(
+                Dispatcher, System.Windows.Threading.DispatcherPriority.Send));
+
             /*
              * Every route an unhandled exception can take out of a WPF application.
              *

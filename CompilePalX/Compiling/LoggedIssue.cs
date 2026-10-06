@@ -34,7 +34,8 @@ namespace CompilePalX.Compiling
 
 		public int Severity => Error.Severity;
 
-		public Brush SeverityBrush => Error.ErrorColor;
+		// A view-model property for the issues list, which is why it may name a brush: this class is UI.
+		public Brush SeverityBrush => Theming.SeverityBrushes.For(Severity);
 
 		/// <summary>
 		/// Severity 4 and 5 are what the log calls errors; below that is advice worth reading but not

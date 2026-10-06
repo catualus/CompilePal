@@ -9,15 +9,10 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Documents;
-using System.Windows.Media;
-using System.Windows.Threading;
 using CompilePalX.Compilers;
 using CompilePalX.Compiling;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using System.Windows;
-using System.Windows.Documents.Serialization;
 using CompilePalX.Annotations;
 using CompilePalX.Configuration;
 using Newtonsoft.Json;
@@ -303,9 +298,9 @@ namespace CompilePalX
             if (e.Severity == 5 && IsCompiling)
             {
                 //We're currently in the thread we would like to kill, so make sure we invoke from the window thread to do this.
-                MainWindow.ActiveDispatcher.Invoke(() =>
+                UiThread.Invoke(() =>
                 {
-                    CompilePalLogger.LogLineColor("An error cancelled the compile.", Error.GetSeverityBrush(5));
+                    CompilePalLogger.LogLineColor("An error cancelled the compile.", 5);
                     CancelCompile();
                 });
             }
@@ -392,12 +387,7 @@ namespace CompilePalX
         /// </summary>
         private static void UpdateMapOnUiThread(Map map, Action<Map> change)
         {
-            var dispatcher = MainWindow.ActiveDispatcher;
-
-            if (dispatcher == null || dispatcher.CheckAccess())
-                change(map);
-            else
-                dispatcher.Invoke(() => change(map));
+            UiThread.Invoke(() => change(map));
         }
 
         private static CompileProcess currentCompileProcess;
@@ -425,7 +415,7 @@ namespace CompilePalX
             CompilePalLogger.LogLine();
             CompilePalLogger.LogLineColor(
                 new string('─', left) + label + new string('─', remaining - left),
-                Error.GetSeverityBrush(1));
+                1);
         }
 
         /// <summary>
@@ -447,7 +437,7 @@ namespace CompilePalX
             foreach (var (name, flag, reason) in process.IncompatibleParameters())
                 CompilePalLogger.LogLineColor(
                     $"{process.Name}: skipping '{name}' ({flag}) - {reason}.",
-                    Error.GetSeverityBrush(1));
+                    1);
         }
 
         private static void CompileThreaded(CancellationToken cancellationToken)
@@ -496,7 +486,7 @@ namespace CompilePalX
                     {
                         CompilePalLogger.LogLineColor(
                             $"Skipping {Path.GetFileNameWithoutExtension(map.File)}: no preset is selected for it, so there are no compile steps to run.",
-                            Error.GetSeverityBrush(4));
+                            4);
                         UpdateMapOnUiThread(map, x => x.State = MapCompileState.Failed);
                         continue;
                     }
@@ -538,7 +528,7 @@ namespace CompilePalX
 
 		                CompilePalLogger.LogLineColor(
 			                $"No compile steps will run for preset '{map.Preset.Name}'.",
-			                Error.GetSeverityBrush(3));
+			                3);
 		                CompilePalLogger.LogLine(
 			                $"  enabled steps: {(enabled.Count == 0 ? "(none)" : string.Join(", ", enabled))}");
 		                CompilePalLogger.LogLine(
@@ -665,7 +655,7 @@ namespace CompilePalX
                 }
 
                 if (!cancellationToken.IsCancellationRequested)
-                    MainWindow.ActiveDispatcher.Invoke(() => postCompile(mapErrors));
+                    UiThread.Invoke(() => postCompile(mapErrors));
             }
             // cts.Cancel() is only ever called from CancelCompile(), which already updates the
             // taskbar/progress state itself (and does so before this can even be reached) - reporting
@@ -680,12 +670,12 @@ namespace CompilePalX
                 // one running quietly: the button read Cancel, the elapsed timer ran, and the output
                 // stayed empty with nothing anywhere to say why.
                 CompilePalLogger.LogLineColor(
-                    $"The compile stopped with an unhandled error: {e.Message}", Error.GetSeverityBrush(5));
+                    $"The compile stopped with an unhandled error: {e.Message}", 5);
                 CompilePalLogger.LogLineDebug(e.ToString());
                 ExceptionHandler.LogException(e, false);
 
                 ProgressManager.ErrorProgress();
-                MainWindow.ActiveDispatcher.Invoke(() => postCompile(null, cancelled: true));
+                UiThread.Invoke(() => postCompile(null, cancelled: true));
             }
             finally
             {
@@ -809,19 +799,19 @@ namespace CompilePalX
                 {
                     CompilePalLogger.LogLineColor(
                         $"'{presetName}' compile cancelled after {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}. The map was not fully compiled.",
-                        (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"));
+                        4);
                 }
                 else
                 {
                     CompilePalLogger.LogLineColor(
-                        $"'{presetName}' compile finished in {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Success"));
+                        $"'{presetName}' compile finished in {compileTimeStopwatch.Elapsed.ToString(@"hh\:mm\:ss")}", CompilePalLogger.Success);
                 }
 
                 if (errors != null && errors.Any())
                 {
                     int numErrors = errors.Sum(e => e.Errors.Count);
                     int maxSeverity = errors.Max(e => e.Errors.Any() ? e.Errors.Max(e2 => e2.Severity) : 0);
-                    CompilePalLogger.LogLineColor("{0} errors/warnings logged:", Error.GetSeverityBrush(maxSeverity), numErrors);
+                    CompilePalLogger.LogLineColor("{0} errors/warnings logged:", maxSeverity, numErrors);
 
                     foreach (var map in errors)
                     {
@@ -829,12 +819,12 @@ namespace CompilePalX
 
                         if (!map.Errors.Any())
                         {
-                            CompilePalLogger.LogLineColor("No errors/warnings logged for {0}", Error.GetSeverityBrush(0), map.MapName);
+                            CompilePalLogger.LogLineColor("No errors/warnings logged for {0}", 0, map.MapName);
                             continue;
                         }
 
                         int mapMaxSeverity = map.Errors.Max(e => e.Severity);
-                        CompilePalLogger.LogLineColor("{0} errors/warnings logged for {1}:", Error.GetSeverityBrush(mapMaxSeverity), map.Errors.Count, map.MapName);
+                        CompilePalLogger.LogLineColor("{0} errors/warnings logged for {1}:", mapMaxSeverity, map.Errors.Count, map.MapName);
 
                         var distinctErrors = map.Errors.GroupBy(e => e.ID).OrderBy(e => e.First().Severity);
                         foreach (var errorList in distinctErrors)
@@ -893,7 +883,7 @@ namespace CompilePalX
             // state first just made the taskbar icon flash empty then red a moment later.
             ProgressManager.ErrorProgress();
 
-            CompilePalLogger.LogLineColor("Compile forcefully ended.", (Brush) Application.Current.TryFindResource("CompilePal.Brushes.Severity4"));
+            CompilePalLogger.LogLineColor("Compile forcefully ended.", 4);
 
             TelemetryManager.CompileCancelled();
 

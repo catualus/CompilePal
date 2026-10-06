@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.IO;
-using System.Windows.Documents;
 using CompilePalX.Compiling;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -74,7 +73,7 @@ namespace CompilePalX
                         (moved
                             ? $"The unreadable file was kept as {backup}."
                             : $"The unreadable file could not be renamed and is still at {mapFiles}."),
-                        Error.GetSeverityBrush(3));
+                        3);
                 }
             }
 

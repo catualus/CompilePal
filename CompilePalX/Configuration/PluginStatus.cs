@@ -130,7 +130,7 @@ namespace CompilePalX.Configuration
                     return;
 
                 // The collection is bound to a card, so it can only be touched from the UI thread.
-                MainWindow.ActiveDispatcher.Invoke(() =>
+                UiThread.Invoke(() =>
                 {
                     map.PluginStatuses.Clear();
 

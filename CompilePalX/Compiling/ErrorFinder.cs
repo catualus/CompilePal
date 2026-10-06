@@ -8,9 +8,6 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Markup;
-using System.Windows.Media;
 using CompilePalX.Compiling;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
@@ -593,20 +590,8 @@ namespace CompilePalX
 	        return MemberwiseClone();
         }
 
-        [JsonIgnore]
-        public Brush ErrorColor => GetSeverityBrush(Severity);
-
-        public static Brush GetSeverityBrush(int severity)
-        {
-            return severity switch
-            {
-                2 => (Brush)Application.Current.TryFindResource("CompilePal.Brushes.Severity2"),
-                3 => (Brush)Application.Current.TryFindResource("CompilePal.Brushes.Severity3"),
-                4 => (Brush)Application.Current.TryFindResource("CompilePal.Brushes.Severity4"),
-                5 => (Brush)Application.Current.TryFindResource("CompilePal.Brushes.Severity5"),
-                _ => (Brush)Application.Current.TryFindResource("CompilePal.Brushes.Severity1"),
-            };
-        }
+        // ErrorColor and GetSeverityBrush moved to Theming.SeverityBrushes: an error is data, and what
+        // colour it is drawn in belongs to the window. See docs/native-port.md.
 
         public string SeverityText
         {

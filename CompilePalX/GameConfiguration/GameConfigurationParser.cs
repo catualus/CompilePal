@@ -94,7 +94,7 @@ namespace CompilePalX {
                         // gameconfig written for a mod, or hand-edited, routinely omits keys the
                         // stock one has - so this is a normal thing to hit and deserves a sentence
                         // rather than a stack trace.
-                        CompilePalLogger.LogLineColor(ex.Message, Error.GetSeverityBrush(3));
+                        CompilePalLogger.LogLineColor(ex.Message, 3);
                     }
                     catch (Exception ex)
                     {
