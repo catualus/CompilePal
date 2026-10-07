@@ -114,10 +114,10 @@ namespace CompilePalX.Compiling
             // in errors.txt were written with an older template that set its own body font and left
             // the colours to the renderer; a stylesheet placed after that one wins on document order
             // without having to out-specify it selector by selector.
-            return policy + "\n" + html + "\n<style>\n" + Style() + "\n</style>\n";
+            return policy + "\n" + html + "\n<style>\n" + PageStylesheet() + "\n</style>\n";
         }
 
-        private static string Style()
+        private static string PageStylesheet()
         {
             if (cachedStyle is not null)
                 return cachedStyle;

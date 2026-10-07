@@ -262,6 +262,12 @@ namespace CompilePalX.Compilers
 			return (ReadOutput == other.ReadOutput && string.Equals(Path, other.Value) && string.Equals(CustomOrder.ToString(), other.Warning) && Equals(Args, other.Value2));
 		}
 
+		// Path alone: both Equals above compare it, so equal programs always hash alike, and it is set
+		// once in the constructor. CustomOrder is compared too but changes when a row is dragged, and
+		// these sit in the order grid, whose selection is hash-keyed - a hash that moved with the order
+		// would lose the item mid-drag.
+		public override int GetHashCode() => Path?.GetHashCode() ?? 0;
+
 		public override string ToString()
 		{
 			return Name;
