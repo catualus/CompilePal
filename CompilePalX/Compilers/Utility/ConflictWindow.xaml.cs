@@ -26,9 +26,6 @@ namespace CompilePalX.Compilers.UtilityProcess
         private Dictionary<string, PCF> _pcfDict;
         private List<string> _targetParticles;
 
-        private FileInfo _file1;
-        private FileInfo _file2;
-
         private int oldHeight = 625;
 
         public List<PCF> selectedPCFS;
