@@ -30,7 +30,7 @@ namespace CompilePalX.Compilers
                     CompilePalLogger.LogLineColor(
                         "\nSHUTDOWN skipped: Compile Pal is running under Wine, which cannot shut down the Linux machine. " +
                         "To power off after a compile on Linux, run Compile Pal from a script that calls `systemctl poweroff` when it exits.",
-                        Error.GetSeverityBrush(2));
+                        2);
                     return;
                 }
 
