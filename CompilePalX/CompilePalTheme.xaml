@@ -40,14 +40,18 @@
     <SolidColorBrush x:Key="CompilePal.Brushes.Severity5" Color="{StaticResource CompilePal.Colors.Severity5}" options:Freeze="True" />
 
     <!--
-      Surface hierarchy. These two must stay visually distinct: the page sits behind, panels sit on top
-      of it as cards. Mapping both to similar fills is what made the layout read as one flat sheet with
-      no panel boundaries.
+      No <StaticResource x:Key=... /> elements in this dictionary. Four aliases onto WPF-UI brushes
+      used to sit here as StaticResource elements, and compiled to BAML they scrambled the keys around
+      them: the aliases were missing once loaded, and so was CompilePal.Brushes.Severity5 just above,
+      whose brush turned up under the last alias's key instead. Every severity 5 message - the fatal
+      errors that stop a compile - was drawn with a null brush, which is to say not at all.
+      ThemeResourceTests loads this dictionary and fails if a declared key goes missing.
+
+      Three of the aliases were unused. The fourth, CompilePal.Brushes.GridBackground, is still
+      referenced by MainWindow but has never resolved, so those surfaces have always shown the window
+      behind them; defining it now would change how the window looks. If it is wanted, alias it in
+      ThemeBridge, which also keeps it in step with light/dark.
     -->
-    <StaticResource x:Key="CompilePal.Brushes.GridBackground" ResourceKey="ApplicationBackgroundBrush" />
-    <StaticResource x:Key="CompilePal.Brushes.DockBackground" ResourceKey="CardBackgroundFillColorDefaultBrush" />
-    <StaticResource x:Key="CompilePal.Brushes.CardStroke" ResourceKey="CardStrokeColorDefaultBrush" />
-    <StaticResource x:Key="CompilePal.Brushes.CheckboxDisabled" ResourceKey="ControlFillColorDisabledBrush" />
 
     <!-- Compact list rows: Fluent's default ListBoxItem padding is far too tall for the dense
          preset/process lists, which left them sprawling down the window. -->
