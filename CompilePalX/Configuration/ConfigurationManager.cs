@@ -11,8 +11,6 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Documents;
-using System.Windows.Threading;
 using CompilePalX.Compilers;
 using CompilePalX.Compilers.BSPPack;
 using CompilePalX.Compilers.UtilityProcess;
@@ -169,7 +167,7 @@ namespace CompilePalX
         // shutdown (crash, force kill, Environment.Exit) discarded every edit made that session. Edits are
         // now tracked and flushed shortly after they happen.
         private static readonly HashSet<Preset> DirtyPresets = [];
-        private static DispatcherTimer? autosaveTimer;
+        private static Timer? autosaveTimer;
         private static bool processesDirty;
 
         /// <summary>
@@ -196,41 +194,30 @@ namespace CompilePalX
             ScheduleFlush();
         }
 
+        private static readonly object autosaveGate = new();
+
+        /// <summary>
+        /// A plain timer whose callback hands the write to the UI thread, where Flush has always run.
+        /// This was a WPF DispatcherTimer, which put a WPF type in the configuration code for nothing
+        /// more than a delay; see docs/native-port.md.
+        /// </summary>
         private static void ScheduleFlush()
         {
-            var dispatcher = System.Windows.Application.Current?.Dispatcher;
-            if (dispatcher is null)
+            if (!UiThread.IsCaptured)
             {
                 // no UI thread (unit tests, headless): write through immediately
                 Flush();
                 return;
             }
 
-            if (!dispatcher.CheckAccess())
-            {
-                dispatcher.BeginInvoke(ScheduleFlush);
-                return;
-            }
-
-            autosaveTimer ??= CreateAutosaveTimer(dispatcher);
+            var delay = TimeSpan.FromMilliseconds(Math.Max(50, Settings.AutosaveDelayMilliseconds));
 
             // restart the countdown so a burst of edits results in a single write
-            autosaveTimer.Stop();
-            autosaveTimer.Start();
-        }
-
-        private static DispatcherTimer CreateAutosaveTimer(Dispatcher dispatcher)
-        {
-            var timer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
+            lock (autosaveGate)
             {
-                Interval = TimeSpan.FromMilliseconds(Math.Max(50, Settings.AutosaveDelayMilliseconds)),
-            };
-            timer.Tick += (_, _) =>
-            {
-                timer.Stop();
-                Flush();
-            };
-            return timer;
+                autosaveTimer ??= new Timer(_ => UiThread.Post(Flush));
+                autosaveTimer.Change(delay, Timeout.InfiniteTimeSpan);
+            }
         }
 
         /// <summary>
@@ -343,7 +330,7 @@ namespace CompilePalX
             catch (Exception e)
             {
                 CompilePalLogger.LogLineColor(
-                    $"Could not load the {name} step: {e.Message}", Error.GetSeverityBrush(3));
+                    $"Could not load the {name} step: {e.Message}", 3);
                 CompilePalLogger.LogLineDebug(e.ToString());
             }
         }
@@ -497,7 +484,7 @@ namespace CompilePalX
                     {
                         CompilePalLogger.LogLineColor(
                             $"Skipped preset \"{presetName}\": its meta.json could not be read ({e.Message}).",
-                            Error.GetSeverityBrush(3));
+                            3);
                         continue;
                     }
 
@@ -683,7 +670,7 @@ namespace CompilePalX
                     (moved
                         ? $"The unreadable file was kept as {backup}."
                         : $"The unreadable file could not be renamed and is still at {SettingsFile}."),
-                    Error.GetSeverityBrush(3));
+                    3);
             }
         }
 
@@ -762,7 +749,7 @@ namespace CompilePalX
                 // some ticks reset - not a reason to fail to start.
                 CompilePalLogger.LogLineColor(
                     $"Could not read {StepStateFile}, so steps start as their defaults: {e.Message}",
-                    Error.GetSeverityBrush(3));
+                    3);
                 return new(StringComparer.OrdinalIgnoreCase);
             }
         }
@@ -833,7 +820,7 @@ namespace CompilePalX
         {
             if (PresetProblem(preset) is { } problem)
             {
-                CompilePalLogger.LogLineColor($"Preset not created: {problem}", Error.GetSeverityBrush(3));
+                CompilePalLogger.LogLineColor($"Preset not created: {problem}", 3);
                 return null;
             }
 
@@ -864,7 +851,7 @@ namespace CompilePalX
         {
             if (PresetProblem(preset) is { } problem)
             {
-                CompilePalLogger.LogLineColor($"Preset not cloned: {problem}", Error.GetSeverityBrush(3));
+                CompilePalLogger.LogLineColor($"Preset not cloned: {problem}", 3);
                 return null;
             }
 
@@ -899,7 +886,7 @@ namespace CompilePalX
         {
             if (PresetProblem(edited, replacing: original) is { } problem)
             {
-                CompilePalLogger.LogLineColor($"Preset not changed: {problem}", Error.GetSeverityBrush(3));
+                CompilePalLogger.LogLineColor($"Preset not changed: {problem}", 3);
                 return null;
             }
 
@@ -997,7 +984,7 @@ namespace CompilePalX
             {
                 CompilePalLogger.LogLineColor(
                     $"Not deleting preset \"{preset.Name}\": its folder would be {Path.GetFullPath(folder)}, which is not inside Presets.",
-                    Error.GetSeverityBrush(4));
+                    4);
                 return;
             }
 

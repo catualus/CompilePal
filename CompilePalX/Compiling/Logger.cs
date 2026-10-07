@@ -8,22 +8,23 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 using System.Runtime.InteropServices;
 
 namespace CompilePalX.Compiling
 {
-    internal delegate Run? LogWrite(string s, Brush? b, int? fontWeight);
-    internal delegate Run? LogWriteURL(string s, string url, int? fontWeight);
-    internal delegate void LogBacktrack(List<Run> l);
+    /*
+     * No WPF types cross this boundary.
+     *
+     * The logger used to hand out and take back WPF Runs and Brushes, which meant everything that
+     * logs - every compile step - had to pick a WPF brush for its own text. A line is now described by
+     * its severity (0-5, the error catalogue's scale, null for plain) and an optional font weight, and
+     * whoever draws it decides what that looks like. What comes back from a write is an opaque handle
+     * - for the window, its Run - that the logger only ever passes back to OnBacktrack to retract.
+     * See docs/native-port.md.
+     */
+    internal delegate object? LogWrite(string s, int? severity, int? fontWeight);
+    internal delegate object? LogWriteURL(string s, string url, int? fontWeight);
+    internal delegate void LogBacktrack(List<object> l);
     internal delegate void CompileErrorLogWrite(string errorText, Error e);
 
     internal delegate void CompileErrorFound(Error e);
@@ -48,8 +49,14 @@ namespace CompilePalX.Compiling
 
         public static event CompileErrorFound OnErrorFound;
 
+        /// <summary>
+        /// Not a severity: the colour a successful finish is drawn in. Passed where a severity goes, so
+        /// a line still carries one number and the window still decides what it looks like.
+        /// </summary>
+        public const int Success = -1;
 
-        public static Run LogColor(string s, Brush? b, int? fontWeight, params object[] formatStrings)
+
+        public static object? LogColor(string s, int? severity, int? fontWeight, params object[] formatStrings)
         {
             string text = s;
             if (formatStrings.Length != 0)
@@ -64,21 +71,22 @@ namespace CompilePalX.Compiling
             }
             catch { }
 
-            return OnWrite?.Invoke(text, b, fontWeight);
+            return OnWrite?.Invoke(text, severity, fontWeight);
         }
 
 
-        public static Run LogLineColor(string s, Brush b, params object[] formatStrings)
+        /// <summary>A line in the colour of a severity, 0 to 5 on the error catalogue's scale.</summary>
+        public static object? LogLineColor(string s, int severity, params object[] formatStrings)
         {
-            return LogColor(s + Environment.NewLine, b, null, formatStrings);
+            return LogColor(s + Environment.NewLine, severity, null, formatStrings);
         }
 
-        public static Run? Log(string s = "", params object[] formatStrings)
+        public static object? Log(string s = "", params object[] formatStrings)
         {
             return Log(s, null, formatStrings);
         }
 
-        public static Run? Log(string s = "", int? fontWeight = null, params object[] formatStrings)
+        public static object? Log(string s = "", int? fontWeight = null, params object[] formatStrings)
         {
             // listen for variable updates for plugins
             if (s.StartsWith("COMPILE_PAL_SET"))
@@ -91,16 +99,16 @@ namespace CompilePalX.Compiling
             return LogColor(s, null, fontWeight, formatStrings);
         }
 
-        public static Run? LogLine(string s, int fontWeight, params object[] formatStrings)
+        public static object? LogLine(string s, int fontWeight, params object[] formatStrings)
         {
             return Log(s + Environment.NewLine, fontWeight, formatStrings);
         }
-        public static Run? LogLine(string s = "", params object[] formatStrings)
+        public static object? LogLine(string s = "", params object[] formatStrings)
         {
             return Log(s + Environment.NewLine, formatStrings);
         }
 
-        public static Run? LogLineFileLocation(string s, string url)
+        public static object? LogLineFileLocation(string s, string url)
         {
             return OnWriteURL.Invoke(s + Environment.NewLine, url, 600);
         }
@@ -146,7 +154,7 @@ namespace CompilePalX.Compiling
         private static Dictionary<Error, int> errorsFound = [];
 
         private static StringBuilder lineBuffer = new ();
-        private static List<Run> tempText = [];
+        private static List<object> tempText = [];
 
         /// <summary>
         /// Drops everything left over from the previous compile. Called as a run starts, once the
@@ -193,25 +201,10 @@ namespace CompilePalX.Compiling
         private static readonly Regex InfoLabel = new(@"^(?:bsp|nav|out|check)\s", RegexOptions.Compiled);
 
         /// <summary>
-        /// The Info brush, resolved once and reused.
-        ///
-        /// <see cref="Error.GetSeverityBrush"/> reads Application.Resources, which belongs to the UI
-        /// thread, while this runs on the compile thread for every line of output - so it is resolved
-        /// through the dispatcher, the way every other severity colour in the app is. The theme
-        /// freezes its brushes, so the one instance is safe to hand back to any thread afterwards.
-        /// Null if there is no window yet, which logs the line plainly rather than failing.
+        /// The severity an Info line is drawn at. Used to be a brush resolved through the window's
+        /// dispatcher on first use; the window now does that resolution itself, on its own thread.
         /// </summary>
-        private static readonly Lazy<Brush?> infoBrush = new(() =>
-        {
-            try
-            {
-                return MainWindow.ActiveDispatcher.Invoke(() => Error.GetSeverityBrush(1));
-            }
-            catch
-            {
-                return null;
-            }
-        });
+        private const int InfoSeverity = 1;
 
         /// <summary>
         /// Logs one finished line, separating progress text from a diagnostic printed onto the end of
@@ -244,8 +237,8 @@ namespace CompilePalX.Compiling
 
             if (error == null)
             {
-                if (InfoLabel.IsMatch(line) && infoBrush.Value is { } brush)
-                    LogLineColor(line, brush);
+                if (InfoLabel.IsMatch(line))
+                    LogLineColor(line, InfoSeverity);
                 else
                     LogLine(line);
                 return;
@@ -299,7 +292,7 @@ namespace CompilePalX.Compiling
             // live run, then split into a finished line a moment later - printing it twice.
             if (s.IndexOfAny(['\n', '\r']) < 0)
             {
-                Run? log = Log(s);
+                object? log = Log(s);
                 if (log != null)
                     tempText.Add(log);
             }
@@ -340,7 +333,7 @@ namespace CompilePalX.Compiling
 
             if (suffixText.Length > 0)
             {
-                Run? log = Log(suffixText);
+                object? log = Log(suffixText);
                 if (log != null)
                     tempText = [log];
             }

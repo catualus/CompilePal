@@ -46,12 +46,13 @@ namespace CompilePalX.Tests
             CompilePalLogger.ResetOutputState();
         }
 
-        private static void IgnoreBacktrack(List<Run> runs) { }
+        private static void IgnoreBacktrack(List<object> handles) { }
 
-        private Run Capture(string s, Brush? b, int? fontWeight)
+        // The logger no longer deals in WPF Runs; any object serves as the handle it passes back.
+        private object Capture(string s, int? severity, int? fontWeight)
         {
             written.Append(s);
-            return new Run(s);
+            return s;
         }
 
         private string Output => written.ToString();

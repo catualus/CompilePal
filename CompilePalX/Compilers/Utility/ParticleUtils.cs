@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using System.Windows;
 using CompilePalX.Compilers.BSPPack;
 using CompilePalX.Compiling;
 
@@ -447,7 +446,7 @@ namespace CompilePalX.Compilers.UtilityProcess
 
                 //Bring up conflict window
                 //Have to run on STAthread
-                Application.Current.Dispatcher.Invoke((Action)delegate
+                UiThread.Invoke(delegate
                 {
                     //Make taskbar icon red
                     ProgressManager.ErrorProgress();

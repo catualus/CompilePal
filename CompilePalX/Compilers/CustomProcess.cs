@@ -6,7 +6,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Media;
 using CompilePalX.Compiling;
 
 namespace CompilePalX.Compilers
@@ -203,7 +202,7 @@ namespace CompilePalX.Compilers
 		private void ProcessOnErrorDataReceived(object sender, DataReceivedEventArgs e)
 		{
 			if (e.Data != null)
-				CompilePalLogger.LogLineColor(e.Data, Error.GetSeverityBrush(4));
+				CompilePalLogger.LogLineColor(e.Data, 4);
 		}
 
 		private void ProcessOnOutputDataReceived(object sender, DataReceivedEventArgs e)

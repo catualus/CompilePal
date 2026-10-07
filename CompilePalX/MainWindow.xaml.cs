@@ -55,8 +55,6 @@ namespace CompilePalX
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }
-
-        public static Dispatcher ActiveDispatcher;
         private ObservableCollection<CompileProcess> CompileProcessesSubList = [];
 
         // processModeEnabled is gone with the two overlaid parameter grids it used to switch between.
@@ -308,7 +306,7 @@ namespace CompilePalX
             if (log == null)
             {
                 CompilePalLogger.LogLineColor($"The log for this run is no longer on disk ({run.LogFile}).",
-                    Error.GetSeverityBrush(3));
+                    3);
                 return;
             }
 
@@ -620,9 +618,6 @@ namespace CompilePalX
 			Application.Current.DispatcherUnhandledException += Current_DispatcherUnhandledException;
 
             InitializeComponent();
-
-            ActiveDispatcher = Dispatcher;
-
             // After InitializeComponent so the XAML-declared FlowDocument exists.
             outputSearch = new OutputSearch(CompileOutputTextbox.Document);
 
@@ -847,7 +842,7 @@ namespace CompilePalX
 
                 Run text = new Run(errorText)
                 {
-                    Foreground = e.ErrorColor
+                    Foreground = Theming.SeverityBrushes.For(e.Severity)
                 };
 
                 errorLink.Inlines.Add(text);
@@ -880,7 +875,7 @@ namespace CompilePalX
                 var underline = new TextDecoration
                 {
                     Location = TextDecorationLocation.Underline,
-                    Pen = new Pen(e.ErrorColor, 1),
+                    Pen = new Pen(Theming.SeverityBrushes.For(e.Severity), 1),
                     PenThicknessUnit = TextDecorationUnit.FontRecommended
                 };
 
@@ -900,7 +895,9 @@ namespace CompilePalX
         }
         
 
-        Run? Logger_OnWrite(string s, Brush? b = null, int? fontWeight = null)
+        // The logger describes a line by severity rather than by brush; the colour is chosen here, on
+        // the UI thread, which is also the only thread allowed to read the theme's resources.
+        object? Logger_OnWrite(string s, int? severity = null, int? fontWeight = null)
         {
             return Dispatcher.Invoke(() =>
             {
@@ -909,8 +906,8 @@ namespace CompilePalX
 
                 Run textRun = new Run(s);
 
-                if (b != null)
-                    textRun.Foreground = b;
+                if (severity is { } level)
+                    textRun.Foreground = Theming.SeverityBrushes.For(level);
 
                 if (fontWeight != null)
                     textRun.FontWeight = FontWeight.FromOpenTypeWeight((int)fontWeight);
@@ -921,11 +918,12 @@ namespace CompilePalX
             });
         }
 
-        void Logger_OnBacktrack(List<Run> removals)
+        void Logger_OnBacktrack(List<object> removals)
         {
             Dispatcher.Invoke(() =>
             {
-                foreach (var run in removals)
+                // The handles are the Runs Logger_OnWrite returned.
+                foreach (var run in removals.OfType<Run>())
                 {
                     run.Text = "";
                 }
@@ -934,7 +932,7 @@ namespace CompilePalX
             });
         }
 
-        private Run? CompilePalLogger_OnWriteFileLocation(string s, string url, int? fontWeight = null)
+        private object? CompilePalLogger_OnWriteFileLocation(string s, string url, int? fontWeight = null)
         {
             return Dispatcher.Invoke(() =>
             {
@@ -1336,7 +1334,7 @@ namespace CompilePalX
             {
                 CompilePalLogger.LogLineColor(
                     "Could not find the compiled map. It may not have got as far as writing one.",
-                    Error.GetSeverityBrush(3));
+                    3);
                 return;
             }
 
@@ -2120,7 +2118,7 @@ namespace CompilePalX
             if (CompilingManager.MapFiles.Count == 0)
             {
                 CompilePalLogger.LogLineColor("--compile was given but no maps are queued.",
-                    Error.GetSeverityBrush(2));
+                    2);
                 return;
             }
 
@@ -2195,7 +2193,7 @@ namespace CompilePalX
                     blocked
                         ? "The compile did not start: a step reported something that has to be dealt with first."
                         : "The compile was cancelled before it started.",
-                    Error.GetSeverityBrush(blocked ? 3 : 1));
+                    blocked ? 3 : 1);
             }
 
             return dialog.Proceed;

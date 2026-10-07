@@ -146,7 +146,7 @@ namespace CompilePalX
 
                 if (newest > Current)
                 {
-                    MainWindow.ActiveDispatcher.Invoke(OnUpdateFound);
+                    UiThread.Invoke(() => OnUpdateFound?.Invoke());
                     CompilePalLogger.LogLine($"Updater found that Compile Pal is outdated. Latest is {newest}.");
                 }
                 else

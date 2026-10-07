@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 using System.Threading;
-using System.Windows.Media;
 using CompilePalX.Compiling;
 
 namespace CompilePalX.Compilers

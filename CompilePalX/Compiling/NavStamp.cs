@@ -77,7 +77,7 @@ namespace CompilePalX.Compiling
 
                 CompilePalLogger.LogLineColor(
                     $"Nav mesh: re-stamped for the final BSP ({stamped:N0} -> {size:N0} bytes)",
-                    Error.GetSeverityBrush(1));
+                    1);
             }
             catch (Exception e)
             {
