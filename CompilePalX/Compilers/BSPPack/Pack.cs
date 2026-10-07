@@ -536,6 +536,7 @@ namespace CompilePalX.Compilers.BSPPack
             startInfo.CreateNoWindow = true;
             startInfo.RedirectStandardOutput = true;
             startInfo.EnvironmentVariables["VPROJECT"] = gameFolder;
+            startInfo.WorkingDirectory = BspZipFolder();
 
             var p = new Process { StartInfo = startInfo };
             p.Start();
@@ -545,18 +546,34 @@ namespace CompilePalX.Compilers.BSPPack
 
         }
 
+        /// <summary>
+        /// Where bspzip has to be started from.
+        ///
+        /// Its own folder, not Compile Pal's. ficool2's bspzipplusplus - the tools++ bspzip, which is
+        /// preferred when it is installed - loads filesystem_stdio.dll from the working directory
+        /// rather than from beside itself, so started from Compile Pal's folder it printed "Failed to
+        /// load filesystem" and exited 1. PACK reported that as a warning and carried on, so a map
+        /// shipped with none of its custom content packed and the compile still read as a success.
+        /// Stock bspzip finds its DLLs either way, which is why this went unnoticed. The compile
+        /// steps were never affected: their step definitions already run them from $binFolder$.
+        /// </summary>
+        static string? BspZipFolder() => Path.GetDirectoryName(Path.GetFullPath(bspZip));
+
         static void PackBSP(string outputFile)
         {
+            // Absolute, because bspzip no longer runs from Compile Pal's folder and the list is
+            // written relative to it.
             string arguments = "-addlist \"$bspnew\"  \"$list\" \"$bspold\"";
             arguments = arguments.Replace("$bspnew", bspPath);
             arguments = arguments.Replace("$bspold", bspPath);
-            arguments = arguments.Replace("$list", outputFile);
+            arguments = arguments.Replace("$list", Path.GetFullPath(outputFile));
 
             var startInfo = new ProcessStartInfo(bspZip, arguments)
             {
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 CreateNoWindow = true,
+                WorkingDirectory = BspZipFolder(),
                 EnvironmentVariables =
                 {
                     ["VPROJECT"] = gameFolder
