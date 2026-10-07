@@ -7,7 +7,7 @@
         xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         xmlns:local="clr-namespace:CompilePalX"
         Title="Game Configuration" Height="444" Width="564" Icon="..\CompilePalIcon.ico"
-        FontFamily="Segoe UI Variable Text, Segoe UI" >
+        FontFamily="{DynamicResource CompilePal.Fonts.UI}" >
 
     <Grid>
         <Grid.RowDefinitions>

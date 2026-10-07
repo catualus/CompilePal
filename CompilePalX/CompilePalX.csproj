@@ -16,6 +16,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="CompilePalIcon.ico" />
+    <!-- Last-resort fonts, embedded so the window can always draw text. See Theming/AppFonts.cs. -->
+    <Resource Include="Fonts\*.ttf" />
+    <!-- The OFL requires the licence to travel with the fonts, and they travel inside the exe. -->
+    <None Include="Fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Presets/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Parameters/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Plugins/**" CopyToOutputDirectory="PreserveNewest" />

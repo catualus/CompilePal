@@ -20,7 +20,7 @@
             ExtendsContentIntoTitleBar="True"
             WindowBackdropType="Mica"
             WindowCornerPreference="Round"
-            FontFamily="Segoe UI Variable Text, Segoe UI"
+            FontFamily="{DynamicResource CompilePal.Fonts.UI}"
             PreviewKeyDown="CompileWindow_OnPreviewKeyDown"
             AllowDrop="True"
             DragOver="CompileWindow_OnDragOver"
@@ -471,7 +471,7 @@
                                                              whole preset reads at a glance. -->
                                                         <TextBlock Grid.Column="3" x:Name="ArgsBlock" Text="{Binding ArgumentSummary}"
                                                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                                                   FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="11"
+                                                                   FontFamily="{DynamicResource CompilePal.Fonts.Mono}" FontSize="11"
                                                                    Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
 
                                                         <TextBlock Grid.Column="4" Text="{Binding Description}" VerticalAlignment="Center"
@@ -593,7 +593,7 @@
                                                                             <TextBlock Margin="0,2,0,0" FontSize="11" FontStyle="Italic"
                                                                                        Foreground="{DynamicResource TextFillColorTertiaryBrush}">
                                                                                 <Run Text="Compiler default:"/>
-                                                                                <Run Text="{Binding ToolDefault, Mode=OneWay}" FontFamily="Cascadia Mono, Consolas, Courier New"/>
+                                                                                <Run Text="{Binding ToolDefault, Mode=OneWay}" FontFamily="{DynamicResource CompilePal.Fonts.Mono}"/>
                                                                                 <TextBlock.Style>
                                                                                     <Style TargetType="TextBlock">
                                                                                         <Style.Triggers>
@@ -742,7 +742,7 @@
                                                             Background="{DynamicResource ControlFillColorDefaultBrush}">
                                                         <TextBox Text="{Binding CommandPreview, Mode=OneWay}" IsReadOnly="True"
                                                                  BorderThickness="0" Background="Transparent" TextWrapping="Wrap"
-                                                                 FontFamily="Cascadia Mono, Consolas, Courier New" FontSize="11"
+                                                                 FontFamily="{DynamicResource CompilePal.Fonts.Mono}" FontSize="11"
                                                                  Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                                                  AutomationProperties.Name="Resolved command line for this step"/>
                                                     </Border>
@@ -956,7 +956,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <RichTextBox Grid.Column="0" IsReadOnly="True" x:Name="CompileOutputTextbox" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderThickness="0" Margin="10,10,10,10" FontFamily="Cascadia Mono, Cascadia Code, Consolas, Courier New" Typography.StandardLigatures="False" IsReadOnlyCaretVisible="True" Block.LineHeight="2" IsDocumentEnabled="True" IsInactiveSelectionHighlightEnabled="True">
+                    <RichTextBox Grid.Column="0" IsReadOnly="True" x:Name="CompileOutputTextbox" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderThickness="0" Margin="10,10,10,10" FontFamily="{DynamicResource CompilePal.Fonts.Mono}" Typography.StandardLigatures="False" IsReadOnlyCaretVisible="True" Block.LineHeight="2" IsDocumentEnabled="True" IsInactiveSelectionHighlightEnabled="True">
                         <RichTextBox.Resources>
                             <!-- For text the user selects by hand to copy: once focus moves away the
                                  selection renders "inactive", and Windows' default inactive-selection
@@ -974,7 +974,7 @@
                                  from its host, it falls back to WPF's document defaults (Georgia 12).
                                  This is the startup value; ApplyOutputFontSettings then assigns the
                                  user's configured font to this same FlowDocument. -->
-                            <FlowDocument FontFamily="Cascadia Mono, Cascadia Code, Consolas, Courier New"
+                            <FlowDocument FontFamily="{DynamicResource CompilePal.Fonts.Mono}"
                                           FontSize="13">
                                 <Paragraph Name="OutputParagraph"/>
                             </FlowDocument>

@@ -10,7 +10,7 @@
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="Mica"
                  WindowCornerPreference="Round"
-                 FontFamily="Segoe UI Variable Text, Segoe UI">
+                 FontFamily="{DynamicResource CompilePal.Fonts.UI}">
 
   <ui:FluentWindow.Resources>
     <config:StatusSeverityBrushConverter x:Key="SeverityBrush"/>

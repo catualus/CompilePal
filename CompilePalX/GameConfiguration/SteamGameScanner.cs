@@ -115,18 +115,29 @@ namespace CompilePalX
 		{
 			var libraries = new List<string>();
 
-			string? steam = FindSteamPath();
-			if (steam == null)
+			var steams = FindSteamPaths().ToList();
+			if (steams.Count == 0)
 			{
-				CompilePalLogger.LogLineDebug("Steam installation not found in the registry; skipping the game scan.");
+				CompilePalLogger.LogLineDebug("No Steam installation found; skipping the game scan.");
 				return libraries;
 			}
 
-			libraries.Add(Normalise(steam));
+			foreach (var steam in steams)
+			{
+				string root = Normalise(steam);
+				if (!libraries.Contains(root, StringComparer.OrdinalIgnoreCase))
+					libraries.Add(root);
 
-			string vdf = Path.Combine(steam, "steamapps", "libraryfolders.vdf");
+				AddLibrariesFrom(Path.Combine(steam, "steamapps", "libraryfolders.vdf"), libraries);
+			}
+
+			return libraries;
+		}
+
+		private static void AddLibrariesFrom(string vdf, List<string> libraries)
+		{
 			if (!File.Exists(vdf))
-				return libraries;
+				return;
 
 			try
 			{
@@ -143,7 +154,15 @@ namespace CompilePalX
 						? entry["path"]?.ToString()
 						: entry.Value.ToString();
 
-					if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+					if (string.IsNullOrWhiteSpace(path))
+						continue;
+
+					// Steam for Linux writes its libraries as Unix paths. Under Wine those are reached
+					// through Z:, and taken as they are they are not paths Windows code can open.
+					if (Platform.Wine.IsRunning)
+						path = Platform.Wine.ToWindowsPath(path);
+
+					if (!Directory.Exists(path))
 						continue;
 
 					string normalised = Normalise(path);
@@ -156,11 +175,36 @@ namespace CompilePalX
 				// A library file we cannot read costs us the extra libraries, not the scan.
 				CompilePalLogger.LogLineDebug($"Could not read {vdf}: {e.Message}");
 			}
-
-			return libraries;
 		}
 
-		private static string? FindSteamPath()
+		/// <summary>
+		/// Every Steam installation worth scanning: the one in the registry, and under Wine the Linux
+		/// client's too.
+		///
+		/// On Linux the Steam that owns the games is the native client, and Wine's registry knows
+		/// nothing about it - so a scan driven by the registry alone found no games at all, and every
+		/// one had to be added by hand. Its usual homes are tried as well; the registry still comes
+		/// first, for a Windows Steam installed inside the prefix.
+		/// </summary>
+		private static IEnumerable<string> FindSteamPaths()
+		{
+			if (FindSteamPathInRegistry() is { } registered)
+				yield return registered;
+
+			if (Platform.Wine.HomeFolder is not { } home)
+				yield break;
+
+			foreach (var folder in Platform.Wine.LinuxSteamFolders(home))
+			{
+				if (Directory.Exists(Path.Combine(folder, "steamapps")))
+				{
+					CompilePalLogger.LogLineDebug($"Found Steam for Linux at {folder}");
+					yield return folder;
+				}
+			}
+		}
+
+		private static string? FindSteamPathInRegistry()
 		{
 			// HKCU is where the current user's client records itself; the HKLM values are the fallback
 			// for an install made by another account.

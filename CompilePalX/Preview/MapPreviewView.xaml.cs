@@ -165,7 +165,9 @@ namespace CompilePalX.Preview
 
                 if (!await EnsureBrowserAsync())
                 {
-                    StatusText.Text = $"{name} was read, but the preview needs the Microsoft Edge WebView2 runtime, which could not be started.";
+                    StatusText.Text = Platform.Wine.IsRunning
+                        ? $"{name} was read, but the preview needs Microsoft Edge WebView2, which does not run under Wine."
+                        : $"{name} was read, but the preview needs the Microsoft Edge WebView2 runtime, which could not be started.";
                     return;
                 }
 
@@ -220,7 +222,12 @@ namespace CompilePalX.Preview
                 CompilePalLogger.LogLineDebug($"WebView2 unavailable for the map preview: {e.Message}");
                 browserFailed = true;
                 PlaceholderTitle.Text = "The map preview needs WebView2";
-                PlaceholderText.Text = "The Microsoft Edge WebView2 runtime could not be started. It ships with Windows 11 and current Windows 10; on other systems it is a free download from Microsoft.";
+
+                // Under Wine the Windows advice is wrong twice over: there is nothing to download that
+                // would work, and pointing someone at Microsoft's installer sends them off to fail at it.
+                PlaceholderText.Text = Platform.Wine.IsRunning
+                    ? "Microsoft Edge WebView2, which draws the preview, does not run under Wine. Compiling is unaffected; open the map in game or in Hammer to look at it."
+                    : "The Microsoft Edge WebView2 runtime could not be started. It ships with Windows 11 and current Windows 10; on other systems it is a free download from Microsoft.";
                 return false;
             }
 

@@ -201,7 +201,7 @@ namespace CompilePalX
             // hand into the editable combo can still be nonsense. An empty one would leave the output
             // rendering in WPF's document default, so fall back rather than accept it.
             if (string.IsNullOrWhiteSpace(settings.OutputFontFamily))
-                settings.OutputFontFamily = "Cascadia Mono, Cascadia Code, Consolas, Courier New";
+                settings.OutputFontFamily = Theming.AppFonts.DefaultMono;
 
             // A blank folder means "search the bin folders and fall back to auto-detection", and that is
             // null rather than "" or "   " - the detector treats a whitespace path as set and finds nothing.
