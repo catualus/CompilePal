@@ -762,34 +762,53 @@ namespace CompilePalX.Compilers.BSPPack
 
             using (var gameInfoFile = File.OpenRead(gameInfoPath))
             {
-                var gameInfo = KVSerializer.Deserialize(gameInfoFile);
-                if (gameInfo is null)
+                KVDocument? gameInfo;
+                List<string>? searchPathValues = null;
+                try
                 {
-                    CompilePalLogger.LogLineDebug($"Failed to parse GameInfo: {gameInfo}");
-                    CompilePalLogger.LogCompileError($"Failed to parse GameInfo", new Error($"Failed to parse GameInfo", ErrorSeverity.Error));
-                    return [];
+                    gameInfo = KVSerializer.Deserialize(gameInfoFile);
+                }
+                catch (Exception e) when (e is KeyValueException or InvalidOperationException)
+                {
+                    // Not valid KeyValues, most often an unquoted path with a space in it. The game
+                    // tolerates that, so refusing it here cancelled compiles over a file that works.
+                    // See GameInfoSearchPaths.
+                    gameInfo = null;
+                    searchPathValues = ReadSearchPathsLeniently(gameInfoPath, e, verbose);
                 }
 
-                if (gameInfo.Name != "GameInfo")
+                if (searchPathValues is null)
                 {
-                    CompilePalLogger.LogLineDebug($"Failed to parse GameInfo: {gameInfo}");
-                    CompilePalLogger.LogCompileError($"Failed to parse GameInfo, did not find GameInfo block\n", new Error($"Failed to parse GameInfo, did not find GameInfo block", ErrorSeverity.Error));
-                    return [];
+                    if (gameInfo is null)
+                    {
+                        CompilePalLogger.LogLineDebug($"Failed to parse GameInfo: {gameInfo}");
+                        CompilePalLogger.LogCompileError($"Failed to parse GameInfo", new Error($"Failed to parse GameInfo", ErrorSeverity.Error));
+                        return [];
+                    }
+
+                    if (gameInfo.Name != "GameInfo")
+                    {
+                        CompilePalLogger.LogLineDebug($"Failed to parse GameInfo: {gameInfo}");
+                        CompilePalLogger.LogCompileError($"Failed to parse GameInfo, did not find GameInfo block\n", new Error($"Failed to parse GameInfo, did not find GameInfo block", ErrorSeverity.Error));
+                        return [];
+                    }
+
+                    var searchPaths = gameInfo["FileSystem"]?["SearchPaths"] as IEnumerable<KVObject>;
+                    if (searchPaths is null)
+                    {
+                        CompilePalLogger.LogLineDebug($"Failed to parse GameInfo: {gameInfo}");
+                        CompilePalLogger.LogCompileError($"Failed to parse GameInfo, did not find FileSystem.SearchPaths block\n", new Error($"Failed to parse GameInfo, did not find FileSystem.SearchPaths block", ErrorSeverity.Error));
+                        return [];
+                    }
+
+                    searchPathValues = searchPaths
+                        .Select(searchPathObject => searchPathObject.Value.ToString())
+                        .OfType<string>()
+                        .ToList();
                 }
 
-                var searchPaths = gameInfo["FileSystem"]?["SearchPaths"] as IEnumerable<KVObject>;
-                if (searchPaths is null)
+                foreach (var searchPath in searchPathValues)
                 {
-                    CompilePalLogger.LogLineDebug($"Failed to parse GameInfo: {gameInfo}");
-                    CompilePalLogger.LogCompileError($"Failed to parse GameInfo, did not find FileSystem.SearchPaths block\n", new Error($"Failed to parse GameInfo, did not find FileSystem.SearchPaths block", ErrorSeverity.Error));
-                    return [];
-                }
-
-                foreach (var searchPathObject in searchPaths)
-                {
-                    var searchPath = searchPathObject.Value.ToString();
-                    if (searchPath is null)
-                        continue;
 
                     // ignore unsearchable paths. TODO: will need to remove .vpk from this check if we add support for packing from assets within vpk files
                     if (searchPath.Contains("|") && !searchPath.Contains("|gameinfo_path|") || searchPath.Contains(".vpk")) continue;
@@ -898,8 +917,11 @@ namespace CompilePalX.Compilers.BSPPack
                     }
                 }
 
-                //find Chaos engine game mount paths
-                var mountedDirectories = GetMountedGamesSourceDirectories(gameInfo, Path.Combine(gamePath, "cfg", "mounts.kv"));
+                //find Chaos engine game mount paths. Needs the parsed document, so skipped when the
+                //search paths had to be read line by line.
+                var mountedDirectories = gameInfo is null
+                    ? null
+                    : GetMountedGamesSourceDirectories(gameInfo, Path.Combine(gamePath, "cfg", "mounts.kv"));
                 if (mountedDirectories != null)
                 {
                     sourceDirectories.AddRange(mountedDirectories);
@@ -912,6 +934,40 @@ namespace CompilePalX.Compilers.BSPPack
             }
 
             return sourceDirectories.Distinct().ToList();
+        }
+
+        /// <summary>
+        /// Search paths from a gameinfo.txt that strict KeyValues refused, read a line at a time, with a
+        /// warning that names the lines at fault. The reader's own message points at the closing brace
+        /// where it gave up, which is rarely where the mistake is.
+        /// </summary>
+        private static List<string> ReadSearchPathsLeniently(string gameInfoPath, Exception parseError, bool verbose)
+        {
+            var problems = new List<GameInfoSearchPaths.Problem>();
+            var paths = GameInfoSearchPaths.Read(File.ReadAllText(gameInfoPath), problems);
+
+            string reason = parseError.InnerException is { } inner
+                ? $"{parseError.Message} {inner.Message}"
+                : parseError.Message;
+
+            if (!verbose)
+            {
+                CompilePalLogger.LogLineDebug($"{gameInfoPath} is not valid KeyValues ({reason}); read {paths.Count} search paths line by line.");
+                return paths;
+            }
+
+            string headline = $"{gameInfoPath} is not valid KeyValues, so its search paths were read line by line instead.";
+            CompilePalLogger.LogCompileError(headline + "\n", new Error(headline, ErrorSeverity.Warning));
+
+            foreach (var problem in problems)
+                CompilePalLogger.LogLine($"  line {problem.Line}: \"{problem.Text}\" {problem.Reason}.");
+
+            CompilePalLogger.LogLine(problems.Count > 0
+                ? "  Put quotes around any path with a space in it. The game reads these lines loosely, but other tools may not."
+                : "  No search path line looked wrong, so the mistake is elsewhere in the file.");
+            CompilePalLogger.LogLine($"  The KeyValues reader stopped with: {reason}");
+
+            return paths;
         }
 
         /// <summary>
