@@ -20,8 +20,10 @@ namespace CompilePalX
         private static string GameConfigurationFolder = "./GameConfiguration";
         private static readonly string GameConfigurationsPath = Path.Combine(GameConfigurationFolder, "gameConfigs.json");
 
-        public static string SubstituteValues(string text, string mapFile = "", bool quote = true)
+        public static string SubstituteValues(string text, string mapFile = "", bool quote = true, string? sourceMapFile = null)
         {
+            // Before $vmfFile$ only for tidiness: neither name contains the other.
+            text = text.Replace("$sourceVmf$", FormatValue(sourceMapFile ?? mapFile, quote));
             text = text.Replace("$vmfFile$", FormatValue(mapFile, quote));
             text = text.Replace("$map$", FormatValue(Path.GetFileNameWithoutExtension(mapFile), quote));
             text = text.Replace("$bsp$", FormatValue(Path.ChangeExtension(mapFile, "bsp"), quote));
@@ -67,6 +69,11 @@ namespace CompilePalX
             val = val.Replace("COMPILE_PAL_SET ", "");
             val = Regex.Replace(val, @"\t|\r|\n", "");
             var firstSpace = val.IndexOf(" ");
+            if (firstSpace < 0)
+            {
+                CompilePalLogger.LogLineColor($"Ignored COMPILE_PAL_SET with no value: '{val}'", 3);
+                return;
+            }
             var field = val.Substring(0, firstSpace);
             var value = val.Substring(firstSpace + 1).Replace("\"", "");
 
@@ -107,9 +114,17 @@ namespace CompilePalX
                     break;
                 case "file":
                     mapFile = value;
+                    // The context for the map being compiled was built before its first step ran, so
+                    // setting the field alone reached nothing until the next map. Moving the live
+                    // context is what lets a step ahead of VBSP hand it a different VMF.
+                    if (ActiveContext != null)
+                        RedirectMapFile(ActiveContext, value);
                     break;
             }
         }
+
+        /// <summary>The context of the map being compiled right now, or null between maps.</summary>
+        public static CompileContext? ActiveContext { get; private set; }
 
         public static void BackupCurrentContext()
         {
@@ -120,18 +135,84 @@ namespace CompilePalX
         {
             GameConfiguration = GameConfigurationBackup;
             mapFile = null;
+            ActiveContext = null;
         }
 
         public static CompileContext BuildContext(Map map)
         {
-            return new CompileContext
+            var context = new CompileContext
             {
                 Configuration = GameConfiguration,
                 MapFile = GameConfigurationManager.mapFile ?? map.File,
+                SourceMapFile = map.File,
                 Map = map,
                 BSPFile = Path.ChangeExtension(GameConfigurationManager.mapFile ?? map.File, "bsp"),
                 CopyLocation = map.IsBSP ? map.File : Path.Combine(GameConfiguration.MapFolder, Path.ChangeExtension(Path.GetFileName(GameConfigurationManager.mapFile ?? map.File), "bsp"))
             };
+            ActiveContext = context;
+            return context;
+        }
+
+        /// <summary>
+        /// Points every later step of this map's compile at <paramref name="vmf"/> in place of the
+        /// queued map. The copy should keep the queued map's file name, so the BSP it produces lands in
+        /// the game's maps folder under the name the map has always had.
+        /// </summary>
+        public static void RedirectMapFile(CompileContext context, string vmf)
+        {
+            context.MapFile = vmf;
+            context.BSPFile = Path.ChangeExtension(vmf, "bsp");
+            if (!context.Map.IsBSP)
+                context.CopyLocation = Path.Combine(context.Configuration.MapFolder, Path.ChangeExtension(Path.GetFileName(vmf), "bsp"));
+            context.RedirectedAt = DateTime.UtcNow;
+            context.MirroredBspWriteTime = null;
+            CompilePalLogger.LogLineDebug($"Compiling {vmf} in place of {context.SourceMapFile}");
+        }
+
+        /// <summary>
+        /// Brings the files VBSP writes beside the VMF it compiled back beside the queued map, once a
+        /// redirected compile has produced them: the BSP, which the preview and anyone opening the map
+        /// expect to find there, and the portal and leak files, which Hammer loads from the VMF's own
+        /// folder.
+        ///
+        /// The .prt and .lin are made to match exactly, deletion included. VBSP deletes both before it
+        /// compiles, so a pointfile left beside the queued map from an earlier leak would otherwise go
+        /// on pointing at a hole the map no longer has.
+        /// </summary>
+        public static void MirrorRedirectedOutputs(CompileContext context)
+        {
+            if (context.Map.IsBSP || context.RedirectedAt is not { } redirectedAt || !context.IsRedirected)
+                return;
+
+            string compiledBsp = Path.ChangeExtension(context.MapFile, "bsp");
+            if (!File.Exists(compiledBsp))
+                return;
+
+            var written = File.GetLastWriteTimeUtc(compiledBsp);
+            // Older than the redirect: a leftover from an earlier run in the same folder, not this one's.
+            if (written < redirectedAt || written == context.MirroredBspWriteTime)
+                return;
+
+            string sourceBase = Path.ChangeExtension(context.SourceMapFile, null);
+            try
+            {
+                File.Copy(compiledBsp, sourceBase + ".bsp", overwrite: true);
+                foreach (var extension in new[] { ".prt", ".lin" })
+                {
+                    string produced = Path.ChangeExtension(context.MapFile, extension);
+                    string beside = sourceBase + extension;
+                    if (File.Exists(produced))
+                        File.Copy(produced, beside, overwrite: true);
+                    else if (File.Exists(beside))
+                        File.Delete(beside);
+                }
+                context.MirroredBspWriteTime = written;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Not fatal: the compile itself is in the redirected folder and goes on from there.
+                CompilePalLogger.LogLineColor($"Could not copy the compiled files back beside {Path.GetFileName(context.SourceMapFile)}: {e.Message}", 3);
+            }
         }
 
         public static void LoadGameConfigurations()

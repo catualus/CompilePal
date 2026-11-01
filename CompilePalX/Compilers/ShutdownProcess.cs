@@ -20,7 +20,7 @@ namespace CompilePalX.Compilers
                 return;
 
             // don't run unless it's the last map of the queue
-            if (CompilingManager.MapFiles.Last().File == context.MapFile)
+            if (CompilingManager.MapFiles.Last().File == context.SourceMapFile)
             {
                 // Under Wine, Windows' shutdown command can at most end the Wine session - it cannot
                 // power off the Linux machine, which is what this step promises. Saying so beats a step

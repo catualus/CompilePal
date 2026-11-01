@@ -62,9 +62,10 @@ My Plugin/
 ### Variable Substitution
 | Variable | Description |
 | -------- | ----------- |
-| `$vmfFile$` | Path to the vmf file
-| `$map$` | Path to the vmf file without extension
-| `$bsp$` | Path to the bsp file
+| `$vmfFile$` | Path to the vmf file being compiled. This is a temporary copy once an earlier step has handed one on - see [Handing VBSP A Different VMF](#handing-vbsp-a-different-vmf)
+| `$sourceVmf$` | Path to the vmf file as queued, whatever the compile is reading. Use this to find anything kept beside the map, such as per-map settings
+| `$map$` | Name of the vmf file being compiled, without folder or extension
+| `$bsp$` | Path to the bsp file beside the vmf being compiled
 | `$mapCopyLocation$` | Path to the bsp file after copying to the map folder
 | `$gameName$` | Name of the current Game Configuration
 | `$game$` | Path to the folder of the current Game Configuration
@@ -247,7 +248,7 @@ You can modify the current game configuration by sending `COMPILE_PAL_SET {varia
 | file | VMF filepath |
 | bspdir | BSP directory |
 | bindir | Bin directory|
-| sdkbindir | SDK bin directory |
+| sdkbspdir | SDK map directory |
 | gamedir | Game directory |
 | vbsp_exe | Path to VBSP |
 | vvis_exe | Path to VVIS |
@@ -258,6 +259,24 @@ You can modify the current game configuration by sending `COMPILE_PAL_SET {varia
 | vbspinfo_exe | Path to VBSPInfo |
 
 For example, sending `COMPILE_PAL_SET file 'new/file/path.vmf'` will update the configuration to point to the vmf at `new/file/path.vmf` instead of what was originally selected.
+
+### Handing VBSP A Different VMF
+
+A step that runs before VBSP can give the compile a rewritten copy of the map instead of the map
+itself: write the copy, then send `COMPILE_PAL_SET file "<path to the copy>"`. Every later step of
+that map's compile - VBSP, VVIS, VRAD, COPY, and any plugin using `$vmfFile$` or `$bsp$` - works on
+the copy from then on. The next map in the queue starts from its own file again.
+
+- **Keep the map's file name** and put the copy in a folder of its own, for example
+  `%TEMP%\My Plugin\<map>\<map>.vmf`. The compilers name the BSP after the VMF, and the BSP reaches
+  the game's maps folder under that name.
+- **The queued map is not touched.** After each step, Compile Pal copies the `.bsp` that the step
+  produced back beside the queued map, and makes the `.prt` and `.lin` there match the ones the
+  compile produced - deleting them when it produced none, as VBSP itself would. Hammer's Load
+  Pointfile and Load Portal File, and the map preview, keep working as they did.
+- Steps can chain: a second step reads `$vmfFile$` (the first step's copy) and hands on a copy of
+  its own.
+- Settings stored beside the map belong to `$sourceVmf$`, not `$vmfFile$`.
 
 ## Best Practices
 For examples, download [PLUGIN DEMO.zip](https://github.com/ruarai/CompilePal/files/9440548/PLUGIN.DEMO.zip) or look at the existing compile steps in the `Parameters` folder.
