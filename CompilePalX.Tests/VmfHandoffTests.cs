@@ -245,6 +245,8 @@ namespace CompilePalX.Tests
 
             string written = vmf.GetValue(vmf.Entities[0], "file")!;
             // VBSP joins the value onto the copy's folder.
+            // VBSP reads a backslash in a value as an escape, so the path must use forward slashes.
+            Assert.DoesNotContain('\\', written);
             Assert.Equal(instance, Path.GetFullPath(Path.Combine(Path.GetDirectoryName(copyVmf)!, written)));
         }
 

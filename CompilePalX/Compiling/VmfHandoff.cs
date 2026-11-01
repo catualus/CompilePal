@@ -71,7 +71,9 @@ namespace CompilePalX.Compiling
                     throw new IOException(
                         $"The instance {file} is on a different drive from {newFolder}, so a copy of the map compiled there cannot reach it.");
 
-                string relative = Path.GetRelativePath(newFolder, found);
+                // Forward slashes, as Hammer writes them: VBSP reads a backslash in a VMF value as the
+                // start of an escape, so "..\..\Users\name" arrives as "..n" and garbage.
+                string relative = Path.GetRelativePath(newFolder, found).Replace('\\', '/');
                 if (vmf.SetValue(entity, "file", relative))
                     changed++;
             }
