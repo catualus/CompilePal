@@ -169,6 +169,24 @@ namespace CompilePalX.Tests
             Assert.False(File.Exists(Path.ChangeExtension(sourceVmf, "lin")));
         }
 
+        /// <summary>
+        /// File times come from a clock that ticks every few milliseconds, so a BSP written just after the
+        /// redirect can be stamped just before it. CI caught this: it is this run's file, not a leftover.
+        /// </summary>
+        [Fact]
+        public void ABspStampedJustBeforeTheRedirectIsStillThisRuns()
+        {
+            var context = Build();
+            GameConfigurationManager.RedirectMapFile(context, copyVmf);
+            string bsp = Path.ChangeExtension(copyVmf, "bsp");
+            File.WriteAllText(bsp, "new bsp");
+            File.SetLastWriteTimeUtc(bsp, context.RedirectedAt!.Value.AddMilliseconds(-10));
+
+            GameConfigurationManager.MirrorRedirectedOutputs(context);
+
+            Assert.Equal("new bsp", File.ReadAllText(Path.ChangeExtension(sourceVmf, "bsp")));
+        }
+
         [Fact]
         public void ABspFromAnEarlierRunIsLeftAlone()
         {

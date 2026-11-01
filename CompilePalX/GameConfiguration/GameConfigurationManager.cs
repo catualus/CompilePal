@@ -179,6 +179,8 @@ namespace CompilePalX
         /// compiles, so a pointfile left beside the queued map from an earlier leak would otherwise go
         /// on pointing at a hole the map no longer has.
         /// </summary>
+        private static readonly TimeSpan MirrorClockSlack = TimeSpan.FromSeconds(2);
+
         public static void MirrorRedirectedOutputs(CompileContext context)
         {
             if (context.Map.IsBSP || context.RedirectedAt is not { } redirectedAt || !context.IsRedirected)
@@ -190,7 +192,9 @@ namespace CompilePalX
 
             var written = File.GetLastWriteTimeUtc(compiledBsp);
             // Older than the redirect: a leftover from an earlier run in the same folder, not this one's.
-            if (written < redirectedAt || written == context.MirroredBspWriteTime)
+            // With some slack, because file times come from a clock that only ticks every few
+            // milliseconds, so a file written just after the redirect can be stamped just before it.
+            if (written < redirectedAt - MirrorClockSlack || written == context.MirroredBspWriteTime)
                 return;
 
             string sourceBase = Path.ChangeExtension(context.SourceMapFile, null);
