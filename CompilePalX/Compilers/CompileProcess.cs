@@ -587,10 +587,29 @@ namespace CompilePalX
 
     class CompileContext
     {
+        /// <summary>
+        /// The VMF the compilers read. Starts as the queued map, and moves to a temporary copy when a
+        /// step hands one on - VMFFIX, or a plugin sending <c>COMPILE_PAL_SET file</c>.
+        /// </summary>
         public string MapFile;
         public Map Map;
         public GameConfiguration Configuration;
         public string BSPFile;
         public string CopyLocation;
+
+        /// <summary>
+        /// The map as queued. Never changes during a compile, so anything that belongs to the map
+        /// rather than to this run - settings kept beside the VMF, the preview, the shutdown check -
+        /// can find it after <see cref="MapFile"/> has moved.
+        /// </summary>
+        public string SourceMapFile;
+
+        /// <summary>When <see cref="MapFile"/> last moved away from the queued map; null if it never has.</summary>
+        public DateTime? RedirectedAt;
+
+        /// <summary>Write time of the redirected BSP as last copied back beside the queued map.</summary>
+        public DateTime? MirroredBspWriteTime;
+
+        public bool IsRedirected => !string.Equals(Path.GetFullPath(MapFile), Path.GetFullPath(SourceMapFile), StringComparison.OrdinalIgnoreCase);
     }
 }

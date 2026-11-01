@@ -598,6 +598,10 @@ namespace CompilePalX
                         compileProcess.Run(buildContext, cancellationToken);
                         stepStopwatch.Stop();
 
+                        // Before the next step starts: the preview reloads from beside the queued map
+                        // the moment it does.
+                        GameConfigurationManager.MirrorRedirectedOutputs(buildContext);
+
                         CompileTimings.Record(cleanMapName, compileProcess.Name, stepStopwatch.Elapsed);
 
                         compileErrors.AddRange(currentCompileProcess.CompileErrors);

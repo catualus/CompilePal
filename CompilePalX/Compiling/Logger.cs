@@ -91,9 +91,12 @@ namespace CompilePalX.Compiling
             // listen for variable updates for plugins
             if (s.StartsWith("COMPILE_PAL_SET"))
             {
-                GameConfigurationManager.ModifyCurrentContext(s);
+                // Only a whole line is a command. A step's output arrives in chunks, and the unfinished
+                // end of one is shown live before the rest arrives; acting on that would set a value cut
+                // off mid-path - or, cut inside the variable's name, throw.
+                if (s.EndsWith('\n'))
+                    GameConfigurationManager.ModifyCurrentContext(s);
                 return null;
-
             }
 
             return LogColor(s, null, fontWeight, formatStrings);

@@ -42,7 +42,7 @@ namespace CompilePalX.Compilers
                     };
             }
 
-            var args = GameConfigurationManager.SubstituteValues(GetParameterString(), c.MapFile);
+            var args = GameConfigurationManager.SubstituteValues(GetParameterString(), c.MapFile, sourceMapFile: c.SourceMapFile);
 
             bool normalPriority = false;
             if (args.Contains("-normal_priority"))
