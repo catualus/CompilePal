@@ -4,8 +4,8 @@
   "Order": 0.5,
   "DoRun": false,
   "ReadOutput": true,
-  "Description": "Repairs known-fixable problems in the VMF before VBSP reads it, such as reversed light falloff distances and prop_static entities using models that were not compiled with $staticprop. The original map is backed up first.",
-  "Warning": "Modifies the VMF. A timestamped .vmf.bak is written next to it unless backups are disabled.",
+  "Description": "Repairs known-fixable problems in the VMF before VBSP reads it, such as reversed light falloff distances and prop_static entities using models that were not compiled with $staticprop. The fixes go into a copy that the rest of the compile uses; the map itself is never changed.",
+  "Warning": "The compiled map differs from the VMF until the fixes are made in Hammer. Each fix is listed in the output.",
   "PresetDefault": false,
   "BasisString": " ",
   "SupportsBSP": false

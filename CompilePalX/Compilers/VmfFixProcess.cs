@@ -16,8 +16,9 @@ namespace CompilePalX.Compilers
     ///
     /// There is no compiler flag for any of this. vbsp and vrad only read the map and complain;
     /// nothing you pass them makes a reversed light falloff correct or a non-static model usable as
-    /// a prop_static. The repair has to happen to the source, which means before the compile - so
-    /// this runs at order 0.5, ahead of VBSP.
+    /// a prop_static. The repair has to happen to the VMF, which means before the compile - so this
+    /// runs at order 0.5, ahead of VBSP, and hands the rest of the compile a fixed copy. The queued
+    /// map is never written.
     ///
     /// Everything here is limited to defects with a single unambiguous correct answer. Anything
     /// needing a judgement call is reported and left alone.
@@ -27,7 +28,6 @@ namespace CompilePalX.Compilers
         public VmfFixProcess() : base("VMFFIX") { }
 
         private const string DryRunArg = "-dryrun";
-        private const string NoBackupArg = "-nobackup";
         private const string SkipLightsArg = "-nolights";
         private const string SkipStaticPropsArg = "-nostaticprops";
         private const string CheckMaterialsArg = "-materials";
@@ -55,7 +55,6 @@ namespace CompilePalX.Compilers
 
             string args = GetParameterString();
             bool dryRun = args.Contains(DryRunArg);
-            bool backup = !args.Contains(NoBackupArg);
             bool doLights = !args.Contains(SkipLightsArg);
             bool doStaticProps = !args.Contains(SkipStaticPropsArg);
             bool doMaterials = args.Contains(CheckMaterialsArg);
@@ -192,20 +191,18 @@ namespace CompilePalX.Compilers
                 if (dryRun)
                 {
                     CompilePalLogger.LogLineColor(
-                        $"{fixes} issue(s) found. Dry run is enabled, so the VMF was not modified.",
+                        $"{fixes} issue(s) found. Dry run is enabled, so this compile uses the map as it is.",
                         1);
                     return;
                 }
 
-                if (backup)
-                {
-                    string backupPath = BackupPath(context.MapFile);
-                    File.Copy(context.MapFile, backupPath, overwrite: true);
-                    CompilePalLogger.LogLine($"Backed up original to {Path.GetFileName(backupPath)}");
-                }
-
-                vmf.Save(context.MapFile);
-                CompilePalLogger.LogLine($"Applied {fixes} fix(es) to {Path.GetFileName(context.MapFile)}");
+                // The fixes go into a copy that the rest of this compile reads. Overwriting the map
+                // itself meant a fixer's mistake reached the mapper's only copy, and a backup beside it
+                // for every compile.
+                string copy = VmfHandoff.Write(vmf, context.MapFile, context.SourceMapFile, Name);
+                GameConfigurationManager.RedirectMapFile(context, copy);
+                CompilePalLogger.LogLine($"Applied {fixes} fix(es) to a copy of {Path.GetFileName(context.SourceMapFile)}, which this compile uses. The map itself is unchanged.");
+                CompilePalLogger.LogLineDebug($"Fixed copy: {copy}");
             }
             catch (Exception e)
             {
@@ -225,17 +222,6 @@ namespace CompilePalX.Compilers
                 CompilePalLogger.LogLine(summary(result.Count));
 
             return result.Count;
-        }
-
-        /// <summary>
-        /// Timestamped so a second compile cannot overwrite the last good copy of the map, which is
-        /// the one thing that must not happen when a tool edits someone's source file.
-        /// </summary>
-        private static string BackupPath(string mapFile)
-        {
-            string dir = Path.GetDirectoryName(mapFile) ?? ".";
-            string name = Path.GetFileNameWithoutExtension(mapFile);
-            return Path.Combine(dir, $"{name}.{DateTime.Now:yyyyMMdd-HHmmss}.vmf.bak");
         }
 
         private static List<string> ResolveContentDirectories(CompileContext context)
