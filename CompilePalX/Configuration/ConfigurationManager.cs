@@ -360,6 +360,7 @@ namespace CompilePalX
             AddBuiltIn("CUBEMAPS", () => new CubemapProcess());
             AddBuiltIn("NAV", () => new NavProcess());
             AddBuiltIn("ENTLUMP", () => new EntityLumpProcess());
+            AddBuiltIn("BAKE", () => new BakeProcess());
             AddBuiltIn("SHUTDOWN", () => new ShutdownProcess());
             AddBuiltIn("UTILITY", () => new UtilityProcess());
             AddBuiltIn("CUSTOM", () => new CustomProcess());

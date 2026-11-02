@@ -84,6 +84,9 @@ the same VBSP/VVIS/VRAD wrapper, with the parts around it rebuilt.
   the BSP yourself.
 * **The taskbar button flashes** when a compile ends and the window is not the one in front, which
   is when a long compile usually ends.
+* **A BAKE step** for Viswright's window pictures: after VRAD it draws the lit map, props included,
+  into the picture each shut areaportal window shows of the room behind it, and packs the pictures
+  into the BSP.
 
 ### Errors
 
