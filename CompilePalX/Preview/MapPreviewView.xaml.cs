@@ -21,7 +21,10 @@ namespace CompilePalX.Preview
         private bool browserReady;
         private bool browserFailed;
         private bool exporting;
-        private (IReadOnlyList<string> Candidates, string Reason)? pending;
+        private (IReadOnlyList<string> Candidates, string Reason, string? Source)? pending;
+
+        /// <summary>The Viswright decisions file of the map on show, where the page's decisions are written.</summary>
+        private string? decisionsPath;
 
         public MapPreviewView()
         {
@@ -52,7 +55,7 @@ namespace CompilePalX.Preview
 
             string bsp = Path.ChangeExtension(map.File, "bsp");
             if (File.Exists(bsp))
-                Show(bsp, $"after {finished}");
+                Show([bsp], $"after {finished}", map.IsBSP ? null : map.File);
         }
 
         /// <summary>Called when the run has ended: the last map compiled, wherever its BSP ended up.</summary>
@@ -67,7 +70,7 @@ namespace CompilePalX.Preview
 
             var copies = CompiledCopiesOf(map);
             if (copies.Count > 0)
-                Show(copies, "finished");
+                Show(copies, "finished", map.IsBSP ? null : map.File);
         }
 
         private void LoadButton_OnClick(object sender, RoutedEventArgs e)
@@ -86,7 +89,7 @@ namespace CompilePalX.Preview
                 return;
             }
 
-            Show(copies, "loaded");
+            Show(copies, "loaded", map.IsBSP ? null : map.File);
         }
 
         /// <summary>
@@ -114,26 +117,26 @@ namespace CompilePalX.Preview
                 .ToList();
         }
 
-        private void Show(string bspPath, string reason) => Show([bspPath], reason);
-
         /// <summary>
         /// Exports and shows the first of <paramref name="candidates"/> that can be read. One export
         /// at a time; a request that arrives while one is running replaces anything already waiting,
         /// since only the latest matters.
         /// </summary>
-        private void Show(IReadOnlyList<string> candidates, string reason)
+        /// <param name="sourceVmf">The map's VMF, whose Viswright review is shown over it when it has one.</param>
+        private void Show(IReadOnlyList<string> candidates, string reason, string? sourceVmf)
         {
             if (exporting)
             {
-                pending = (candidates, reason);
+                pending = (candidates, reason, sourceVmf);
                 return;
             }
 
-            _ = ShowAsync(candidates, reason);
+            _ = ShowAsync(candidates, reason, sourceVmf);
         }
 
-        private async Task ShowAsync(IReadOnlyList<string> candidates, string reason)
+        private async Task ShowAsync(IReadOnlyList<string> candidates, string reason, string? sourceVmf)
         {
+            string? decisions = sourceVmf is null ? null : ViswrightReview.DecisionsPathFor(sourceVmf);
             exporting = true;
             string name = Path.GetFileName(candidates[0]);
             StatusText.Text = $"Reading {name}…";
@@ -148,7 +151,7 @@ namespace CompilePalX.Preview
                     try
                     {
                         string? gameFolder = GameConfigurationManager.GameConfiguration?.GameFolder;
-                        export = await Task.Run(() => PreviewExporter.Write(candidate, gameFolder));
+                        export = await Task.Run(() => PreviewExporter.Write(candidate, gameFolder, decisions));
                         name = Path.GetFileName(candidate);
                         break;
                     }
@@ -171,6 +174,7 @@ namespace CompilePalX.Preview
                     return;
                 }
 
+                decisionsPath = export.Review ? decisions : null;
                 Browser.CoreWebView2.Navigate($"https://{PreviewExporter.HostName}/viewer.html?v={export.Stamp}");
                 Browser.Visibility = Visibility.Visible;
                 Placeholder.Visibility = Visibility.Collapsed;
@@ -186,6 +190,7 @@ namespace CompilePalX.Preview
                                   $" · {export.PropsPlaced:N0} of {export.PropsTotal:N0} props" +
                                   $" · {export.MaterialsFound:N0} of {export.MaterialsFound + export.MaterialsMissing:N0} materials, {export.TexturesWritten:N0} textures" +
                                   (export.SkyWritten ? "" : " · no sky") +
+                                  (export.Review ? " · Viswright review" : "") +
                                   (scene.Compressed ? " · read from a compressed BSP" : "");
             }
             catch (Exception e)
@@ -200,7 +205,7 @@ namespace CompilePalX.Preview
                 if (pending is { } next)
                 {
                     pending = null;
-                    Show(next.Candidates, next.Reason);
+                    Show(next.Candidates, next.Reason, next.Source);
                 }
             }
         }
@@ -248,6 +253,27 @@ namespace CompilePalX.Preview
                     args.Cancel = true;
             };
             core.NewWindowRequested += (_, args) => args.Handled = true;
+
+            // The page's answers to Viswright's review: one item accepted or denied at a time.
+            core.WebMessageReceived += (_, args) =>
+            {
+                if (decisionsPath is null)
+                    return;
+                try
+                {
+                    var message = Newtonsoft.Json.Linq.JObject.Parse(args.WebMessageAsJson);
+                    if (message["type"]?.ToString() != "decide")
+                        return;
+                    string id = message["id"]?.ToString() ?? "";
+                    string decision = message["decision"]?.ToString() ?? "";
+                    if (ViswrightReview.Decide(decisionsPath, id, decision))
+                        StatusText.Text = $"Viswright: {id} set to {decision} in {Path.GetFileName(decisionsPath)}; the next compile applies it.";
+                }
+                catch (Exception e) when (e is Newtonsoft.Json.JsonException or IOException or UnauthorizedAccessException)
+                {
+                    CompilePalLogger.LogLineDebug($"Viswright decision not saved: {e.Message}");
+                }
+            };
 
             browserReady = true;
             return true;
