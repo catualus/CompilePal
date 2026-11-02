@@ -30,13 +30,14 @@ namespace CompilePalX.Preview
         /// <summary>What was last written, for the status line and for tests.</summary>
         public sealed record Export(string BspPath, PreviewScene Scene, DateTime WrittenAt, long Stamp,
             int MaterialsFound, int MaterialsMissing, int TexturesWritten, int TexturesMissing, bool SkyWritten,
-            int PropsPlaced, int PropsTotal, int PropsMissing);
+            int PropsPlaced, int PropsTotal, int PropsMissing, bool Review = false);
 
         /// <summary>
         /// Reads <paramref name="bspPath"/>, finds its materials under <paramref name="gameFolder"/>
         /// and inside the map's own pak, and writes the preview folder. Throws on an unreadable map.
         /// </summary>
-        public static Export Write(string bspPath, string? gameFolder)
+        /// <param name="decisionsPath">The map's Viswright decisions file, if it has one: its review is shown over the map.</param>
+        public static Export Write(string bspPath, string? gameFolder, string? decisionsPath = null)
         {
             var scene = BspGeometry.Read(bspPath);
             Directory.CreateDirectory(Folder);
@@ -192,6 +193,7 @@ namespace CompilePalX.Preview
             };
 
             ConfigurationManager.WriteFileAtomic(Path.Combine(Folder, "scene.json"), JsonConvert.SerializeObject(header, Formatting.Indented));
+            bool review = ViswrightReview.CopyInto(Folder, decisionsPath);
 
             CompilePalLogger.LogLineDebug(
                 $"Preview written for {header.map}: {scene.DrawnFaces} of {scene.FaceCount} faces, {scene.TriangleCount} triangles, " +
@@ -205,7 +207,7 @@ namespace CompilePalX.Preview
 
             return new Export(bspPath, scene, DateTime.Now, stamp,
                 materials.MaterialsFound, materials.MaterialsMissing, materials.Textures.Count, materials.TexturesMissing, sky is not null || scene.SkyPaint is not null,
-                props.PropsPlaced, scene.StaticProps.Count + scene.EntityProps.Count, props.PropsMissing);
+                props.PropsPlaced, scene.StaticProps.Count + scene.EntityProps.Count, props.PropsMissing, review);
         }
 
         /// <summary>Copies the viewer page into the folder when it is missing or older than the shipped one.</summary>

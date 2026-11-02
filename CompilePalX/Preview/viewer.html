@@ -18,6 +18,31 @@
   #help { position: absolute; right: 10px; bottom: 10px; color: #888; background: rgba(20,20,20,.7);
           padding: 6px 8px; border-radius: 6px; }
   #message { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); color: #aaa; font-size: 14px; }
+  /* Viswright's review: a panel of items on the right, drawn as boxes over the map */
+  #review { position: absolute; right: 10px; top: 10px; bottom: 44px; width: 340px; display: flex; flex-direction: column;
+            background: rgba(20,20,20,.9); border: 1px solid #3a3a3a; border-radius: 6px; }
+  #review[hidden] { display: none; }
+  #review .head { padding: 8px 10px 4px; }
+  #review .head b { font-size: 13px; }
+  #review .row { display: flex; align-items: center; gap: 8px; padding: 2px 10px 6px; }
+  #review select { flex: 1; }
+  #rv-detail { padding: 0 10px; color: #bbb; }
+  #rv-detail .pics { display: flex; gap: 6px; margin: 4px 0 8px; }
+  #rv-detail img { flex: 1; min-width: 0; max-height: 150px; object-fit: contain; border-radius: 4px; background: #111; cursor: zoom-in; }
+  #rv-detail img.big { position: fixed; left: 10px; top: 10px; right: 360px; bottom: 44px; max-height: none; z-index: 2; cursor: zoom-out; }
+  #rv-list { overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 120px; border-top: 1px solid #333; }
+  .rv-item { padding: 6px 10px; border-bottom: 1px solid #2c2c2c; cursor: pointer; }
+  .rv-item:hover { background: #262626; }
+  .rv-item.sel { background: #23313f; }
+  .rv-item .top { display: flex; gap: 6px; align-items: center; }
+  .rv-item .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  .rv-item .what { color: #ddd; flex: 1; }
+  .rv-item .state { color: #999; }
+  .rv-item .why { color: #999; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .rv-item button, #review .head button { font: inherit; color: #ddd; background: #333; border: 1px solid #555; border-radius: 4px; padding: 1px 8px; cursor: pointer; }
+  .rv-item button.on.accept { background: #1f6f3c; border-color: #2fa35a; }
+  .rv-item button.on.deny { background: #7a2626; border-color: #c24a4a; }
+  .rv-item .act { display: flex; gap: 6px; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -35,8 +60,22 @@
   <div class="stat" id="stats"></div>
   <div class="warn" id="warn"></div>
 </div>
-<div id="help">WASD move · wheel forward/back · drag to look · Q/E down/up · Shift faster · R return to spawn</div>
+<div id="help">WASD move · wheel forward/back · drag to look · Q/E down/up · Shift faster · R return to spawn · click a review item to fly to it</div>
 <div id="message">Loading…</div>
+<div id="review" hidden>
+  <div class="head"><b>Viswright review</b> <span id="rv-count" class="stat"></span></div>
+  <div class="row"><label><input type="checkbox" id="rv-show" checked> Show items</label>
+    <select id="rv-filter">
+      <option value="all">All items</option>
+      <option value="waiting">Waiting for a decision</option>
+      <option value="applied">Applied</option>
+      <option value="rejected">Refused</option>
+      <option value="suggested">Suggested</option>
+    </select></div>
+  <div class="row"><button id="rv-accept-all" type="button">Accept every waiting item</button></div>
+  <div id="rv-detail"></div>
+  <div id="rv-list"></div>
+</div>
 
 <script>
 (async function () {
@@ -406,6 +445,178 @@
   const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 
+  // ---- Viswright review ------------------------------------------------------------------
+  // The map's decisions file and its last review's items, when Compile Pal copied them in: each item
+  // drawn as a box (faint through walls), listed in a panel, and decided there. A decision goes back to
+  // Compile Pal, which writes it to the decisions file beside the map for the next compile.
+  let review = null;
+  try {
+    const decisionsResponse = await fetch('viswright.json?v=' + stamp);
+    if (decisionsResponse.ok) {
+      const decisions = await decisionsResponse.json();
+      const itemsResponse = await fetch('viswright-items.json?v=' + stamp);
+      const found = itemsResponse.ok ? (await itemsResponse.json()).items : [];
+      review = setUpReview(decisions, found);
+    }
+  } catch (e) { review = null; }
+
+  function setUpReview(decisions, found) {
+    const decided = new Map((decisions.items || []).map(i => [i.id, i]));
+    const items = found.map(f => ({ ...f, decision: decided.has(f.id) ? decided.get(f.id).decision : null, stale: !!(decided.get(f.id) || {}).stale }));
+    const seen = new Set(found.map(f => f.id));
+    for (const d of decisions.items || [])
+      if (!seen.has(d.id))
+        items.push({ number: null, id: d.id, pass: d.pass, status: 'applied', reason: d.reason, detail: d.detail, mins: d.mins, maxs: d.maxs, decision: d.decision, stale: !!d.stale });
+    items.sort((a, b) => (a.number ?? 1e9) - (b.number ?? 1e9));
+
+    const lineProgram = program(`#version 300 es
+      layout(location=0) in vec3 aPos; layout(location=1) in vec3 aColor;
+      uniform mat4 uViewProj; out vec3 vColor;
+      void main() { vColor = aColor; gl_Position = uViewProj * vec4(aPos, 1.0); }`, `#version 300 es
+      precision mediump float; in vec3 vColor; uniform float uAlpha; out vec4 outColor;
+      void main() { outColor = vec4(vColor, uAlpha); }`);
+    const lineVao = gl.createVertexArray(), lineVbo = gl.createBuffer();
+    gl.bindVertexArray(lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, lineVbo);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+    const fillVao = gl.createVertexArray(), fillVbo = gl.createBuffer();
+    gl.bindVertexArray(fillVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, fillVbo);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+    gl.bindVertexArray(null);
+
+    const state = { items, selected: null, show: true, filter: 'all', lineCount: 0, fillCount: 0, lineProgram, lineVao, lineVbo, fillVao, fillVbo };
+    const waiting = it => it.decision === 'pending' && !it.stale;
+    const colourOf = it => it.stale ? [0.5, 0.5, 0.5]
+      : it.decision === 'deny' ? [0.9, 0.24, 0.24]
+      : it.decision === 'accept' ? [0.16, 0.75, 0.35]
+      : it.decision === 'pending' ? [0.98, 0.69, 0.12]
+      : it.status === 'suggested' ? [0.35, 0.63, 1]
+      : it.status === 'applied' ? [0.16, 0.75, 0.35] : [0.9, 0.24, 0.24];
+    const shown = it => state.filter === 'all' ? true : state.filter === 'waiting' ? waiting(it) : it.status === state.filter;
+
+    function boxCorners(it) {
+      const lo = it.mins, hi = it.maxs;
+      return [0, 1, 2, 3, 4, 5, 6, 7].map(i => [(i & 1) ? hi[0] : lo[0], (i & 2) ? hi[1] : lo[1], (i & 4) ? hi[2] : lo[2]]);
+    }
+    const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const quads = [[0, 1, 3, 2], [4, 5, 7, 6], [0, 1, 5, 4], [2, 3, 7, 6], [0, 2, 6, 4], [1, 3, 7, 5]];
+    function rebuild() {
+      const lines = [], fill = [];
+      const push = (arr, p, c) => arr.push(p[0], p[1], p[2], c[0], c[1], c[2]);
+      for (const it of state.items) {
+        if (!shown(it) || !it.mins) continue;
+        const c = colourOf(it), k = boxCorners(it);
+        for (const [a, b] of edges) { push(lines, k[a], c); push(lines, k[b], c); }
+      }
+      const sel = state.selected;
+      if (sel && sel.mins) {
+        const c = colourOf(sel), k = boxCorners(sel);
+        for (const q of quads) for (const i of [q[0], q[1], q[2], q[0], q[2], q[3]]) push(fill, k[i], c);
+        for (const poly of sel.leak || []) {
+          const n = poly.length / 3, red = [0.95, 0.15, 0.15];
+          for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            push(lines, [poly[i * 3], poly[i * 3 + 1], poly[i * 3 + 2]], red);
+            push(lines, [poly[j * 3], poly[j * 3 + 1], poly[j * 3 + 2]], red);
+          }
+          for (let i = 1; i + 1 < n; i++)
+            for (const v of [0, i, i + 1]) push(fill, [poly[v * 3], poly[v * 3 + 1], poly[v * 3 + 2]], red);
+        }
+      }
+      gl.bindBuffer(gl.ARRAY_BUFFER, state.lineVbo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lines), gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, state.fillVbo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(fill), gl.DYNAMIC_DRAW);
+      state.lineCount = lines.length / 6; state.fillCount = fill.length / 6;
+    }
+
+    const panel = document.getElementById('review'), list = document.getElementById('rv-list'), detail = document.getElementById('rv-detail');
+    const label = it => it.decision === 'pending' ? 'waiting' : it.decision === 'accept' ? 'accepted' : it.decision === 'deny' ? 'denied' : it.status === 'rejected' ? 'refused' : it.status;
+    function render() {
+      const n = state.items.filter(waiting).length;
+      document.getElementById('rv-count').textContent = `${state.items.length.toLocaleString()} items · ${n.toLocaleString()} waiting`;
+      document.getElementById('rv-accept-all').hidden = n === 0;
+      list.replaceChildren();
+      for (const it of state.items.filter(shown).slice(0, 1500)) {
+        const row = document.createElement('div');
+        row.className = 'rv-item' + (it === state.selected ? ' sel' : '');
+        const c = colourOf(it).map(v => Math.round(v * 255));
+        row.innerHTML = `<div class="top"><span class="sw" style="background:rgb(${c})"></span><span class="what"></span><span class="state"></span></div><div class="why"></div>`;
+        row.querySelector('.what').textContent = `${it.number != null ? '#' + it.number + ' ' : ''}${it.pass}${it.detail ? ' · ' + it.detail : ''}`;
+        row.querySelector('.state').textContent = label(it) + (it.stale ? ' (stale)' : '');
+        row.querySelector('.why').textContent = it.reason || '';
+        if (it.decision != null && !it.stale) {
+          const act = document.createElement('div'); act.className = 'act';
+          for (const [value, text] of [['accept', 'Accept'], ['deny', 'Deny']]) {
+            const b = document.createElement('button'); b.type = 'button'; b.textContent = text;
+            b.className = value + (it.decision === value ? ' on' : '');
+            b.addEventListener('click', e => { e.stopPropagation(); decide(it, value); });
+            act.append(b);
+          }
+          row.append(act);
+        }
+        row.addEventListener('click', () => select(it));
+        list.append(row);
+      }
+    }
+    function decide(it, value) {
+      it.decision = value;
+      if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ type: 'decide', id: it.id, decision: value });
+      render(); rebuild();
+    }
+    function select(it) {
+      state.selected = it;
+      detail.replaceChildren();
+      const why = document.createElement('div'); why.textContent = it.reason || ''; detail.append(why);
+      if (it.number != null) {
+        // The 3D view and the plan side by side; a click shows one large over the map.
+        const pics = document.createElement('div'); pics.className = 'pics'; detail.append(pics);
+        for (const name of [`${it.number}-3d.png`, `${it.number}.png`]) {
+          const img = new Image(); img.src = `viswright-pictures/${name}?v=${stamp}`; img.onerror = () => img.remove();
+          img.onclick = () => img.classList.toggle('big'); pics.append(img);
+        }
+      }
+      flyTo(it); render(); rebuild();
+    }
+    function flyTo(it) {
+      if (!it.mins) return;
+      const c = [0, 1, 2].map(i => (it.mins[i] + it.maxs[i]) / 2);
+      const size = Math.hypot(it.maxs[0] - it.mins[0], it.maxs[1] - it.mins[1], it.maxs[2] - it.mins[2]);
+      const d = Math.max(320, size * 1.4);
+      let side = norm([cam.pos[0] - c[0], cam.pos[1] - c[1], 0]);
+      if (!isFinite(side[0]) || (side[0] === 0 && side[1] === 0)) side = [-0.7, -0.7, 0];
+      cam.pos = [c[0] + side[0] * d, c[1] + side[1] * d, c[2] + d * 0.6];
+      const f = norm([c[0] - cam.pos[0], c[1] - cam.pos[1], c[2] - cam.pos[2]]);
+      cam.yaw = Math.atan2(f[1], f[0]); cam.pitch = Math.asin(f[2]);
+    }
+    document.getElementById('rv-show').addEventListener('change', e => { state.show = e.target.checked; });
+    document.getElementById('rv-filter').addEventListener('change', e => { state.filter = e.target.value; render(); rebuild(); });
+    document.getElementById('rv-accept-all').addEventListener('click', () => { for (const it of state.items.filter(waiting)) decide(it, 'accept'); });
+    // typing in the panel must not fly the camera
+    panel.addEventListener('keydown', e => e.stopPropagation());
+    panel.hidden = false;
+    render(); rebuild();
+    window.preview.review = state;
+    return state;
+  }
+
+  function drawReview(viewProj) {
+    if (!review || !review.show || review.lineCount + review.fillCount === 0) return;
+    gl.useProgram(review.lineProgram);
+    gl.uniformMatrix4fv(gl.getUniformLocation(review.lineProgram, 'uViewProj'), false, viewProj);
+    const alpha = gl.getUniformLocation(review.lineProgram, 'uAlpha');
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false); gl.disable(gl.CULL_FACE);
+    gl.bindVertexArray(review.lineVao);
+    // faint where something is in front, solid where nothing is
+    gl.disable(gl.DEPTH_TEST); gl.uniform1f(alpha, 0.25); gl.drawArrays(gl.LINES, 0, review.lineCount);
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.uniform1f(alpha, 1); gl.drawArrays(gl.LINES, 0, review.lineCount);
+    if (review.fillCount) { gl.bindVertexArray(review.fillVao); gl.uniform1f(alpha, 0.22); gl.drawArrays(gl.TRIANGLES, 0, review.fillCount); }
+    gl.depthMask(true); gl.depthFunc(gl.LESS); gl.disable(gl.BLEND);
+    gl.bindVertexArray(null);
+  }
+
   // ---- loop ------------------------------------------------------------------------------
   const modeSelect = document.getElementById('mode');
   const gainInput = document.getElementById('gain');
@@ -529,6 +740,7 @@
 
     gl.uniformMatrix4fv(u.viewProj, false, viewProj);
     drawGroup(opaque, translucent, overlays);
+    drawReview(viewProj);
 
     requestAnimationFrame(frame);
   }
