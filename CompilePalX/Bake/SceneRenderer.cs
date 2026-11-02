@@ -112,9 +112,12 @@ namespace CompilePalX.Bake
             Draw(target, camera, Sorted(camera, visible.Where(t => t.Skybox && Translucent(t))), blend: true);
             Array.Fill(target.Depth, 0f);
             Draw(target, camera, visible.Where(t => !t.Skybox && !Translucent(t)), blend: false);
-            // A see-through picture is cut out where it is not covered; glass would cover a whole window
-            // and hide what it is cut out to show, so it has only what is solid.
-            if (!camera.SeeThrough)
+            // A see-through picture is cut out where it is not covered: clear glass would cover a whole
+            // window and hide what it is cut out to show, so a translucent surface is kept only where it
+            // is mostly opaque - the bars of a grate printed on glass, a frame.
+            if (camera.SeeThrough)
+                Draw(target, camera, visible.Where(t => !t.Skybox && Translucent(t)), blend: false, cutout: true);
+            else
                 Draw(target, camera, Sorted(camera, visible.Where(t => !t.Skybox && Translucent(t))), blend: true);
 
             // down to the asked size
@@ -248,7 +251,7 @@ namespace CompilePalX.Bake
             };
         }
 
-        private void Draw(Target target, BakeCamera camera, IEnumerable<Tri> tris, bool blend)
+        private void Draw(Target target, BakeCamera camera, IEnumerable<Tri> tris, bool blend, bool cutout = false)
         {
             var polygon = new List<Corner>(6);
             foreach (var t in tris)
@@ -259,7 +262,7 @@ namespace CompilePalX.Bake
                 polygon.Add(CornerOf(camera, t.C));
                 ClipNear(polygon, camera);
                 for (int i = 1; i + 1 < polygon.Count; i++)
-                    Rasterise(target, camera, t, polygon[0], polygon[i], polygon[i + 1], blend);
+                    Rasterise(target, camera, t, polygon[0], polygon[i], polygon[i + 1], blend, cutout);
             }
         }
 
@@ -289,7 +292,7 @@ namespace CompilePalX.Bake
             polygon.AddRange(output);
         }
 
-        private void Rasterise(Target target, BakeCamera camera, Tri t, Corner a, Corner b, Corner c, bool blend)
+        private void Rasterise(Target target, BakeCamera camera, Tri t, Corner a, Corner b, Corner c, bool blend, bool cutout = false)
         {
             // screen positions: the rectangle at the near plane fills the target
             float Project(float along, float z) => camera.Square ? along : along / z * camera.Distance;
@@ -345,7 +348,7 @@ namespace CompilePalX.Bake
                     // perspective-correct weights
                     float pa = camera.Square ? wa : wa * iza / iz, pb = camera.Square ? wb : wb * izb / iz, pc = camera.Square ? wc : wc * izc / iz;
                     var shaded = Shade(material, texture, texture2, level, t, pa, pb, pc, a, b, c, camera, out float alpha, out bool discard);
-                    if (discard)
+                    if (discard || cutout && (alpha < 0.5f || material.Water))
                         continue;
                     if (blend)
                         target.Set(x, y, shaded, alpha);
