@@ -160,9 +160,10 @@ namespace CompilePalX.Preview
 
         private readonly record struct Lump(int Offset, int Length, int Version);
 
+        /// <summary>A face; <paramref name="Styles"/> holds its four light style numbers, 255 for none.</summary>
         private readonly record struct Face(
             ushort PlaneNum, int FirstEdge, short NumEdges, short TexInfo, short DispInfo,
-            int LightOfs, int LightMinS, int LightMinT, int LightSizeS, int LightSizeT);
+            int LightOfs, int LightMinS, int LightMinT, int LightSizeS, int LightSizeT, byte[] Styles);
 
         private readonly record struct TexInfo(float[] TextureVecs, float[] LightmapVecs, int Flags, int TexData);
 
@@ -249,6 +250,7 @@ namespace CompilePalX.Preview
             string? skyName = entities.FirstOrDefault(e => e.GetValueOrDefault("classname") == "worldspawn")?.GetValueOrDefault("skyname");
 
             var placements = BrushPlacements(entities);
+            var darkStyles = DarkStyles(entities);
             var skyPaint = ReadSkyPaint(entities);
 
             // the pak lump is a zip and is read by the content locator later; kept as stored
@@ -282,7 +284,7 @@ namespace CompilePalX.Preview
             var overlayData = Data(LumpOverlays);
 
             return Build(version, compressed, vertices, edges, surfedges, planes, texinfos, texdata, models, placements,
-                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, staticProps, entityProps, ambient, sky3D, fog, sun, overlayData, dispInfos, dispVerts);
+                faces, lighting, lightingMode, spawn, skyName, skyPaint, pak, staticProps, entityProps, ambient, sky3D, fog, sun, overlayData, dispInfos, dispVerts, darkStyles);
         }
 
         private static PreviewScene Build(
@@ -290,7 +292,7 @@ namespace CompilePalX.Preview
             TexInfo[] texinfos, TexData[] texdata, Model[] models, Dictionary<int, Placement> placements,
             Face[] faces, byte[] lighting, string lightingMode, float[]? spawn, string? skyName, SkyPaint? skyPaint, byte[] pak,
             List<StaticProp> staticProps, List<StaticProp> entityProps, LeafAmbient ambient, SkyCamera? sky3D, Fog? fog, Sun? sun, byte[] overlayData,
-            DispInfo[] dispInfos, float[] dispVerts)
+            DispInfo[] dispInfos, float[] dispVerts, HashSet<int> darkStyles)
         {
             // the 3D skybox is the area the sky_camera sits in; its faces are drawn scaled up around it
             var skyboxFaces = new HashSet<int>();
@@ -446,7 +448,7 @@ namespace CompilePalX.Preview
 
                     bool lit = placed.TryGetValue(fi, out var place);
                     if (lit)
-                        BlitLightmap(lighting, face, place, atlas.Width, lightmap);
+                        BlitLightmap(lighting, face, (texinfo.Flags & SurfBumpLight) != 0, darkStyles, place, atlas.Width, lightmap);
 
                     placements.TryGetValue(faceModel[fi], out var placement);
                     bool moved = faceModel[fi] > 0 && placements.ContainsKey(faceModel[fi]);
@@ -781,7 +783,8 @@ namespace CompilePalX.Preview
                     LightMinS: BitConverter.ToInt32(data, o + 28),
                     LightMinT: BitConverter.ToInt32(data, o + 32),
                     LightSizeS: BitConverter.ToInt32(data, o + 36),
-                    LightSizeT: BitConverter.ToInt32(data, o + 40));
+                    LightSizeT: BitConverter.ToInt32(data, o + 40),
+                    Styles: data[(o + 16)..(o + 20)]);
             }
 
             return result;
@@ -1270,15 +1273,50 @@ namespace CompilePalX.Preview
             return (u / width, v / height);
         }
 
+        private const int SurfBumpLight = 0x800;
+
+        /// <summary>
+        /// The light on a bump-mapped face, as a multiple of the mean of its three directional lightmaps.
+        /// Measured in Garry's Mod (rp_downtown_meowy, 2026-11-02, display neutralised): two walls read
+        /// 2.26 to 2.52 times the mean, the spread from their normal maps; with bump mapping off the
+        /// same pixels match the plain lightmap exactly.
+        /// </summary>
+        private const float BumpedLightScale = 2.4f;
+
+        /// <summary>
+        /// The light styles that start dark: those of named lights flagged "Initially dark". VRAD gives
+        /// each named light a style of its own, 32 and up, and writes it on the entity.
+        /// </summary>
+        private static HashSet<int> DarkStyles(IEnumerable<Dictionary<string, string>> entities)
+        {
+            var dark = new HashSet<int>();
+            foreach (var e in entities)
+            {
+                if (e.GetValueOrDefault("classname") is not ("light" or "light_spot"))
+                    continue;
+                if (int.TryParse(e.GetValueOrDefault("style"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int style) && style > 0
+                    && int.TryParse(e.GetValueOrDefault("spawnflags"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int flags) && (flags & 1) != 0)
+                    dark.Add(style);
+            }
+            return dark;
+        }
+
         /// <summary>
         /// Copies a face's lightmap into the atlas, encoding each sample, and replicates its edge into
-        /// the one-texel border around it. A bump-mapped face stores four lightmaps per style with the
-        /// ordinary one first, which is the one wanted here, so the flag needs no special handling.
+        /// the one-texel border around it. The light is the sum of every style that is on when the map
+        /// starts - the steady light, flickering ones and named lights not flagged dark - as the
+        /// engine draws it; each style's lightmap follows the last, four of them for a bump-mapped
+        /// face with the ordinary one first.
         /// </summary>
-        private static void BlitLightmap(byte[] lighting, Face face, AtlasPlacement place, int atlasWidth, byte[] atlas)
+        private static void BlitLightmap(byte[] lighting, Face face, bool bumped, HashSet<int> darkStyles, AtlasPlacement place, int atlasWidth, byte[] atlas)
         {
             int width = face.LightSizeS + 1;
             int height = face.LightSizeT + 1;
+            int perStyle = width * height * (bumped ? 4 : 1) * 4;
+            var styles = new List<int>(4);
+            for (int s = 0; s < 4 && face.Styles[s] != 255; s++)
+                if (!darkStyles.Contains(face.Styles[s]) && face.LightOfs + (long)(s + 1) * perStyle <= lighting.Length)
+                    styles.Add(s);
 
             for (int y = -1; y <= height; y++)
             {
@@ -1286,9 +1324,21 @@ namespace CompilePalX.Preview
                 for (int x = -1; x <= width; x++)
                 {
                     int sx = Math.Clamp(x, 0, width - 1);
-                    int sample = face.LightOfs + (sy * width + sx) * 4;
-
-                    var (r, g, b) = EncodeSample(lighting[sample], lighting[sample + 1], lighting[sample + 2], (sbyte)lighting[sample + 3]);
+                    float lr = 0, lg = 0, lb = 0;
+                    foreach (int s in styles)
+                    {
+                        // A bump-mapped face is lit from its three directional lightmaps, not the plain one
+                        // before them, which only shows with bump mapping off
+                        int first = bumped ? 1 : 0, count = bumped ? 3 : 1;
+                        float scale = bumped ? BumpedLightScale / 3 : 1;
+                        for (int k = first; k < first + count; k++)
+                        {
+                            int sample = face.LightOfs + s * perStyle + (k * width * height + sy * width + sx) * 4;
+                            var (sr, sg, sb) = LinearSample(lighting[sample], lighting[sample + 1], lighting[sample + 2], (sbyte)lighting[sample + 3]);
+                            lr += sr * scale; lg += sg * scale; lb += sb * scale;
+                        }
+                    }
+                    var (r, g, b) = (Encode(lr), Encode(lg), Encode(lb));
 
                     int o = ((place.Y + 1 + y) * atlasWidth + place.X + 1 + x) * 4;
                     atlas[o] = r;

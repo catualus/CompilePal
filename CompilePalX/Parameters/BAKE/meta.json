@@ -1,0 +1,13 @@
+{
+  "Name": "BAKE",
+  "Path": "",
+  "Order": 10.5,
+  "DoRun": false,
+  "ReadOutput": false,
+  "Description": "Bakes what lies behind each of Viswright's shut windows into the picture it shows, and packs the pictures into the map.",
+  "Warning": "Needs Viswright's Window pictures option, and VRAD to have run.",
+  "PresetDefault": false,
+  "SupportsBSP": true,
+  "BasisString": "",
+  "WorkingDirectory": ""
+}
