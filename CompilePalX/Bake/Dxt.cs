@@ -158,6 +158,68 @@ namespace CompilePalX.Bake
         }
 
         /// <summary>
+        /// Encodes RGBA8 as DXT5: alpha in eight steps between each block's least and most, colour as
+        /// <see cref="EncodeDxt1"/> does from the pixels that are not wholly clear, so the colour of
+        /// glass is not pulled toward the black of the clear pixels beside it.
+        /// </summary>
+        public static byte[] EncodeDxt5(byte[] rgba, int width, int height)
+        {
+            int blocksWide = Math.Max(1, (width + 3) / 4), blocksHigh = Math.Max(1, (height + 3) / 4);
+            var colourSource = (byte[])rgba.Clone();
+            var output = new byte[blocksWide * blocksHigh * 16];
+            Span<byte> alphas = stackalloc byte[16];
+            for (int by = 0; by < blocksHigh; by++)
+                for (int bx = 0; bx < blocksWide; bx++)
+                {
+                    int lo = 255, hi = 0, seen = 0;
+                    double mr = 0, mg = 0, mb = 0;
+                    for (int p = 0; p < 16; p++)
+                    {
+                        int x = Math.Min(bx * 4 + (p & 3), width - 1), y = Math.Min(by * 4 + (p >> 2), height - 1);
+                        int o = (y * width + x) * 4;
+                        alphas[p] = rgba[o + 3];
+                        lo = Math.Min(lo, alphas[p]); hi = Math.Max(hi, alphas[p]);
+                        if (alphas[p] > 0) { mr += rgba[o]; mg += rgba[o + 1]; mb += rgba[o + 2]; seen++; }
+                    }
+                    // clear pixels take the block's colour, so they do not stretch its end colours
+                    for (int p = 0; p < 16; p++)
+                    {
+                        int x = Math.Min(bx * 4 + (p & 3), width - 1), y = Math.Min(by * 4 + (p >> 2), height - 1);
+                        int o = (y * width + x) * 4;
+                        if (rgba[o + 3] == 0 && seen > 0)
+                        {
+                            colourSource[o] = (byte)(mr / seen); colourSource[o + 1] = (byte)(mg / seen); colourSource[o + 2] = (byte)(mb / seen);
+                        }
+                    }
+
+                    // eight steps from the most to the least: a0 > a1 picks that mode
+                    int at = (by * blocksWide + bx) * 16;
+                    output[at] = (byte)hi;
+                    output[at + 1] = (byte)lo;
+                    ulong indices = 0;
+                    if (hi > lo)
+                        for (int p = 0; p < 16; p++)
+                        {
+                            // step 0 is a0, 1 is a1, 2..7 run from a0 toward a1
+                            int best = 0, bestDistance = int.MaxValue;
+                            for (int k = 0; k < 8; k++)
+                            {
+                                int value = k == 0 ? hi : k == 1 ? lo : ((8 - k) * hi + (k - 1) * lo) / 7;
+                                int d = Math.Abs(value - alphas[p]);
+                                if (d < bestDistance) (best, bestDistance) = (k, d);
+                            }
+                            indices |= (ulong)best << (3 * p);
+                        }
+                    for (int k = 0; k < 6; k++)
+                        output[at + 2 + k] = (byte)(indices >> (8 * k));
+                }
+            var colour = EncodeDxt1(colourSource, width, height);
+            for (int b = 0; b < blocksWide * blocksHigh; b++)
+                Array.Copy(colour, b * 8, output, b * 16 + 8, 8);
+            return output;
+        }
+
+        /// <summary>
         /// Encodes RGBA8 as opaque DXT1. Each block's two end colours are its extremes along the
         /// direction its colours spread most, which is what better encoders start from; it is
         /// plenty for a picture seen from a thousand units away.

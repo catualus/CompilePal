@@ -16,10 +16,13 @@ namespace CompilePalX.Bake
     /// instead, every ray parallel, so what lies behind each point of the rectangle is what it shows.
     /// With <see cref="FarDistance"/>, only what lies before it (Clip·p ≤ FarDistance) is drawn, and a
     /// <see cref="SeeThrough"/> view leaves where nothing is drawn transparent rather than showing sky.
+    /// Faces lying on one of the <see cref="Skip"/> planes (an axis and where along it) are left out:
+    /// another picture shows them. A see-through view with <see cref="Glass"/> keeps translucent
+    /// surfaces, blended, with their own alpha.
     /// </summary>
     public readonly record struct BakeCamera(Vector3 Eye, Vector3 Forward, Vector3 Right, Vector3 Up, float Distance,
         float CentreX, float CentreY, float HalfWidth, float HalfHeight, Vector3 Clip, float ClipDistance, bool Square = false,
-        float? FarDistance = null, bool SeeThrough = false);
+        float? FarDistance = null, bool SeeThrough = false, IReadOnlyList<(int Axis, float At)>? Skip = null, bool Glass = false);
 
     /// <summary>
     /// Draws a compiled map on the CPU the way the preview draws it on the GPU: the same triangles,
@@ -105,20 +108,24 @@ namespace CompilePalX.Bake
                     }
 
             var planes = Planes(camera);
-            var visible = triangles.Where(t => Inside(planes, t.Min, t.Max)).ToList();
+            var visible = triangles.Where(t => Inside(planes, t.Min, t.Max) && !Skipped(camera, t)).ToList();
 
             // the 3D skybox behind everything, then the depth cleared for the world
             Draw(target, camera, visible.Where(t => t.Skybox && !Translucent(t)), blend: false);
             Draw(target, camera, Sorted(camera, visible.Where(t => t.Skybox && Translucent(t))), blend: true);
             Array.Fill(target.Depth, 0f);
             Draw(target, camera, visible.Where(t => !t.Skybox && !Translucent(t)), blend: false);
-            // A see-through picture is cut out where it is not covered: clear glass would cover a whole
-            // window and hide what it is cut out to show, so a translucent surface is kept only where it
-            // is mostly opaque - the bars of a grate printed on glass, a frame.
-            if (camera.SeeThrough)
+            // A see-through picture is cut out where it is not covered: glass would cover a whole window
+            // and hide what it is cut out to show, so a translucent surface is kept only where it is
+            // opaque - the bars of a grate printed on glass, a frame - and tinted or frosted glass,
+            // half see-through, is left out.
+            // A picture that is itself translucent - what is in a window's opening - keeps glass as glass.
+            // Blended, only the side of the glass that faces the eye, as the game culls the other: a pane
+            // drawn from both faces is twice as dark.
+            if (camera.SeeThrough && !camera.Glass)
                 Draw(target, camera, visible.Where(t => !t.Skybox && Translucent(t)), blend: false, cutout: true);
             else
-                Draw(target, camera, Sorted(camera, visible.Where(t => !t.Skybox && Translucent(t))), blend: true);
+                Draw(target, camera, Sorted(camera, visible.Where(t => !t.Skybox && Translucent(t) && Facing(camera, t))), blend: true);
 
             // down to the asked size
             var output = new byte[width * height * 4];
@@ -144,6 +151,31 @@ namespace CompilePalX.Bake
                     output[o + 3] = (byte)Math.Clamp(covered / (samples * samples) * 255 + 0.5f, 0, 255);
                 }
             return output;
+        }
+
+        /// <summary>Whether a triangle faces the eye, or is drawn from both sides.</summary>
+        private bool Facing(BakeCamera camera, Tri t)
+        {
+            if (t.Prop || materials[t.Material].NoCull)
+                return true;
+            int o = t.A * Stride;
+            var normal = new Vector3(vertices[o + 3], vertices[o + 4], vertices[o + 5]);
+            var towards = camera.Square ? camera.Forward : new Vector3(vertices[o], vertices[o + 1], vertices[o + 2]) - camera.Eye;
+            return Vector3.Dot(normal, towards) < 0;
+        }
+
+        /// <summary>Whether a triangle lies flat on one of the camera's skipped planes.</summary>
+        private bool Skipped(BakeCamera camera, Tri t)
+        {
+            if (camera.Skip is not { Count: > 0 } skip)
+                return false;
+            foreach (var (axis, at) in skip)
+            {
+                float a = vertices[t.A * Stride + axis], b = vertices[t.B * Stride + axis], c = vertices[t.C * Stride + axis];
+                if (MathF.Abs(a - at) <= 1.5f && MathF.Abs(b - at) <= 1.5f && MathF.Abs(c - at) <= 1.5f)
+                    return true;
+            }
+            return false;
         }
 
         private bool Translucent(Tri t)
@@ -213,8 +245,9 @@ namespace CompilePalX.Bake
             public void Set(int x, int y, Vector3 c, float a)
             {
                 int i = y * Width + x;
+                // over what is there: what is behind shows through the rest
                 Colour[i] = a >= 1 || Cover[i] == 0 ? c : Vector3.Lerp(Colour[i], c, a);
-                Cover[i] = MathF.Max(Cover[i], MathF.Min(1, a >= 1 ? 1 : Cover[i] + a));
+                Cover[i] = a >= 1 ? 1 : Cover[i] + a * (1 - Cover[i]);
             }
         }
 
@@ -348,7 +381,7 @@ namespace CompilePalX.Bake
                     // perspective-correct weights
                     float pa = camera.Square ? wa : wa * iza / iz, pb = camera.Square ? wb : wb * izb / iz, pc = camera.Square ? wc : wc * izc / iz;
                     var shaded = Shade(material, texture, texture2, level, t, pa, pb, pc, a, b, c, camera, out float alpha, out bool discard);
-                    if (discard || cutout && (alpha < 0.5f || material.Water))
+                    if (discard || cutout && (alpha < 0.9f || material.Water))
                         continue;
                     if (blend)
                         target.Set(x, y, shaded, alpha);

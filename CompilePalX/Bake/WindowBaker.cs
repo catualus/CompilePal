@@ -78,9 +78,9 @@ namespace CompilePalX.Bake
                 var f = face;
                 var centre = f.Origin + f.U * 0.5f + f.V * 0.5f;
                 // where Viswright says the face is seen from and the room starts; else straight out in front
-                var (eye, clip, clipDistance, square, farDistance, alpha) = views.TryGetValue(name, out var view)
+                var (eye, clip, clipDistance, square, farDistance, alpha, skip, glass) = views.TryGetValue(name, out var view)
                     ? view
-                    : (centre + f.Normal * ViewDistance, -f.Normal, Vector3.Dot(-f.Normal, centre), false, (float?)null, false);
+                    : new View(centre + f.Normal * ViewDistance, -f.Normal, Vector3.Dot(-f.Normal, centre), false, null, false, null, false);
                 var right = Vector3.Normalize(f.U);
                 var up = -Vector3.Normalize(f.V);
                 var forward = Vector3.Normalize(Vector3.Cross(f.U, f.V));
@@ -95,10 +95,10 @@ namespace CompilePalX.Bake
                 var toCentre = centre - eye;
                 var camera = new BakeCamera(eye, forward, right, up, Vector3.Dot(toCentre, forward),
                     Vector3.Dot(toCentre, right), Vector3.Dot(toCentre, up), f.U.Length() / 2, f.V.Length() / 2, clip, clipDistance, square,
-                    farDistance, SeeThrough: alpha);
+                    farDistance, SeeThrough: alpha || glass, Skip: skip, Glass: glass);
                 var picture = renderer.Render(camera, width, height);
-                baked[$"materials/{name}.vtf"] = VtfWriter.Write(picture, width, height, alpha);
-                baked[$"materials/{name}.vmt"] = Encoding.ASCII.GetBytes(Vmt(name, alpha));
+                baked[$"materials/{name}.vtf"] = VtfWriter.Write(picture, width, height, alpha, smooth: glass);
+                baked[$"materials/{name}.vmt"] = Encoding.ASCII.GetBytes(Vmt(name, alpha, glass));
                 lock (gate)
                 {
                     done++;
@@ -114,9 +114,13 @@ namespace CompilePalX.Bake
         /// What Viswright's <c>bake.json</c> files say of each face: the eye it is seen from, and the
         /// plane where the room starts. One file per map folder, found through the game's content.
         /// </summary>
-        private static Dictionary<string, (Vector3 Eye, Vector3 Clip, float ClipDistance, bool Square, float? Far, bool Alpha)> Views(ContentLocator content, IEnumerable<string> materials)
+        /// <summary>How one face is drawn, as bake.json gives it.</summary>
+        private sealed record View(Vector3 Eye, Vector3 Clip, float ClipDistance, bool Square, float? Far, bool Alpha,
+            IReadOnlyList<(int Axis, float At)>? Skip, bool Glass);
+
+        private static Dictionary<string, View> Views(ContentLocator content, IEnumerable<string> materials)
         {
-            var views = new Dictionary<string, (Vector3, Vector3, float, bool, float?, bool)>(StringComparer.OrdinalIgnoreCase);
+            var views = new Dictionary<string, View>(StringComparer.OrdinalIgnoreCase);
             foreach (string folder in materials.Select(m => m[..m.LastIndexOf('/')]).Distinct())
             {
                 var bytes = content.Read($"materials/{folder}/bake.json");
@@ -130,15 +134,22 @@ namespace CompilePalX.Bake
                     bool square = face.TryGetProperty("square", out var s) && s.GetBoolean();
                     float? far = face.TryGetProperty("far", out var f) ? (float)f.GetDouble() : null;
                     bool alpha = face.TryGetProperty("alpha", out var al) && al.GetBoolean();
-                    views[face.GetProperty("material").GetString()!] = (new Vector3(e[0], e[1], e[2]), new Vector3(c[0], c[1], c[2]), c[3], square, far, alpha);
+                    // planes another picture shows: [axis, where along it]
+                    var skip = face.TryGetProperty("skip", out var sk)
+                        ? sk.EnumerateArray().Select(p => ((int)p[0].GetDouble(), (float)p[1].GetDouble())).ToList()
+                        : null;
+                    // translucent by degrees, as the glass in a window's opening is
+                    bool glass = face.TryGetProperty("translucent", out var tr) && tr.GetBoolean();
+                    views[face.GetProperty("material").GetString()!] = new View(new Vector3(e[0], e[1], e[2]), new Vector3(c[0], c[1], c[2]), c[3], square, far, alpha, skip, glass);
                 }
             }
             return views;
         }
 
         /// <summary>The material a baked face uses: its picture, unlit.</summary>
-        public static string Vmt(string name, bool alpha = false) =>
-            "\"UnlitGeneric\"\r\n{\r\n\t\"$basetexture\" \"" + name + "\"\r\n" + (alpha ? "\t\"$alphatest\" \"1\"\r\n" : "") +
+        public static string Vmt(string name, bool alpha = false, bool translucent = false) =>
+            "\"UnlitGeneric\"\r\n{\r\n\t\"$basetexture\" \"" + name + "\"\r\n" +
+            (translucent ? "\t\"$translucent\" \"1\"\r\n" : alpha ? "\t\"$alphatest\" \"1\"\r\n" : "") +
             "\t\"%keywords\" \"viswright\"\r\n}\r\n";
 
         /// <summary>
@@ -149,18 +160,27 @@ namespace CompilePalX.Bake
 
         private static FaceFrame? Face(PreviewScene scene, int material)
         {
-            var batch = scene.Batches.FirstOrDefault(b => b.Material == material && b.Count >= 3);
-            if (batch == null)
-                return null;
             const int s = PreviewScene.VertexStride;
             Vector3 P(uint v) => new(scene.Vertices[v * s], scene.Vertices[v * s + 1], scene.Vertices[v * s + 2]);
             Vector2 T(uint v) => new(scene.Vertices[v * s + 8], scene.Vertices[v * s + 9]);
-            uint i0 = scene.Indices[batch.First], i1 = scene.Indices[batch.First + 1], i2 = scene.Indices[batch.First + 2];
-            Vector3 p0 = P(i0), e1 = P(i1) - p0, e2 = P(i2) - p0;
-            Vector2 t0 = T(i0), d1 = T(i1) - t0, d2 = T(i2) - t0;
-            float det = d1.X * d2.Y - d2.X * d1.Y;
+            // The triangle the mapping is read from: the largest in texture space. VBSP adds vertices along
+            // a face's edges to mend T-junctions, so the first triangle of a fan can be a sliver whose
+            // corners lie in a line, from which no mapping can be read.
+            uint i0 = 0, i1 = 0, i2 = 0;
+            float det = 0;
+            foreach (var batch in scene.Batches.Where(b => b.Material == material))
+                for (int k = batch.First; k + 2 < batch.First + batch.Count; k += 3)
+                {
+                    uint a = scene.Indices[k], b = scene.Indices[k + 1], c = scene.Indices[k + 2];
+                    Vector2 ta = T(a), tb = T(b) - ta, tc = T(c) - ta;
+                    float d = tb.X * tc.Y - tc.X * tb.Y;
+                    if (MathF.Abs(d) > MathF.Abs(det))
+                        (i0, i1, i2, det) = (a, b, c, d);
+                }
             if (MathF.Abs(det) < 1e-9f)
                 return null;
+            Vector3 p0 = P(i0), e1 = P(i1) - p0, e2 = P(i2) - p0;
+            Vector2 t0 = T(i0), d1 = T(i1) - t0, d2 = T(i2) - t0;
             // world distance per whole texture across: e = U du + V dv
             var u = (e1 * d2.Y - e2 * d1.Y) / det;
             var v = (e2 * d1.X - e1 * d2.X) / det;

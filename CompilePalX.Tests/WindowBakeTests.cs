@@ -85,6 +85,31 @@ namespace CompilePalX.Tests
         }
 
         [Fact]
+        public void GlassKeepsItsAlphaByDegrees()
+        {
+            // alpha running left to right, clear in the first column
+            var rgba = Gradient(16, 8);
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 16; x++)
+                    rgba[(y * 16 + x) * 4 + 3] = (byte)(x * 17);
+            var back = Dxt.Decode("dxt5", 16, 8, Dxt.EncodeDxt5(rgba, 16, 8));
+
+            for (int p = 0; p < 16 * 8; p++)
+            {
+                Assert.True(Math.Abs(rgba[p * 4 + 3] - back[p * 4 + 3]) <= 6, $"pixel {p} alpha {back[p * 4 + 3]} for {rgba[p * 4 + 3]}");
+                if (rgba[p * 4 + 3] > 0)
+                    for (int c = 0; c < 3; c++)
+                        Assert.True(Math.Abs(rgba[p * 4 + c] - back[p * 4 + c]) <= 40, $"pixel {p} channel {c}");
+            }
+
+            var vtf = VtfWriter.Write(Gradient(32, 32), 32, 32, smooth: true);
+            Assert.Equal(15, BitConverter.ToInt32(vtf, 52));
+            Assert.NotEqual(0u, BitConverter.ToUInt32(vtf, 20) & 0x2000);
+            Assert.Equal("dxt5", Vtf.Read(vtf)!.Format);
+            Assert.Contains("\"$translucent\" \"1\"", WindowBaker.Vmt("viswright/map/w_1_2_3_a_front", translucent: true));
+        }
+
+        [Fact]
         public void AnOpaqueCutOutIsPlainDxt1()
         {
             var rgba = Gradient(16, 8);
