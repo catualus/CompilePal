@@ -441,6 +441,21 @@ namespace CompilePalX.Bake
 
             // No fog: the game fogs the picture itself, by how far away its viewer is.
 
+            // The reflection of the material's cubemap, added on top as the engine does. A map whose
+            // cubemaps are not built yet reflects VBSP's defaults, made from the sky, so the sky seen
+            // in the reflected direction stands in for it.
+            if (m.Reflection is { } reflection && !t.Prop)
+            {
+                int o = t.A * Stride;
+                var n = Vector3.Normalize(new Vector3(vertices[o + 3], vertices[o + 4], vertices[o + 5]));
+                var world = a.World * pa + b.World * pb + c.World * pc;
+                var view = camera.Square ? camera.Forward : Vector3.Normalize(world - camera.Eye);
+                var sky = SkyColour(Vector3.Normalize(view - 2 * Vector3.Dot(view, n) * n));
+                var env = new Vector3(MathF.Pow(sky.X, 2.2f), MathF.Pow(sky.Y, 2.2f), MathF.Pow(sky.Z, 2.2f));
+                env = Vector3.Lerp(env, env * env, m.ReflectionContrast);
+                result += env * new Vector3(reflection[0], reflection[1], reflection[2]);
+            }
+
             result = new Vector3(SoftClip(result.X), SoftClip(result.Y), SoftClip(result.Z));
             if (!((m.Translucent || m.Water || t.Overlay) && textured))
                 alpha = 1;

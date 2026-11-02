@@ -56,8 +56,16 @@ namespace CompilePalX.Bake
             int done = 0;
             var gate = new object();
             var baked = new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            // A window's opening first: its glass, as an average colour and opacity, tints the pictures of
+            // the room behind it, which share its name up to the part.
+            var glassOf = new System.Collections.Concurrent.ConcurrentDictionary<string, (Vector3 Colour, float Alpha)>(StringComparer.Ordinal);
+            static string WindowOf(string name) => name[..(name.LastIndexOf('_') + 1)];
+            bool IsOpening(string name) => views.TryGetValue(name, out var v) && v.Opening;
+            var ordered = frames.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToList();
+
             // each face is drawn on its own; the renderer only reads the scene
-            System.Threading.Tasks.Parallel.ForEach(frames.OrderBy(kv => kv.Key, StringComparer.Ordinal), entry =>
+            foreach (var phase in new[] { ordered.Where(kv => IsOpening(kv.Key)), ordered.Where(kv => !IsOpening(kv.Key)) })
+            System.Threading.Tasks.Parallel.ForEach(phase, entry =>
             {
                 var (name, (material, found)) = (entry.Key, entry.Value);
                 if (found is not { } face)
@@ -78,7 +86,7 @@ namespace CompilePalX.Bake
                 var f = face;
                 var centre = f.Origin + f.U * 0.5f + f.V * 0.5f;
                 // where Viswright says the face is seen from and the room starts; else straight out in front
-                var (eye, clip, clipDistance, square, farDistance, alpha, skip, glass) = views.TryGetValue(name, out var view)
+                var (eye, clip, clipDistance, square, farDistance, alpha, skip, opening) = views.TryGetValue(name, out var view)
                     ? view
                     : new View(centre + f.Normal * ViewDistance, -f.Normal, Vector3.Dot(-f.Normal, centre), false, null, false, null, false);
                 var right = Vector3.Normalize(f.U);
@@ -95,10 +103,14 @@ namespace CompilePalX.Bake
                 var toCentre = centre - eye;
                 var camera = new BakeCamera(eye, forward, right, up, Vector3.Dot(toCentre, forward),
                     Vector3.Dot(toCentre, right), Vector3.Dot(toCentre, up), f.U.Length() / 2, f.V.Length() / 2, clip, clipDistance, square,
-                    farDistance, SeeThrough: alpha || glass, Skip: skip, Glass: glass);
+                    farDistance, SeeThrough: alpha, Skip: skip, Glass: opening);
                 var picture = renderer.Render(camera, width, height);
-                baked[$"materials/{name}.vtf"] = VtfWriter.Write(picture, width, height, alpha, smooth: glass);
-                baked[$"materials/{name}.vmt"] = Encoding.ASCII.GetBytes(Vmt(name, alpha, glass));
+                if (opening)
+                    glassOf[WindowOf(name)] = Glass(picture);
+                else if (glassOf.TryGetValue(WindowOf(name), out var tint))
+                    Tint(picture, tint);
+                baked[$"materials/{name}.vtf"] = VtfWriter.Write(picture, width, height, alpha);
+                baked[$"materials/{name}.vmt"] = Encoding.ASCII.GetBytes(Vmt(name, alpha));
                 lock (gate)
                 {
                     done++;
@@ -116,7 +128,55 @@ namespace CompilePalX.Bake
         /// </summary>
         /// <summary>How one face is drawn, as bake.json gives it.</summary>
         private sealed record View(Vector3 Eye, Vector3 Clip, float ClipDistance, bool Square, float? Far, bool Alpha,
-            IReadOnlyList<(int Axis, float At)>? Skip, bool Glass);
+            IReadOnlyList<(int Axis, float At)>? Skip, bool Opening);
+
+        /// <summary>
+        /// The glass in a window's opening, from its picture drawn with glass blended in: the average
+        /// colour and opacity of what is not solid. The picture is left with the solid parts alone, as
+        /// a stand-in face must be cut out rather than translucent.
+        ///
+        /// What counts as solid depends on the glass. Clear panes with bars or a frame printed on them
+        /// read as two kinds of pixel, nearly clear and nearly opaque, and everything past the middle
+        /// is kept. Frosted or dirty glass spreads over every opacity, and cut out at any point it
+        /// turns into blotches, so only what is wholly opaque is kept and the rest becomes the tint.
+        /// </summary>
+        internal static (Vector3 Colour, float Alpha) Glass(byte[] picture)
+        {
+            int covered = 0, between = 0;
+            for (int i = 3; i < picture.Length; i += 4)
+                if (picture[i] > 0)
+                {
+                    covered++;
+                    if (picture[i] is >= 128 and < 224)
+                        between++;
+                }
+            byte solid = covered > 0 && between > covered / 4 ? (byte)250 : (byte)160;
+
+            Vector3 colour = Vector3.Zero;
+            float alpha = 0;
+            int n = 0;
+            for (int i = 0; i < picture.Length; i += 4)
+            {
+                if (picture[i + 3] >= solid)
+                    continue;
+                float a = picture[i + 3] / 255f;
+                colour += new Vector3(picture[i], picture[i + 1], picture[i + 2]) / 255f * a;
+                alpha += a;
+                n++;
+                picture[i + 3] = 0;
+            }
+            return alpha > 0 ? (colour / alpha, alpha / n) : (Vector3.Zero, 0);
+        }
+
+        /// <summary>Lays the window's glass over a picture of the room behind it, as the game blends glass.</summary>
+        internal static void Tint(byte[] picture, (Vector3 Colour, float Alpha) glass)
+        {
+            if (glass.Alpha <= 0)
+                return;
+            for (int i = 0; i < picture.Length; i += 4)
+                for (int c = 0; c < 3; c++)
+                    picture[i + c] = (byte)Math.Clamp(picture[i + c] * (1 - glass.Alpha) + glass.Colour[c] * 255 * glass.Alpha + 0.5f, 0, 255);
+        }
 
         private static Dictionary<string, View> Views(ContentLocator content, IEnumerable<string> materials)
         {
@@ -138,9 +198,9 @@ namespace CompilePalX.Bake
                     var skip = face.TryGetProperty("skip", out var sk)
                         ? sk.EnumerateArray().Select(p => ((int)p[0].GetDouble(), (float)p[1].GetDouble())).ToList()
                         : null;
-                    // translucent by degrees, as the glass in a window's opening is
-                    bool glass = face.TryGetProperty("translucent", out var tr) && tr.GetBoolean();
-                    views[face.GetProperty("material").GetString()!] = new View(new Vector3(e[0], e[1], e[2]), new Vector3(c[0], c[1], c[2]), c[3], square, far, alpha, skip, glass);
+                    // a window's opening, whose glass tints the pictures of the room behind it
+                    bool opening = face.TryGetProperty("opening", out var op) && op.GetBoolean();
+                    views[face.GetProperty("material").GetString()!] = new View(new Vector3(e[0], e[1], e[2]), new Vector3(c[0], c[1], c[2]), c[3], square, far, alpha, skip, opening);
                 }
             }
             return views;

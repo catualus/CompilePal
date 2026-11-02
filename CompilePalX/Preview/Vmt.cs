@@ -35,6 +35,18 @@ namespace CompilePalX.Preview
 
         /// <summary>DecalModulate: multiplied onto what is under it rather than drawn over it.</summary>
         public bool Modulate { get; init; }
+
+        /// <summary>$envmap: the cubemap reflected, null when the material reflects nothing.</summary>
+        public string? EnvMap { get; init; }
+        /// <summary>$envmaptint, linear.</summary>
+        public float[] EnvMapTint { get; init; } = [1, 1, 1];
+        /// <summary>$envmapcontrast: 0 reflects the cubemap as it is, 1 its square.</summary>
+        public float EnvMapContrast { get; init; }
+        /// <summary>Where the reflection's strength comes from: $envmapmask, or the alpha of the base or normal map.</summary>
+        public string? EnvMapMask { get; init; }
+        public string? BumpMap { get; init; }
+        public bool BaseAlphaEnvMapMask { get; init; }
+        public bool NormalMapAlphaEnvMapMask { get; init; }
     }
 
     /// <summary>
@@ -227,6 +239,14 @@ namespace CompilePalX.Preview
                 Water = lowerShader is "water",
                 WaterColor = ParseColor(keys.TryGetValue("$fogcolor", out var fog) ? fog : keys.TryGetValue("$refracttint", out var tint) ? tint : "{77 128 153}"),
                 Modulate = modulate,
+                EnvMap = keys.TryGetValue("$envmap", out var env) && env.Trim().Length > 0 ? env.Trim() : null,
+                EnvMapTint = ParseColor(keys.TryGetValue("$envmaptint", out var envTint) ? envTint : null),
+                EnvMapContrast = keys.TryGetValue("$envmapcontrast", out var contrast)
+                    && float.TryParse(contrast, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float k) ? Math.Clamp(k, 0, 1) : 0,
+                EnvMapMask = keys.TryGetValue("$envmapmask", out var mask) && mask.Trim().Length > 0 ? mask.Trim() : null,
+                BumpMap = keys.TryGetValue("$bumpmap", out var bump) && bump.Trim().Length > 0 ? bump.Trim() : null,
+                BaseAlphaEnvMapMask = Flag(keys, "$basealphaenvmapmask"),
+                NormalMapAlphaEnvMapMask = Flag(keys, "$normalmapalphaenvmapmask"),
             };
         }
 
@@ -243,6 +263,14 @@ namespace CompilePalX.Preview
             if (baseMaterial.NoCull) merged["$nocull"] = "1";
             // formatted invariantly: these strings go back through ParseColor, which reads "." decimals
             merged["$color"] = FormattableString.Invariant($"{{{baseMaterial.Color[0] * 255} {baseMaterial.Color[1] * 255} {baseMaterial.Color[2] * 255}}}");
+            // VBSP's patches point $envmap at the map's own cubemap and keep the rest of the reflection
+            if (baseMaterial.EnvMap is { } env) merged["$envmap"] = env;
+            merged["$envmaptint"] = FormattableString.Invariant($"[{baseMaterial.EnvMapTint[0]} {baseMaterial.EnvMapTint[1]} {baseMaterial.EnvMapTint[2]}]");
+            merged["$envmapcontrast"] = FormattableString.Invariant($"{baseMaterial.EnvMapContrast}");
+            if (baseMaterial.EnvMapMask is { } mask) merged["$envmapmask"] = mask;
+            if (baseMaterial.BumpMap is { } bump) merged["$bumpmap"] = bump;
+            if (baseMaterial.BaseAlphaEnvMapMask) merged["$basealphaenvmapmask"] = "1";
+            if (baseMaterial.NormalMapAlphaEnvMapMask) merged["$normalmapalphaenvmapmask"] = "1";
 
             foreach (var (key, value) in overrides)
                 if (key != "include")

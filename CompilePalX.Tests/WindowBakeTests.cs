@@ -109,6 +109,39 @@ namespace CompilePalX.Tests
             Assert.Contains("\"$translucent\" \"1\"", WindowBaker.Vmt("viswright/map/w_1_2_3_a_front", translucent: true));
         }
 
+        private static byte[] Pixels(params (byte Grey, byte Alpha)[] pixels) =>
+            pixels.SelectMany(p => new[] { p.Grey, p.Grey, p.Grey, p.Alpha }).ToArray();
+
+        [Fact]
+        public void BarsOnClearGlassStayAndTheGlassBecomesATint()
+        {
+            // clear panes at 40% and bars nearly opaque, as a grate printed on glass reads
+            var picture = Pixels((100, 102), (100, 102), (100, 102), (40, 240), (100, 102), (40, 200));
+            var (colour, alpha) = WindowBaker.Glass(picture);
+
+            Assert.Equal([0, 0, 0, 240, 0, 200], Enumerable.Range(0, 6).Select(p => (int)picture[p * 4 + 3]));
+            Assert.InRange(alpha, 0.39f, 0.41f);
+            Assert.InRange(colour.X, 0.38f, 0.40f);
+        }
+
+        [Fact]
+        public void FrostedGlassKeepsOnlyWhatIsWhollyOpaque()
+        {
+            // opacity spread right across, as frosted or dirty glass reads; cut out midway it would blotch
+            var picture = Pixels((200, 120), (200, 150), (200, 180), (200, 210), (60, 255), (200, 140));
+            WindowBaker.Glass(picture);
+            Assert.Equal([0, 0, 0, 0, 255, 0], Enumerable.Range(0, 6).Select(p => (int)picture[p * 4 + 3]));
+        }
+
+        [Fact]
+        public void TheRoomIsSeenThroughTheGlassTint()
+        {
+            var picture = Pixels((200, 255));
+            WindowBaker.Tint(picture, (new Vector3(0, 0, 0), 0.25f));
+            Assert.Equal(150, picture[0]);
+            Assert.Equal(255, picture[3]);
+        }
+
         [Fact]
         public void AnOpaqueCutOutIsPlainDxt1()
         {

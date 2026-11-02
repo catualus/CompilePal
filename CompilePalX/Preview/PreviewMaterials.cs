@@ -8,10 +8,12 @@ using CompilePalX.Compiling;
 namespace CompilePalX.Preview
 {
     /// <summary>A material as the viewer sees it: its textures by id, and how to draw it.</summary>
+    /// <param name="Reflection">How strongly the material reflects its cubemap, per channel: $envmaptint
+    /// times the average of its mask. Null when it reflects nothing.</param>
     public sealed record ResolvedMaterial(
         int Index, string Name, string Shader, int? Texture, int? Texture2,
         bool Translucent, bool AlphaTest, bool NoCull, bool Unlit, float[] Color, bool Hidden,
-        bool Water = false, float[]? WaterColor = null, bool Modulate = false);
+        bool Water = false, float[]? WaterColor = null, bool Modulate = false, float[]? Reflection = null, float ReflectionContrast = 0);
 
     /// <summary>
     /// Turns the material names in a BSP into textures the viewer can load.
@@ -82,7 +84,7 @@ namespace CompilePalX.Preview
 
                 resolved.Add(new ResolvedMaterial(i, name, material.Shader, texture, texture2,
                     material.Translucent, material.AlphaTest, material.NoCull, material.Unlit, material.Color, material.Hidden,
-                    material.Water, material.WaterColor, material.Modulate));
+                    material.Water, material.WaterColor, material.Modulate, Reflection(material), material.EnvMapContrast));
             }
 
             // the world can list one name twice under different texdata entries; the first keeps the name
@@ -125,6 +127,48 @@ namespace CompilePalX.Preview
             {
                 CompilePalLogger.LogLineDebug($"Material \"{name}\" could not be read: {e.Message}");
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// How strongly <paramref name="material"/> reflects, as one number per channel: the tint times
+        /// the average of the mask the material names. A picture baked from one view cannot follow a
+        /// reflection's detail, only its overall strength.
+        /// </summary>
+        private float[]? Reflection(Material material)
+        {
+            if (material.EnvMap is null || material.Hidden)
+                return null;
+            float mask = material.NormalMapAlphaEnvMapMask ? AverageOf(material.BumpMap, alpha: true)
+                : material.BaseAlphaEnvMapMask ? AverageOf(material.BaseTexture, alpha: true)
+                : material.EnvMapMask is { } m ? AverageOf(m, alpha: false)
+                : 1;
+            return [material.EnvMapTint[0] * mask, material.EnvMapTint[1] * mask, material.EnvMapTint[2] * mask];
+        }
+
+        /// <summary>The average alpha, or brightness, of a texture, from a small mip level; 1 when it cannot be read.</summary>
+        private float AverageOf(string? name, bool alpha)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return 1;
+            string path = name.Replace('\\', '/').TrimStart('/');
+            if (!path.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)) path += ".vtf";
+            if (!path.StartsWith("materials/", StringComparison.OrdinalIgnoreCase)) path = "materials/" + path;
+            try
+            {
+                if (content.Read(path) is not { } bytes || Vtf.Read(bytes) is not { } texture || texture.Levels.Count == 0)
+                    return 1;
+                var level = texture.Levels.LastOrDefault(l => l.Width >= 8 && l.Height >= 8) ?? texture.Levels[0];
+                var rgba = texture.Format == "rgba8" ? level.Data : Bake.Dxt.Decode(texture.Format, level.Width, level.Height, level.Data);
+                double sum = 0;
+                int n = level.Width * level.Height;
+                for (int p = 0; p < n && p * 4 + 3 < rgba.Length; p++)
+                    sum += alpha ? rgba[p * 4 + 3] : (rgba[p * 4] + rgba[p * 4 + 1] + rgba[p * 4 + 2]) / 3.0;
+                return (float)(sum / n / 255);
+            }
+            catch (Exception)
+            {
+                return 1;
             }
         }
 
