@@ -164,7 +164,7 @@ namespace CompilePalX.Compilers.BSPPack
 
         private List<string> excludedFiles;
 	    private List<string> excludedDirs;
-        private List<string> excludedVpkFiles;
+        private ISet<string> excludedVpkFiles;
 
         private List<string> sourceDirs;
         private string fileName;
@@ -181,7 +181,7 @@ namespace CompilePalX.Compilers.BSPPack
         private bool noSwvtx;
 
         public PakFile(BSP bsp, List<string> sourceDirectories, List<string> includeFiles, List<string> excludedFiles, 
-            List<string> excludedDirs, List<string> excludedVpkFiles, string outputFile, bool noswvtx)
+            List<string> excludedDirs, ISet<string> excludedVpkFiles, string outputFile, bool noswvtx)
         {
             mdlcount = vmtcount = pcfcount = soundcount = vehiclescriptcount = effectscriptcount = PanoramaMapBackgroundCount = 0;
             sourceDirs = sourceDirectories;
@@ -330,9 +330,21 @@ namespace CompilePalX.Compilers.BSPPack
 
         public bool AddInternalFile(string internalPath, string externalPath, AssetCategory category)
         {
-                internalPath = internalPath.Replace("\\", "/");
                 // sometimes internal paths can be relative, ex. "materials/vgui/../hud/logos/spray.vmt" should be stored as "materials/hud/logos/spray.vmt".
-                internalPath = Regex.Replace(internalPath, @"\/.*\/\.\.", "");
+                if (NormaliseInternalPath(internalPath) is not { } normalised)
+                {
+                    CompilePalLogger.LogLineDebug($"Refusing an asset path that climbs out of the game folder: {internalPath}");
+                    return false;
+                }
+                internalPath = normalised;
+
+                if (externalPath.Length == 0)
+                {
+                    if (MissingAssets.IsReportable(internalPath))
+                        notFound.Add(internalPath);
+                    return false;
+                }
+
                 if (!Files.ContainsKey(internalPath))
                 {
                     return AddFile(internalPath, externalPath, category);
@@ -340,6 +352,53 @@ namespace CompilePalX.Compilers.BSPPack
 
                 return false;
         }
+
+        /// <summary>
+        /// Resolves "." and ".." segments, or returns null for a path that climbs above its root.
+        ///
+        /// This was a greedy regex, \/.*\/\.\., which deleted from the first slash to the last "..":
+        /// "materials/models/props/../shared/x.vmt" became "materials/shared/x.vmt" rather than
+        /// "materials/models/shared/x.vmt". The right file was packed under the wrong name, and the
+        /// engine could not find it.
+        /// </summary>
+        internal static string? NormaliseInternalPath(string path)
+        {
+            var parts = new List<string>();
+            foreach (string segment in path.Replace('\\', '/').Split('/'))
+            {
+                if (segment.Length == 0 || segment == ".")
+                    continue;
+
+                if (segment == "..")
+                {
+                    if (parts.Count == 0)
+                        return null;
+                    parts.RemoveAt(parts.Count - 1);
+                    continue;
+                }
+
+                parts.Add(segment);
+            }
+
+            return string.Join('/', parts);
+        }
+
+        /// <summary>
+        /// Assets the map refers to that were in none of the content folders, so were not packed.
+        /// Most are stock content inside the game's VPKs; <see cref="MissingAssets.Report"/> sorts out
+        /// which are really missing.
+        /// </summary>
+        private readonly HashSet<string> notFound = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Model materials found under none of the model's material folders. A model lists each
+        /// material once per $cdmaterials folder and only one of those usually exists, so each group
+        /// is one material and counts as missing only when no folder in it has the file.
+        /// </summary>
+        private readonly List<string[]> notFoundGroups = [];
+
+        /// <summary>Everything not found, each entry the alternatives for one asset.</summary>
+        public IEnumerable<string[]> NotFound => notFound.Select(p => new[] { p }).Concat(notFoundGroups);
 
         public void AddModel(string internalPath, List<int>? skins = null)
         {
@@ -391,8 +450,22 @@ namespace CompilePalX.Compilers.BSPPack
 	                return;
                 }
 
-	            foreach (string mat in mdlMatsAndModels.Item1)
-					AddTexture(mat);
+	            // One material per name, tried in each of the model's material folders.
+	            foreach (var candidates in mdlMatsAndModels.Item1
+	                         .GroupBy(m => Path.GetFileName(m.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase))
+	            {
+	                var found = candidates.Where(m => FindExternalFile(m).Length > 0).ToList();
+	                if (found.Count == 0)
+	                {
+	                    var names = candidates.Select(m => NormaliseInternalPath(m) ?? m).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+	                    if (names.Length > 0 && MissingAssets.IsReportable(names[0]))
+	                        notFoundGroups.Add(names);
+	                    continue;
+	                }
+
+	                foreach (string mat in found)
+	                    AddTexture(mat);
+	            }
 
 	            foreach (var model in mdlMatsAndModels.Item2)
 					AddModel(model, null);
@@ -423,30 +496,23 @@ namespace CompilePalX.Compilers.BSPPack
         public void AddParticle(string internalPath)
         {
             // adds pcf files and finds its dependencies
+            // Not found on disk: recorded for the missing-asset report, which stays quiet about
+            // stock PCFs in the game's VPKs. A TF2-style manifest has to list those, and each one
+            // used to log an Error ("Failed to find particle manifest file", naming a PCF), so the
+            // map card showed Failed for a correct manifest. A PCF listed twice, or one excluded on
+            // purpose, is not a failure either.
             string externalPath = FindExternalFile(internalPath);
-            if (externalPath == String.Empty)
-            {
-				CompilePalLogger.LogCompileError($"Failed to find particle manifest file {internalPath}", new Error($"Failed to find particle manifest file {internalPath}", ErrorSeverity.Error));
-				return;
-            }
+            if (!AddInternalFile(internalPath, externalPath, AssetCategory.Particle))
+                return;
 
-            if (AddInternalFile(internalPath, externalPath, AssetCategory.Particle))
-            {
+            PCF pcf = ParticleUtils.ReadParticle(externalPath);
+            pcfcount++;
+            foreach (string mat in pcf.MaterialNames)
+                AddTexture(mat);
 
-				PCF pcf = ParticleUtils.ReadParticle(externalPath);
-                pcfcount++;
-                foreach (string mat in pcf.MaterialNames)
-                    AddTexture(mat);
-
-                foreach (string model in pcf.ModelNames)
-                {
-                    AddModel(model);
-                }
-            }
-            else
+            foreach (string model in pcf.ModelNames)
             {
-				CompilePalLogger.LogCompileError($"Failed to find particle manifest file {internalPath}", new Error($"Failed to find particle manifest file {internalPath}", ErrorSeverity.Error));
-				return;
+                AddModel(model);
             }
         }
 
