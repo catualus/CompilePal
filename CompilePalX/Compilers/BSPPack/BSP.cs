@@ -233,7 +233,10 @@ namespace CompilePalX.Compilers.BSPPack
             {
                 foreach (KeyValuePair<string, string> prop in ent)
                 {
-                    if (Keys.vmfMaterialKeys.Contains(prop.Key.ToLower()))
+                    // A number is not a material: func_breakable and func_physbox use "material" for
+                    // their break type (0 glass, 1 wood, ...), which was looked up as materials/0.vmt.
+                    if (Keys.vmfMaterialKeys.Contains(prop.Key.ToLower()) &&
+                        prop.Value.Trim().Length > 0 && !int.TryParse(prop.Value, out _))
                     {
                         materials.Add(prop.Value);
                         if (prop.Key.ToLower().StartsWith("team_icon"))
@@ -298,6 +301,12 @@ namespace CompilePalX.Compilers.BSPPack
                 //special condition for func_dustcloud and func_dustmotes.  Hardcoded to use particle/sparkles.vmt
                 if (ent["classname"].StartsWith("func_dust"))
                     materials.Add("particle/sparkles.vmt");
+
+                // env_smokestack names its material in a key of its own (FGD type string, so it is in
+                // no key list). A custom smokestack material went unpacked.
+                if (ent["classname"].Equals("env_smokestack", StringComparison.OrdinalIgnoreCase) &&
+                    ValueOf(ent, "smokematerial") is { Length: > 0 } smoke)
+                    materials.Add(smoke);
 
                 // special condition for vgui_slideshow_display. directory paramater references all textures in a folder (does not include subfolders)
                 if (ent["classname"].Contains("vgui_slideshow_display"))
@@ -629,6 +638,15 @@ namespace CompilePalX.Compilers.BSPPack
                 }
             }
         }
+        /// <summary>A keyvalue regardless of the key's case, or "" when the entity has none.</summary>
+        private static string ValueOf(Dictionary<string, string> entity, string key)
+        {
+            foreach (var (k, v) in entity)
+                if (k.Equals(key, StringComparison.OrdinalIgnoreCase))
+                    return v;
+            return "";
+        }
+
         // color correction, etc.
         public void buildMiscList()
         {
@@ -638,6 +656,28 @@ namespace CompilePalX.Compilers.BSPPack
             foreach (Dictionary<string, string> cc in entityList.Where(item => item["classname"].StartsWith("color_correction")))
                 if (cc.ContainsKey("filename"))
                     MiscList.Add(cc["filename"]);
+
+            // Textures entities name directly - a VTF, not a material - so no material key list
+            // covers them: a projected texture's cookie, and GMod's env_skypaint star texture. Custom
+            // ones went unpacked and players saw the default.
+            foreach (var ent in entityList)
+            {
+                string classname = ValueOf(ent, "classname");
+                string texture = classname.Equals("env_projectedtexture", StringComparison.OrdinalIgnoreCase) ? ValueOf(ent, "texturename")
+                    : classname.Equals("env_skypaint", StringComparison.OrdinalIgnoreCase) ? ValueOf(ent, "startexture")
+                    : "";
+
+                texture = texture.Replace('\\', '/').Trim();
+                if (texture.Length == 0)
+                    continue;
+
+                if (texture.StartsWith("materials/", StringComparison.OrdinalIgnoreCase))
+                    texture = texture["materials/".Length..];
+                if (texture.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase))
+                    texture = texture[..^4];
+
+                MiscList.Add($"materials/{texture}.vtf");
+            }
 
             // pack I/O referenced TF2 upgrade files
             // need to use array form of entity because multiple outputs with same command can't be stored in dict
