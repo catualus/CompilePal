@@ -172,11 +172,26 @@ namespace CompilePalX
         /// </summary>
         private async void ShowTelemetryPayload_Click(object sender, RoutedEventArgs e)
         {
-            // Save first: the toggle and endpoint are bound to the DataContext copy, and the
-            // payload is built from ConfigurationManager.Settings. Without this the dialog
-            // describes the settings as they were when the window opened.
+            // The toggle and endpoint are bound to the DataContext copy, and the payload is built
+            // from ConfigurationManager.Settings, so the pending toggle is applied while building
+            // it. Without that the dialog describes the settings as they were when the window
+            // opened.
+            //
+            // Only for as long as the payload takes to build, then put back. This used to leave
+            // the live setting changed: flip the toggle on to look, press Cancel, and reporting
+            // was on anyway, saved on close and sent every session after - the opposite of opt-in.
             var pending = (Settings)this.DataContext;
-            ConfigurationManager.Settings.TelemetryEnabled = pending.TelemetryEnabled;
+            bool live = ConfigurationManager.Settings.TelemetryEnabled;
+            string payload;
+            try
+            {
+                ConfigurationManager.Settings.TelemetryEnabled = pending.TelemetryEnabled;
+                payload = TelemetryManager.DescribePayload();
+            }
+            finally
+            {
+                ConfigurationManager.Settings.TelemetryEnabled = live;
+            }
 
             // A build without an endpoint compiled in collects and then discards. Saying so is
             // better than showing a payload it will never send and letting the toggle imply
@@ -189,7 +204,7 @@ namespace CompilePalX
 
             await Theming.AppDialog.ShowAsync(
                 "What Compile Pal would send",
-                note + TelemetryManager.DescribePayload(),
+                note + payload,
                 closeText: "Close");
         }
 
