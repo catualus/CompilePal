@@ -585,6 +585,7 @@ namespace CompilePalX.Compilers.BSPPack
             try
             {
                 p.Start();
+                ChildProcessJob.Adopt(p);
             }
             catch (Exception e)
             {
@@ -633,6 +634,7 @@ namespace CompilePalX.Compilers.BSPPack
             try
             {
                 p.Start();
+                ChildProcessJob.Adopt(p);
             }
             catch (Exception e)
             {
@@ -725,6 +727,7 @@ namespace CompilePalX.Compilers.BSPPack
             };
             
             p.Start();
+            ChildProcessJob.Adopt(p);
 
             // Both streams at once. Reading stdout to the end before touching stderr deadlocks as soon
             // as vpk writes more to stderr than the pipe holds: it blocks on that write, and stdout
