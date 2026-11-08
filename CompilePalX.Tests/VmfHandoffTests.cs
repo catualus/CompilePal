@@ -337,5 +337,32 @@ namespace CompilePalX.Tests
 
             Assert.Equal(before, File.ReadAllBytes(sourceVmf));
         }
+
+        /// <summary>
+        /// Hammer writes VMFs in the ANSI code page. Read as UTF-8, a byte like 0xE9 (é in 1252) or
+        /// 0xC0 (А in 1251) became U+FFFD and was written back as EF BF BD, so the compiled map's
+        /// game_text showed garbage whenever VMFFIX changed anything.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void TextOutsideAsciiIsWrittenBackByteForByte(bool byteOrderMark)
+        {
+            byte[] message = [0x43, 0x61, 0x66, 0xE9, 0x20, 0xC0, 0xE1, 0xE2]; // "Café " then 1251 Cyrillic
+            using var built = new MemoryStream();
+            if (byteOrderMark)
+                built.Write([0xEF, 0xBB, 0xBF]);
+            built.Write(System.Text.Encoding.ASCII.GetBytes("entity\r\n{\r\n\t\"classname\" \"game_text\"\r\n\t\"message\" \""));
+            built.Write(message);
+            built.Write(System.Text.Encoding.ASCII.GetBytes("\"\r\n}\r\n"));
+            byte[] original = built.ToArray();
+
+            string path = Path.Combine(root, "temp", "text.vmf");
+            File.WriteAllBytes(path, original);
+
+            VmfDocument.Load(path).Save(path + ".out");
+
+            Assert.Equal(original, File.ReadAllBytes(path + ".out"));
+        }
     }
 }
