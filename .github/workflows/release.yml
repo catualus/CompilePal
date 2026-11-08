@@ -8,7 +8,9 @@
 #                  prerelease -> Debug build, version_prerelease.txt, marked as a pre-release
 #                  release    -> Release build, version.txt, marked as the latest release
 #   version      Leave blank and the next version is worked out from the version file already in
-#                the repo (see "AUTO-ADVANCE"). Fill it in to force an exact one, e.g. 031 or 030.4.
+#                the repo (see "AUTO-ADVANCE"). Fill it in to force an exact one, e.g. 1.2.0 or
+#                1.2.0-rc.1. It must also be a version the telemetry service accepts; the "Resolve
+#                version" step says why, and refuses one that is not.
 #   dry_run      Build and upload the zip as a run artifact, but create no tag, no release, and no
 #                commit. Use it to check a build before spending a version number on it.
 #
@@ -41,8 +43,8 @@
 # The tag is "v" + the version: v1.0.0, v1.2.0-rc.1. UpdateManager builds a prerelease download
 # link as releases/tag/v<version>, so the tag and the version must agree exactly.
 #
-# Pushing a tag by hand (git tag v029.2 && git push --tags) also runs this workflow, building and
-# releasing that exact version without the bump/commit step.
+# Pushing a tag by hand (git tag v1.2.1 && git push --tags) also runs this workflow, building and
+# releasing that exact version without the bump/commit step. The same version checks apply.
 
 name: Release
 
@@ -60,7 +62,7 @@ on:
           - major
           - rc
       version:
-        description: "Exact version (e.g. 1.2.0 or 1.2.0-rc.1). Leave blank to advance from the last release."
+        description: "Exact version (e.g. 1.2.0 or 1.2.0-rc.1; prerelease at most 8 letters, digits or dots). Leave blank to advance from the last release."
         required: false
         type: string
       dry_run:
@@ -137,6 +139,57 @@ jobs:
               }
           }
 
+          # What the telemetry service accepts, which is narrower than SemVer: each number at most
+          # three digits, a prerelease of at most eight letters, digits and dots (no hyphen), and 16
+          # characters in all. It is VERSION_PATTERN and MAX_VERSION_LENGTH in Backend/src/validate.js.
+          #
+          # That matters more than a label would. The service derives a release's signing key from
+          # the version it accepted, and files anything else as "other" - while the Build step below
+          # derives the key from the version as typed. A release outside this rule, 1.2.0-preview.1
+          # for example, would have every usage summary and crash report refused as
+          # SIGNATURE_INVALID, and nothing would say so beyond a line in each client's debug log.
+          $reportable = '^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})(-[0-9A-Za-z][0-9A-Za-z.]{0,7})?$'
+
+          function Test-Reportable([string] $text) {
+              $text.Length -le 16 -and $text -cmatch $reportable
+          }
+
+          # Checked before anything else, so an edit that breaks the rule above fails here rather
+          # than in a release. The same two lists are in Backend/test/versions.test.mjs, which checks
+          # them against the service's own pattern and compares them with these: change one, change
+          # the other.
+          $reportableExamples = @(
+              '1.0.0',
+              '1.0.1-rc.1',
+              '1.2.0-rc.10',
+              '1.2.0-rc.100',
+              '1.2.0-beta.2',
+              '1.2.0-preview',
+              '1.0.0-alpha.12',
+              '10.20.30',
+              '999.999.999',
+              '999.999.999-rc.1'
+          )
+          $unreportableExamples = @(
+              '1.2.0-preview.1',
+              '1.2.0-beta-2',
+              '1.0.0-alpha.100',
+              '1000.0.0',
+              '1.0.0+build.5',
+              '100.100.100-rc.10'
+          )
+
+          foreach ($example in $reportableExamples) {
+              if (-not ((Test-Reportable $example) -and $example -cmatch $semver)) {
+                  throw "Self-check failed: '$example' is listed as reportable, but this workflow would refuse it."
+              }
+          }
+          foreach ($example in $unreportableExamples) {
+              if (Test-Reportable $example) {
+                  throw "Self-check failed: '$example' is listed as refused by the telemetry service, but this workflow would accept it."
+              }
+          }
+
           if ($env:IN_EVENT -eq 'push') {
               # Tag-driven: the tag names the version outright.
               $version = $env:IN_TAG -replace '^v', ''
@@ -209,6 +262,16 @@ jobs:
 
           # Validated whichever route produced it, including an exact override typed by hand.
           $parsed = Split-Version $version
+
+          # Refused here, before anything is built or tagged, so the version number is not spent.
+          if (-not (Test-Reportable $version)) {
+              throw ("Version '$version' is valid SemVer, but the telemetry service would refuse it: it " +
+                     "accepts at most three digits per number, a prerelease of at most eight letters, " +
+                     "digits and dots (no hyphens), and 16 characters in all. Every usage summary and " +
+                     "crash report from this release would be rejected as SIGNATURE_INVALID. Use a " +
+                     "version like 1.2.0-rc.1 or 1.2.0-beta.2, or widen VERSION_PATTERN in " +
+                     "Backend/src/validate.js first.")
+          }
 
           if ($parsed.Pre) {
               $channel       = 'prerelease'
