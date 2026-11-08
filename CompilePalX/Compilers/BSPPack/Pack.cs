@@ -540,10 +540,19 @@ namespace CompilePalX.Compilers.BSPPack
 
             var p = new Process { StartInfo = startInfo };
             p.Start();
+            ChildProcessJob.Adopt(p);
             string output = p.StandardOutput.ReadToEnd();
 
             p.WaitForExit();
 
+            // Not fatal: the pak's own files are only read to find dependencies VBSP added. But a
+            // silent failure here quietly drops those (water materials, for one).
+            if (p.ExitCode != 0)
+            {
+                CompilePalLogger.LogDebug(output);
+                CompilePalLogger.LogCompileError($"BSPZIP could not extract the map's existing pakfile (exit code {p.ExitCode}); files VBSP packed may be missing their dependencies\n",
+                    new Error($"BSPZIP could not extract the map's existing pakfile (exit code {p.ExitCode})", ErrorSeverity.Warning));
+            }
         }
 
         /// <summary>
@@ -606,7 +615,11 @@ namespace CompilePalX.Compilers.BSPPack
                 if (p.ExitCode == -1073741819)
                     CompilePalLogger.LogCompileError($"BSPZIP exited with code: {p.ExitCode}, this might indicate that too many files are being packed\n", new Error($"BSPZIP exited with code: {p.ExitCode}, this might indicate that too many files are being packed\n", ErrorSeverity.FatalError));
                 else
-                    CompilePalLogger.LogCompileError($"BSPZIP exited with code: {p.ExitCode}\n", new Error($"BSPZIP exited with code: {p.ExitCode}\n", ErrorSeverity.Warning));
+                    // An error, not a warning: bspzip failing means the content was not packed, and
+                    // a warning left the map card at Succeeded for a map that would ship without it
+                    // (the failure BspZipFolder describes). Error marks the map failed and still
+                    // lets the later steps run.
+                    CompilePalLogger.LogCompileError($"BSPZIP exited with code: {p.ExitCode}, so the map's content was probably not packed\n", new Error($"BSPZIP exited with code: {p.ExitCode}, so the map's content was probably not packed\n", ErrorSeverity.Error));
             }
 
         }
