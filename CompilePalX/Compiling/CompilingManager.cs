@@ -898,6 +898,19 @@ namespace CompilePalX
             postCompile(null, cancelled: true);
         }
 
+        /// <summary>
+        /// Cancels the compile and waits, up to <paramref name="limit"/>, for the run to unwind, so
+        /// its steps get to stop their programs and undo what they set up (NAV puts the user's
+        /// game cfgs back and removes its autorun script). Awaited, never blocked on: the run
+        /// reports to the UI thread on its way out.
+        /// </summary>
+        public static async Task CancelAndWaitAsync(TimeSpan limit)
+        {
+            var running = compileTask;
+            CancelCompile();
+            await Task.WhenAny(running, Task.Delay(limit));
+        }
+
         public static Stopwatch GetTime()
         {
             return compileTimeStopwatch;

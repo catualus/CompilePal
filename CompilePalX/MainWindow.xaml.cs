@@ -1836,6 +1836,19 @@ namespace CompilePalX
                     e.Cancel = true;
                     return;
                 }
+
+                /*
+                 * Cancel first, then close. This went straight to Environment.Exit and never
+                 * cancelled anything: VVIS and VRAD ran on orphaned (VRAD later rewrote the BSP),
+                 * and closing during NAV left the user's listenserver.cfg replaced and an autorun
+                 * script running nav_generate in every map they loaded afterwards.
+                 *
+                 * The close is held back while the run unwinds, then asked for again; by then
+                 * IsCompiling is false and it goes through the ordinary path below.
+                 */
+                e.Cancel = true;
+                _ = CloseAfterCancellingAsync();
+                return;
             }
 
             ConfigurationManager.SavePresets();
@@ -1845,6 +1858,20 @@ namespace CompilePalX
             if (LaunchWindow.Instance == null)
                 Environment.Exit(0);//hack because wpf is weird
             Instance = null;
+        }
+
+        private async Task CloseAfterCancellingAsync()
+        {
+            try
+            {
+                await CompilingManager.CancelAndWaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Cancelling the compile on close failed: {ex}");
+            }
+
+            Close();
         }
 
         private void PresetConfigListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
