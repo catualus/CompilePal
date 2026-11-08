@@ -686,6 +686,10 @@ namespace CompilePalX
                 // However the run ended. Left set, every step row and the order tab would go on
                 // reading the last compiled map's preset instead of the one on screen.
                 ConfigurationManager.CompilingPreset = null;
+
+                // Likewise the map's context. A finished map already restored it; a cancelled or
+                // failed one did not, and left the game configuration a step had changed in place.
+                GameConfigurationManager.RestoreCurrentContext();
             }
         }
 

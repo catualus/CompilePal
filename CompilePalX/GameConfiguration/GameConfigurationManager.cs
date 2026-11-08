@@ -13,9 +13,8 @@ namespace CompilePalX
 {
     static class GameConfigurationManager
     {
-        private static string? mapFile = null;
         public static GameConfiguration? GameConfiguration;
-        public static GameConfiguration GameConfigurationBackup;
+        public static GameConfiguration? GameConfigurationBackup;
         public static List<GameConfiguration> GameConfigurations;
         private static string GameConfigurationFolder = "./GameConfiguration";
         private static readonly string GameConfigurationsPath = Path.Combine(GameConfigurationFolder, "gameConfigs.json");
@@ -113,12 +112,17 @@ namespace CompilePalX
                     GameConfiguration.GameFolder = value;
                     break;
                 case "file":
-                    mapFile = value;
                     // The context for the map being compiled was built before its first step ran, so
-                    // setting the field alone reached nothing until the next map. Moving the live
-                    // context is what lets a step ahead of VBSP hand it a different VMF.
+                    // moving the live context is what lets a step ahead of VBSP hand it a different
+                    // VMF. The redirect belongs to that one map and ends with it.
+                    //
+                    // This also used to write a static field that BuildContext preferred over the
+                    // queued file. Only a map that finished cleared it, so after a cancelled or failed
+                    // run the next compile - of any map - built the previous run's temp copy.
                     if (ActiveContext != null)
                         RedirectMapFile(ActiveContext, value);
+                    else
+                        CompilePalLogger.LogLineColor($"Ignored COMPILE_PAL_SET file \"{value}\": no map is being compiled.", 3);
                     break;
             }
         }
@@ -126,15 +130,29 @@ namespace CompilePalX
         /// <summary>The context of the map being compiled right now, or null between maps.</summary>
         public static CompileContext? ActiveContext { get; private set; }
 
+        /// <summary>
+        /// Starts a map's compile on a copy of the game configuration, so what a step changes with
+        /// COMPILE_PAL_SET (vbsp_exe, bspdir, ...) lasts for that map only. Kept by reference, as it
+        /// was, those changes were made to the configuration itself and outlived the map: every
+        /// later map and run, and gameConfigs.json, kept them.
+        /// </summary>
         public static void BackupCurrentContext()
         {
             GameConfigurationBackup = GameConfiguration;
+            if (GameConfiguration != null)
+                GameConfiguration = (GameConfiguration)GameConfiguration.Clone();
         }
 
+        /// <summary>
+        /// Ends the map's compile, however it ended: puts back the configuration the user chose and
+        /// drops the map's context. Runs from a finally in the compile loop, so a cancelled or failed
+        /// map is cleaned up as well as a finished one.
+        /// </summary>
         public static void RestoreCurrentContext()
         {
-            GameConfiguration = GameConfigurationBackup;
-            mapFile = null;
+            if (GameConfigurationBackup != null)
+                GameConfiguration = GameConfigurationBackup;
+            GameConfigurationBackup = null;
             ActiveContext = null;
         }
 
@@ -143,11 +161,11 @@ namespace CompilePalX
             var context = new CompileContext
             {
                 Configuration = GameConfiguration,
-                MapFile = GameConfigurationManager.mapFile ?? map.File,
+                MapFile = map.File,
                 SourceMapFile = map.File,
                 Map = map,
-                BSPFile = Path.ChangeExtension(GameConfigurationManager.mapFile ?? map.File, "bsp"),
-                CopyLocation = map.IsBSP ? map.File : Path.Combine(GameConfiguration.MapFolder, Path.ChangeExtension(Path.GetFileName(GameConfigurationManager.mapFile ?? map.File), "bsp"))
+                BSPFile = Path.ChangeExtension(map.File, "bsp"),
+                CopyLocation = map.IsBSP ? map.File : Path.Combine(GameConfiguration.MapFolder, Path.ChangeExtension(Path.GetFileName(map.File), "bsp"))
             };
             ActiveContext = context;
             return context;

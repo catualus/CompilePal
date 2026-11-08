@@ -126,6 +126,41 @@ namespace CompilePalX.Tests
             Assert.False(next.IsRedirected);
         }
 
+        /// <summary>
+        /// A cancelled or failed map never reaches RestoreCurrentContext in the map loop. The redirect
+        /// used to live on in a static field that BuildContext preferred, so the next compile, of
+        /// any map, built the previous run's temp copy.
+        /// </summary>
+        [Fact]
+        public void ARedirectFromAnAbandonedMapDoesNotReachTheNextCompile()
+        {
+            Build();
+            GameConfigurationManager.ModifyCurrentContext($"COMPILE_PAL_SET file \"{copyVmf}\"");
+
+            // no RestoreCurrentContext: the map was cancelled
+            var next = Build();
+
+            Assert.Equal(sourceVmf, next.MapFile);
+            Assert.Equal(Path.ChangeExtension(sourceVmf, "bsp"), next.BSPFile);
+            Assert.False(next.IsRedirected);
+        }
+
+        [Fact]
+        public void AStepsConfigurationChangeEndsWithTheMap()
+        {
+            var chosen = GameConfigurationManager.GameConfiguration!;
+            string? vbsp = chosen.VBSP;
+
+            Build();
+            GameConfigurationManager.ModifyCurrentContext("COMPILE_PAL_SET vbsp_exe \"C:\\elsewhere\\vbsp.exe\"");
+            Assert.Equal("C:\\elsewhere\\vbsp.exe", GameConfigurationManager.GameConfiguration!.VBSP);
+
+            GameConfigurationManager.RestoreCurrentContext();
+
+            Assert.Same(chosen, GameConfigurationManager.GameConfiguration);
+            Assert.Equal(vbsp, chosen.VBSP);
+        }
+
         [Fact]
         public void SubstitutionSeparatesTheCompiledVmfFromTheQueuedOne()
         {
