@@ -50,7 +50,8 @@ namespace CompilePalX.Compilers
 
 	class CustomProgram : CompileProcess
 	{
-		public new Process Process { get; set; }
+		// No Process of its own: this used to declare 'new Process Process', which hid the field the
+		// inherited Cancel reads, so Cancel saw null and a custom program could never be stopped.
 
 		public new string Name { get; set; }
 		public new string Description { get; set; }
@@ -145,7 +146,7 @@ namespace CompilePalX.Compilers
             {
                 try
                 {
-                    if (ReadOutput)
+                    if (ReadOutput && Process != null)
                     {
                         Process.OutputDataReceived -= ProcessOnOutputDataReceived;
                         Process.ErrorDataReceived -= ProcessOnErrorDataReceived;
@@ -158,37 +159,49 @@ namespace CompilePalX.Compilers
 
             try
             {
-                Process = new Process()
+                var process = new Process()
                 {
                     StartInfo = StartInfo
                 };
+                Process = process;
 
-                Process.Start();
-                Process.BeginOutputReadLine();
-                Process.BeginErrorReadLine();
+                // Handlers before Start, and reading only when the output is redirected:
+                // Begin*ReadLine throws when it is not, which made every program with Read Output
+                // unticked fail right after it had started.
+                if (ReadOutput)
+                {
+                    process.OutputDataReceived += ProcessOnOutputDataReceived;
+                    process.ErrorDataReceived += ProcessOnErrorDataReceived;
+                }
+
+                process.Start();
 
                 if (ReadOutput)
                 {
-                    Process.OutputDataReceived += ProcessOnOutputDataReceived;
-                    Process.ErrorDataReceived += ProcessOnErrorDataReceived;
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
                 }
 
                 if (WaitForExit)
                 {
-                    Process.WaitForExit();
-                    Process.Close();
-					if (cancellationToken.IsCancellationRequested) return;
-                    CompilePalLogger.LogLine("\nProgram completed successfully\n");
+                    // Waited on by the compile, so it belongs to the compile and goes with it.
+                    // A program left to run on its own (Wait For Exit unticked) is not tied.
+                    ChildProcessJob.Adopt(process);
+
+                    process.WaitForExit();
+                    if (cancellationToken.IsCancellationRequested) return;
+                    ReportExit(process.ExitCode);
+                    process.Close();
                 }
                 else
                 {
                     // run async
                     Task.Run(() =>
                     {
-                        Process.WaitForExit();
-                        Process.Close();
+                        process.WaitForExit();
                         if (cancellationToken.IsCancellationRequested) return;
-                        CompilePalLogger.LogLine("\nProgram completed successfully\n");
+                        ReportExit(process.ExitCode);
+                        process.Close();
                     });
                 }
             }
@@ -197,6 +210,22 @@ namespace CompilePalX.Compilers
                 CompilePalLogger.LogCompileError($"Failed to run {Path}", new Error($"Failed to run {Path}", ErrorSeverity.Error));
 				CompilePalLogger.LogCompileError(e.ToString(), new Error(e.ToString(), ErrorSeverity.Error));
             }
+		}
+
+		/// <summary>
+		/// A non-zero exit is the program saying it failed. Every exit used to be reported as
+		/// "completed successfully", so a failing custom step left a green map card.
+		/// </summary>
+		private void ReportExit(int exitCode)
+		{
+			if (exitCode == 0)
+			{
+				CompilePalLogger.LogLine("\nProgram completed successfully\n");
+				return;
+			}
+
+			string message = $"{System.IO.Path.GetFileName(Path)} exited with code {exitCode}";
+			CompilePalLogger.LogCompileError($"\n{message}\n", new Error(message, ErrorSeverity.Error));
 		}
 
 		private void ProcessOnErrorDataReceived(object sender, DataReceivedEventArgs e)
