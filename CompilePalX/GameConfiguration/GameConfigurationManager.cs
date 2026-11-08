@@ -250,22 +250,41 @@ namespace CompilePalX
             //try loading json
             if (File.Exists(GameConfigurationsPath))
             {
-                string jsonLoadText = File.ReadAllText(GameConfigurationsPath);
-                configs.AddRange(JsonConvert.DeserializeObject<List<GameConfiguration>>(jsonLoadText) ?? []);
+                /*
+                 * Guarded, as settings.json and mapfiles.json are. This file is rewritten on every
+                 * start, so a power cut during that write leaves truncated JSON, and reading it
+                 * unguarded crashed Compile Pal on every launch until the file was found and deleted
+                 * by hand. The games it listed are mostly found again below from Hammer and Steam.
+                 */
+                try
+                {
+                    string jsonLoadText = File.ReadAllText(GameConfigurationsPath);
+                    configs.AddRange(JsonConvert.DeserializeObject<List<GameConfiguration>>(jsonLoadText) ?? []);
+                }
+                catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+                {
+                    string backup = GameConfigurationsPath + ".corrupt";
+                    try { File.Copy(GameConfigurationsPath, backup, overwrite: true); }
+                    catch (Exception copyFailure) { CompilePalLogger.LogLineDebug($"Could not keep a copy of the unreadable game list: {copyFailure.Message}"); }
+
+                    CompilePalLogger.LogLineColor($"The saved game list could not be read ({e.Message}). A copy was kept as {Path.GetFileName(backup)}; games are found again from Hammer and Steam.", 3);
+                }
             }
 
             //try loading from registry
-            if (rk != null)
+            if (rk?.GetValue("Directory") is string hammerBinFolder && !string.IsNullOrWhiteSpace(hammerBinFolder))
             {
-                string binFolder = (string)rk.GetValue("Directory")!;
-
                 try
                 {
-                    configs.AddRange(GameConfigurationParser.Parse(binFolder));
+                    configs.AddRange(GameConfigurationParser.Parse(hammerBinFolder));
                 }
                 catch (Exception e)
                 {
-                    ExceptionHandler.LogException(e);
+                    // Hammer remembers the last bin folder it ran from, and that game may since have
+                    // been moved or uninstalled. This was reported as a crash, which exited the
+                    // application on every start; it is no more serious than an unreadable game
+                    // found through Steam below, and handled the same way.
+                    CompilePalLogger.LogLineDebug($"Could not parse the game configuration in Hammer's last folder {hammerBinFolder}: {e.Message}");
                 }
             }
 
@@ -289,14 +308,24 @@ namespace CompilePalX
 
             // remove duplicates
             GameConfigurations = configs.GroupBy(g => (g.Name, g.GameFolder)).Select(grp => grp.First()).ToList();
-            
-            SaveGameConfigurations();
+
+            // Saving the merged list is a convenience; failing to (a read-only install folder, a
+            // file another program holds) is no reason not to start.
+            try
+            {
+                SaveGameConfigurations();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                CompilePalLogger.LogLineDebug($"Could not save the game list: {e.Message}");
+            }
         }
 
         public static void SaveGameConfigurations()
         {
             string jsonSaveText = JsonConvert.SerializeObject(GameConfigurations, Formatting.Indented);
-            File.WriteAllText(GameConfigurationsPath, jsonSaveText);
+            // Atomic: a write cut short must leave the old list, not a truncated one.
+            ConfigurationManager.WriteFileAtomic(GameConfigurationsPath, jsonSaveText);
         }
     }
 }
