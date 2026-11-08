@@ -11,9 +11,15 @@ namespace CompilePalX.Bake
     ///
     /// The pakfile is lump 40, a zip whose offsets count from the lump's start. The zip is rebuilt -
     /// every entry already there copied byte for byte, whatever its compression, except those being
-    /// replaced, then the new files stored uncompressed as the engine reads them - and written at the
-    /// end of the BSP, with the lump header pointed at it. What was the old pakfile is left as unused
-    /// bytes; a REPACK or BSPZIP step afterwards drops them.
+    /// replaced, then the new files stored uncompressed as the engine reads them - and the lump header
+    /// pointed at it.
+    ///
+    /// Where the pakfile is the last lump in the file, which VBSP and bspzip always make it, the new
+    /// one is written over the old one and the file cut to fit. It used to be appended after the old
+    /// one, which was left as dead bytes: BAKE runs after PACK and REPACK is off by default, so every
+    /// baked map shipped a second, unused copy of its packed content (51 MB on meowy, up to 150 MB
+    /// on bigger maps) for every player to download. Only a BSP with another lump after the pakfile
+    /// still gets the append.
     /// </summary>
     public static class PakWriter
     {
@@ -22,20 +28,30 @@ namespace CompilePalX.Bake
         /// <summary>Adds or replaces <paramref name="files"/> (path inside the pak to bytes) in <paramref name="bspPath"/>'s pakfile.</summary>
         public static void AddFiles(string bspPath, IReadOnlyDictionary<string, byte[]> files)
         {
-            var bsp = File.ReadAllBytes(bspPath);
-            if (bsp.Length < 1036 || BitConverter.ToInt32(bsp, 0) != 0x50534256)
+            // The header and the pakfile only, not the whole map: a big map is hundreds of megabytes.
+            using var stream = new FileStream(bspPath, FileMode.Open, FileAccess.ReadWrite);
+            var bsp = new byte[HeaderSize];
+            if (stream.Length < HeaderSize || stream.ReadAtLeast(bsp, HeaderSize, throwOnEndOfStream: false) < HeaderSize
+                || BitConverter.ToInt32(bsp, 0) != 0x50534256)
                 throw new InvalidDataException($"{bspPath} is not a Source BSP.");
 
             int header = 8 + LumpPakfile * 16;
             int offset = BitConverter.ToInt32(bsp, header), length = BitConverter.ToInt32(bsp, header + 4);
-            var old = length > 0 && offset > 0 && offset + (long)length <= bsp.Length ? bsp.AsSpan(offset, length).ToArray() : [];
+            long fileLength = stream.Length;
+            byte[] old = [];
+            if (length > 0 && offset >= HeaderSize && offset + (long)length <= fileLength)
+            {
+                old = new byte[length];
+                stream.Position = offset;
+                stream.ReadExactly(old);
+            }
 
             var replaced = new HashSet<string>(files.Keys.Select(Normal), StringComparer.OrdinalIgnoreCase);
             var zip = Rebuild(old, replaced, files);
 
-            // at the end of the file, four-byte aligned
-            long at = (bsp.Length + 3) & ~3L;
-            using var stream = new FileStream(bspPath, FileMode.Open, FileAccess.ReadWrite);
+            // Over the old pakfile when nothing comes after it (it is already copied out above),
+            // otherwise at the end of the file; four-byte aligned either way.
+            long at = old.Length > 0 && NothingAfter(bsp, offset) ? offset : (fileLength + 3) & ~3L;
             stream.SetLength(at);
             stream.Position = at;
             stream.Write(zip);
@@ -44,6 +60,26 @@ namespace CompilePalX.Bake
             stream.Write(BitConverter.GetBytes(zip.Length));
             stream.Write(BitConverter.GetBytes(0));   // version
             stream.Write(BitConverter.GetBytes(0));   // uncompressed size: the lump itself is not LZMA
+        }
+
+        private const int HeaderSize = 1036;
+
+        /// <summary>Whether no other lump starts after <paramref name="pakOffset"/>, so the pakfile can be rewritten in place.</summary>
+        private static bool NothingAfter(byte[] header, int pakOffset)
+        {
+            if (pakOffset % 4 != 0)
+                return false;
+
+            for (int lump = 0; lump < 64; lump++)
+            {
+                if (lump == LumpPakfile)
+                    continue;
+                int at = 8 + lump * 16;
+                int offset = BitConverter.ToInt32(header, at), length = BitConverter.ToInt32(header, at + 4);
+                if (length > 0 && offset > pakOffset)
+                    return false;
+            }
+            return true;
         }
 
         private static string Normal(string path) => path.Replace('\\', '/').TrimStart('/');

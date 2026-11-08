@@ -197,11 +197,41 @@ namespace CompilePalX.Tests
 
             var after = File.ReadAllBytes(bsp);
             int offset = BitConverter.ToInt32(after, 8 + 40 * 16), length = BitConverter.ToInt32(after, 8 + 40 * 16 + 4);
-            Assert.True(offset >= 1036 + old.Length, "the new pakfile goes after the old one");
+            // The pakfile was the last lump, so the new one replaces it rather than leaving it behind
+            // as dead bytes in the shipped map.
+            Assert.Equal(1036, offset);
+            Assert.Equal(1036 + length, after.Length);
             var pak = new PakArchive(after.AsSpan(offset, length).ToArray());
             Assert.Equal(2, pak.Count);
             Assert.Equal([1, 2, 3], pak.Read("materials/viswright/x/w_a.vtf"));
             Assert.Equal("new", Encoding.ASCII.GetString(pak.Read("materials/old.vmt")!));
+        }
+
+        [Fact]
+        public void APakfileWithALumpAfterItIsWrittenAtTheEndInstead()
+        {
+            var old = PakWriter.Rebuild([], new HashSet<string>(), new Dictionary<string, byte[]> { ["materials/old.vmt"] = Encoding.ASCII.GetBytes("old") });
+            string bsp = Path.Combine(root, "map_after.bsp");
+            int pakLength = (old.Length + 3) & ~3;
+            var bytes = new byte[1036 + pakLength + 4];
+            BitConverter.GetBytes(0x50534256).CopyTo(bytes, 0);
+            BitConverter.GetBytes(20).CopyTo(bytes, 4);
+            BitConverter.GetBytes(1036).CopyTo(bytes, 8 + 40 * 16);
+            BitConverter.GetBytes(old.Length).CopyTo(bytes, 8 + 40 * 16 + 4);
+            old.CopyTo(bytes, 1036);
+            // lump 41 sits after the pakfile and must stay where it is
+            BitConverter.GetBytes(1036 + pakLength).CopyTo(bytes, 8 + 41 * 16);
+            BitConverter.GetBytes(4).CopyTo(bytes, 8 + 41 * 16 + 4);
+            new byte[] { 9, 8, 7, 6 }.CopyTo(bytes, 1036 + pakLength);
+            File.WriteAllBytes(bsp, bytes);
+
+            PakWriter.AddFiles(bsp, new Dictionary<string, byte[]> { ["materials/new.vmt"] = Encoding.ASCII.GetBytes("new") });
+
+            var after = File.ReadAllBytes(bsp);
+            int offset = BitConverter.ToInt32(after, 8 + 40 * 16), length = BitConverter.ToInt32(after, 8 + 40 * 16 + 4);
+            Assert.True(offset >= bytes.Length, "written after the lump that follows the old pakfile");
+            Assert.Equal(new byte[] { 9, 8, 7, 6 }, after.AsSpan(1036 + pakLength, 4).ToArray());
+            Assert.Equal(2, new PakArchive(after.AsSpan(offset, length).ToArray()).Count);
         }
 
         [Fact]
