@@ -24,7 +24,7 @@ namespace CompilePalX.Compilers.BSPPack
             {
                 // Read-only and shared: this only reads, and asking for write access (FileMode.Open
                 // alone does) fails on read-only files and on models another program is writing.
-                using FileStream mdl = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using FileStream mdl = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 BinaryReader reader = new BinaryReader(mdl);
 
                 mdl.Seek(4, SeekOrigin.Begin);
@@ -163,11 +163,17 @@ namespace CompilePalX.Compilers.BSPPack
                         materials.Add($"materials/{modelDirs[j]}{vtxVmts[i]}.vmt");
 
                 // find included models. mdl v44 and up have same includemodel format
-                if (ver > 44)
+                //
+                // Each entry's label and name offsets count from that entry (mstudiomodelgroup_t),
+                // not from the first one. Reading every name from the first entry's position gave
+                // fragments of other strings for every include after the first ("ep2.mdl" where
+                // alyx.mdl names models/alyx_post_ep2.mdl), so only the first was ever packed and
+                // animated custom models shipped without their other sequences. v44 itself has the
+                // same layout and used to be skipped.
+                if (ver >= 44)
                 {
                     mdl.Seek(includeModelIndex, SeekOrigin.Begin);
 
-                    var includeOffsetStart = mdl.Position;
                     for (int j = 0; j < includeModelCount; j++)
                     {
                         var includeStreamPos = mdl.Position;
@@ -186,7 +192,7 @@ namespace CompilePalX.Compilers.BSPPack
                         if (labelOffset != 0)
                         {
                             // go to label offset
-                            mdl.Seek(labelOffset, SeekOrigin.Begin);
+                            mdl.Seek(includeStreamPos + labelOffset, SeekOrigin.Begin);
                             label = ReadNullTerminatedString(mdl, reader);
 
                             // return to current offset
@@ -196,7 +202,7 @@ namespace CompilePalX.Compilers.BSPPack
                         if (includeModelPathOffset != 0)
                         {
                             // go to model offset
-                            mdl.Seek(includeModelPathOffset + includeOffsetStart, SeekOrigin.Begin);
+                            mdl.Seek(includeStreamPos + includeModelPathOffset, SeekOrigin.Begin);
                             models.Add(ReadNullTerminatedString(mdl, reader));
 
                             // return to current offset
@@ -318,7 +324,7 @@ namespace CompilePalX.Compilers.BSPPack
             {
                 try
                 {
-                    using FileStream vtx = new FileStream(path, FileMode.Open);
+                    using FileStream vtx = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     BinaryReader reader = new BinaryReader(vtx);
 
                     int version = reader.ReadInt32();
@@ -379,38 +385,57 @@ namespace CompilePalX.Compilers.BSPPack
 
             List<string> models = [];
 
-            if (File.Exists(path))
+            if (!File.Exists(path))
+                return models;
+
+            try
             {
-                using (FileStream phy = new FileStream(path, FileMode.Open))
+                // Read-only and shared: asking for write access (FileMode.Open alone does) failed on a
+                // read-only .phy, and that exception used to cancel the whole compile.
+                using FileStream phy = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using BinaryReader reader = new BinaryReader(phy);
+
+                int header_size = reader.ReadInt32();
+                phy.Seek(4, SeekOrigin.Current);
+                int solidCount = reader.ReadInt32();
+
+                // The text section follows every solid, not just the first. Skipping one left
+                // multi-solid breakables (6 of HL2's 178 break models) reading binary as text, so
+                // their gibs were never packed.
+                phy.Seek(header_size, SeekOrigin.Begin);
+                for (int s = 0; s < solidCount; s++)
                 {
-                    using (BinaryReader reader = new BinaryReader(phy))
-                    {
-                        int header_size = reader.ReadInt32();
-                        phy.Seek(4, SeekOrigin.Current);
-                        int solidCount = reader.ReadInt32();
+                    int solid_size = reader.ReadInt32();
+                    if (solid_size < 0 || phy.Position + solid_size > phy.Length)
+                        throw new InvalidDataException($"solid {s} runs past the end of the file");
+                    phy.Seek(solid_size, SeekOrigin.Current);
+                }
 
-                        phy.Seek(header_size, SeekOrigin.Begin);
-                        int solid_size = reader.ReadInt32();
+                string something = ReadNullTerminatedString(phy, reader);
 
-                        phy.Seek(solid_size, SeekOrigin.Current);
-                        string something = ReadNullTerminatedString(phy, reader);
+                // TODO: can probably use KVSerializer to parse this
+                string[] entries = something.Split(['{', '}']);
+                for (int i = 0; i + 1 < entries.Length; i++)
+                {
+                    if (!entries[i].Trim().Equals("break"))
+                        continue;
 
-                        // TODO: can probably use KVSerializer to parse this
-                        string[] entries = something.Split(['{', '}']);
-                        for (int i = 0; i < entries.Length; i++)
+                    string[] entry = entries[i + 1].Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+
+                    for (int j = 0; j + 1 < entry.Length; j++)
+                        if (entry[j].Equals("\"model\"") || entry[j].Equals("\"ragdoll\""))
                         {
-                            if (entries[i].Trim().Equals("break"))
-                            {
-                                string[] entry = entries[i + 1].Split([' '], StringSplitOptions.RemoveEmptyEntries);
-
-                                for (int j = 0; j < entry.Length; j++)
-                                    if (entry[j].Equals("\"model\"") || entry[j].Equals("\"ragdoll\""))
-                                        models.Add("models\\" + entry[j + 1].Trim('"') + (entry[j + 1].Trim('"').EndsWith(".mdl") ? "" : ".mdl"));
-                            }
+                            string gib = entry[j + 1].Trim('"');
+                            models.Add("models\\" + gib + (gib.EndsWith(".mdl") ? "" : ".mdl"));
                         }
-                    }
                 }
             }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+            {
+                CompilePalLogger.LogCompileError($"Could not read the gibs listed in {path}: {e.Message}\n",
+                    new Error($"Could not read the gibs listed in {path}", ErrorSeverity.Warning));
+            }
+
             return models;
         }
 
@@ -570,14 +595,11 @@ namespace CompilePalX.Compilers.BSPPack
             char [] special_caracters = ['*', '#', '@', '>', '<', '^', '(', ')', '}', '$', '!', '?', ' '];
 
             List<string> audioFiles = [];
-            foreach (string line in File.ReadAllLines(fullpath))
+            foreach (string clip in ValuesOf(fullpath, "wave"))
             {
-                string param = Regex.Replace(line, "[\t|\"]", " ").Trim();
-                if (param.StartsWith("wave", StringComparison.OrdinalIgnoreCase))
-                {
-                    string clip = param.Split([' '], 2)[1].Trim(special_caracters);
-                    audioFiles.Add("sound/" + clip);
-                }
+                string trimmed = clip.Trim(special_caracters);
+                if (trimmed.Length > 0)
+                    audioFiles.Add("sound/" + trimmed);
             }
             return audioFiles;
         }
@@ -587,15 +609,43 @@ namespace CompilePalX.Compilers.BSPPack
             // finds pcf files from the manifest file
 
             List<string> pcfs = [];
-            foreach (string line in File.ReadAllLines(fullpath))
+            foreach (string pcf in ValuesOf(fullpath, "file"))
             {
-                if (line.Contains("file", StringComparison.OrdinalIgnoreCase))
-                {
-                    string[] l = line.Split('"');
-                    pcfs.Add(l[^2].TrimStart('!'));
-                }
+                string trimmed = pcf.TrimStart('!');
+                if (trimmed.Length > 0)
+                    pcfs.Add(trimmed);
             }
             return pcfs;
+        }
+
+        /// <summary>
+        /// Every value given to <paramref name="key"/> anywhere in a KeyValues text file.
+        ///
+        /// Read with the tolerant tokenizer the preview uses, which drops // comments and keeps quoted
+        /// strings whole. The line-based readers this replaces took the last quoted string on any line
+        /// that mentioned "file", so a plain comment like "// custom particle files" threw and
+        /// cancelled the compile; and a soundscape wave followed by a comment was packed with the
+        /// comment in its path, or not at all.
+        /// </summary>
+        internal static List<string> ValuesOf(string fullpath, string key)
+        {
+            var tokens = Preview.Vmt.Tokenise(File.ReadAllText(fullpath));
+            var values = new List<string>();
+
+            for (int i = 0; i + 1 < tokens.Count; i++)
+            {
+                if (!tokens[i].Trim('"').Equals(key, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string value = tokens[i + 1];
+                if (value is "{" or "}")
+                    continue;
+
+                values.Add(value.Trim('"'));
+                i++;
+            }
+
+            return values;
         }
 
         public static void FindBspPakDependencies(BSP bsp, string tempdir)
