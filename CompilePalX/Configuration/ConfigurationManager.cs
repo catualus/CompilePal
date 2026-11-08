@@ -704,7 +704,19 @@ namespace CompilePalX
 
             preset.Processes = rebuilt;
 
-            // save preset metadata
+            WritePresetFile(preset);
+        }
+
+        /// <summary>
+        /// Writes <paramref name="preset"/>'s meta.json exactly as it stands, steps included.
+        ///
+        /// For a preset that no step holds yet: a new one, a clone, or an edited one being written
+        /// back. SavePreset cannot do that job, because it rebuilds the step list from the steps'
+        /// own preset dictionaries, and a preset that has not been loaded is in none of them - so
+        /// New, Clone and Edit all wrote a preset with no steps, and Edit wiped one that had them.
+        /// </summary>
+        private static void WritePresetFile(Preset preset)
+        {
             string presetFolder = GetPresetFolder(preset);
             string metadataPath = Path.Combine(presetFolder, "meta.json");
             string jsonSaveText = JsonConvert.SerializeObject(preset, Formatting.Indented);
@@ -838,7 +850,7 @@ namespace CompilePalX
             {
                 Directory.CreateDirectory(folder);
 
-                SavePreset(preset);
+                WritePresetFile(preset);
             }
 
             AssembleParameters();
@@ -859,13 +871,17 @@ namespace CompilePalX
             // if map specific, append map to name so you can make map specific presets with the same name as global ones
             string newFolder = GetPresetFolder(preset);
 
+            // Brings source.Processes up to date first: it is only refreshed when the preset is saved,
+            // so edits still waiting for the autosave would not be in the clone.
+            SavePreset(source);
+
             // deep copy: sharing the dictionary made edits to the clone rewrite the source preset
             preset.Processes = source.CopyProcesses();
 
             if (!Directory.Exists(newFolder))
             {
                 Directory.CreateDirectory(newFolder);
-                SavePreset(preset);
+                WritePresetFile(preset);
                 AssembleParameters();
             }
 
@@ -891,7 +907,8 @@ namespace CompilePalX
                 return null;
             }
 
-            // copy processes
+            // copy processes, after bringing them up to date (see ClonePreset)
+            SavePreset(original);
             edited.Processes = original.CopyProcesses();
 
             // TODO: this can be improved, deleting and recreating isn't really neccessary now that all preset info is consolidated into one file
