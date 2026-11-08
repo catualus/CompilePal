@@ -7,7 +7,7 @@ using System.Text;
 namespace CompilePalX.Bake
 {
     /// <summary>
-    /// Puts files into a compiled map's pakfile without bspzip, which some Garry's Mod installs lack.
+    /// Puts files into a compiled map's pakfile directly, without running bspzip.
     ///
     /// The pakfile is lump 40, a zip whose offsets count from the lump's start. The zip is rebuilt -
     /// every entry already there copied byte for byte, whatever its compression, except those being

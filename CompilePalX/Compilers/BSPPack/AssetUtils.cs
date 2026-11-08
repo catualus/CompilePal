@@ -1063,10 +1063,11 @@ namespace CompilePalX.Compilers.BSPPack
                         {
                             if (!genparticlemanifest)
                             {
-                                if (renameparticlemanifest)
-                                    internalPath = "particles.txt";
-
-                                bsp.particleManifest = new KeyValuePair<string, string>(internalDir + f.Name, externalDir + f.Name);
+                                // The renamed name has to be the key the manifest is packed under. It
+                                // was assigned to a variable nothing read, so -renameparticlemanifest
+                                // packed the file under its original name with no sign it was ignored.
+                                string manifestName = renameparticlemanifest ? "particles.txt" : internalDir + f.Name;
+                                bsp.particleManifest = new KeyValuePair<string, string>(manifestName, externalDir + f.Name);
                             }
 
                             continue;
