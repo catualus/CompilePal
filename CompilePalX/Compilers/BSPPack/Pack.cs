@@ -77,7 +77,7 @@ namespace CompilePalX.Compilers.BSPPack
             List<string> includeFiles = [];
             List<string> excludeFiles = [];
             List<string> excludeDirs = [];
-            List<string> excludedVpkFiles = [];
+            var excludedVpkFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
@@ -213,15 +213,28 @@ namespace CompilePalX.Compilers.BSPPack
                     vpkPaths.AddRange(gameVpks);
                 }
 
+                // Read in-process. This ran vpk.exe once per archive (nine on Garry's Mod) and parsed
+                // its text output, and a missing or wrong VPK tool path ended the compile with
+                // "Something broke"; the list was also searched linearly for every packed file.
                 foreach (var vpkPath in vpkPaths)
                 {
-                    string[] vpkFileList = GetVPKFileList(vpkPath);
+                    Preview.Vpk archive;
+                    try
+                    {
+                        archive = Preview.Vpk.Open(vpkPath);
+                    }
+                    catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+                    {
+                        CompilePalLogger.LogCompileError($"Could not read {vpkPath} to exclude its files: {e.Message}\n",
+                            new Error($"Could not read {vpkPath} to exclude its files", ErrorSeverity.Error));
+                        continue;
+                    }
 
-                    foreach (string file in vpkFileList)
-                        excludedVpkFiles.Add(file.ToLower());
+                    foreach (string file in archive.Paths)
+                        excludedVpkFiles.Add(file);
 
                     if (verbose)
-                        CompilePalLogger.LogLine($"  {Path.GetFileName(vpkPath)}: {vpkFileList.Length:N0} files");
+                        CompilePalLogger.LogLine($"  {Path.GetFileName(vpkPath)}: {archive.Count:N0} files");
                 }
 
                 CompilePalLogger.LogLine("Finding sources of game content...");
@@ -289,8 +302,21 @@ namespace CompilePalX.Compilers.BSPPack
                     return;
 
                 string unpackDir = System.IO.Path.GetTempPath() + Guid.NewGuid();
-                UnpackBSP(unpackDir);
-                AssetUtils.FindBspPakDependencies(map, unpackDir);
+                try
+                {
+                    UnpackBSP(unpackDir);
+                    AssetUtils.FindBspPakDependencies(map, unpackDir);
+                }
+                finally
+                {
+                    // Every compile used to leave the extracted pakfile behind in %TEMP%: VBSP's patch
+                    // materials and cubemaps, or the whole packed content of an already packed map.
+                    try { if (Directory.Exists(unpackDir)) Directory.Delete(unpackDir, recursive: true); }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        CompilePalLogger.LogLineDebug($"Could not delete {unpackDir}: {e.Message}");
+                    }
+                }
 
                 CompilePalLogger.LogLine("Initializing pak file...");
                 PakFile pakfile = new PakFile(map, sourceDirectories, includeFiles, excludeFiles, excludeDirs,
@@ -335,6 +361,10 @@ namespace CompilePalX.Compilers.BSPPack
                         CompilePalLogger.LogLine($"Added {filelist.Length / 2} files from ${inputFile}");
                     }
                 }
+
+                // Which assets the map uses that could not be packed, and why.
+                CompilePalLogger.LogLine("Checking for assets that could not be packed...");
+                MissingAssets.Report(pakfile.NotFound, gameFolder, sourceDirectories);
 
                 if (packvpk)
                 {
@@ -700,19 +730,8 @@ namespace CompilePalX.Compilers.BSPPack
 
             foreach (var root in roots)
             {
-                foreach (var vpk in Directory.EnumerateFiles(root, "*.vpk", SearchOption.TopDirectoryOnly))
+                foreach (var vpk in FindVpkSets(root))
                 {
-                    string name = Path.GetFileNameWithoutExtension(vpk);
-
-                    // skip the numbered data archives that accompany a _dir.vpk
-                    if (Regex.IsMatch(name, @"_\d{3}$"))
-                        continue;
-
-                    // and skip a bare name when its _dir counterpart exists, so a set is listed once
-                    if (!name.EndsWith("_dir", StringComparison.OrdinalIgnoreCase) &&
-                        File.Exists(Path.Combine(root, name + "_dir.vpk")))
-                        continue;
-
                     if (seen.Add(vpk))
                         found.Add(vpk);
                 }
@@ -721,42 +740,30 @@ namespace CompilePalX.Compilers.BSPPack
             return found;
         }
 
-        static string[] GetVPKFileList(string VPKPath)
-		{
-            string arguments = $"l \"{VPKPath}\"";
+        /// <summary>
+        /// The VPK sets directly in <paramref name="folder"/>, one path per set: its directory VPK, or a
+        /// single-file VPK.
+        /// </summary>
+        internal static IEnumerable<string> FindVpkSets(string folder)
+        {
+            if (!Directory.Exists(folder))
+                yield break;
 
-            var p = new Process
+            foreach (var vpk in Directory.EnumerateFiles(folder, "*.vpk", SearchOption.TopDirectoryOnly))
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    WorkingDirectory = Path.GetDirectoryName(vpk),
-                    FileName = vpk,
-                    Arguments = arguments,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                }
-            };
-            
-            p.Start();
-            ChildProcessJob.Adopt(p);
+                string name = Path.GetFileNameWithoutExtension(vpk);
 
-            // Both streams at once. Reading stdout to the end before touching stderr deadlocks as soon
-            // as vpk writes more to stderr than the pipe holds: it blocks on that write, and stdout
-            // never reaches its end.
-            var errRead = p.StandardError.ReadToEndAsync();
-            string output = p.StandardOutput.ReadToEnd();
-            string errOutput = errRead.GetAwaiter().GetResult();
-            if (verbose)
-            {
-                CompilePalLogger.Log(errOutput);
+                // skip the numbered data archives that accompany a _dir.vpk
+                if (Regex.IsMatch(name, @"_\d{3}$"))
+                    continue;
+
+                // and skip a bare name when its _dir counterpart exists, so a set is listed once
+                if (!name.EndsWith("_dir", StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(Path.Combine(folder, name + "_dir.vpk")))
+                    continue;
+
+                yield return vpk;
             }
-
-            p.WaitForExit();
-
-            char[] delims = new[] { '\r', '\n' };
-            return output.Split(delims, StringSplitOptions.RemoveEmptyEntries);
         }
 
         static void p_OutputDataReceived(object sender, DataReceivedEventArgs e)

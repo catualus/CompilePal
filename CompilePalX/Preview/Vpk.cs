@@ -113,6 +113,9 @@ namespace CompilePalX.Preview
         /// <summary>Whether the archive holds <paramref name="path"/>, forward slashes, any case.</summary>
         public bool Contains(string path) => entries.ContainsKey(Normalise(path));
 
+        /// <summary>Every path the archive holds, with forward slashes.</summary>
+        public IEnumerable<string> Paths => entries.Keys;
+
         /// <summary>The file's bytes, or null when the archive does not hold it or its part is missing.</summary>
         public byte[]? Read(string path)
         {
