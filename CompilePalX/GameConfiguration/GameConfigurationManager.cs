@@ -13,9 +13,8 @@ namespace CompilePalX
 {
     static class GameConfigurationManager
     {
-        private static string? mapFile = null;
         public static GameConfiguration? GameConfiguration;
-        public static GameConfiguration GameConfigurationBackup;
+        public static GameConfiguration? GameConfigurationBackup;
         public static List<GameConfiguration> GameConfigurations;
         private static string GameConfigurationFolder = "./GameConfiguration";
         private static readonly string GameConfigurationsPath = Path.Combine(GameConfigurationFolder, "gameConfigs.json");
@@ -113,12 +112,17 @@ namespace CompilePalX
                     GameConfiguration.GameFolder = value;
                     break;
                 case "file":
-                    mapFile = value;
                     // The context for the map being compiled was built before its first step ran, so
-                    // setting the field alone reached nothing until the next map. Moving the live
-                    // context is what lets a step ahead of VBSP hand it a different VMF.
+                    // moving the live context is what lets a step ahead of VBSP hand it a different
+                    // VMF. The redirect belongs to that one map and ends with it.
+                    //
+                    // This also used to write a static field that BuildContext preferred over the
+                    // queued file. Only a map that finished cleared it, so after a cancelled or failed
+                    // run the next compile - of any map - built the previous run's temp copy.
                     if (ActiveContext != null)
                         RedirectMapFile(ActiveContext, value);
+                    else
+                        CompilePalLogger.LogLineColor($"Ignored COMPILE_PAL_SET file \"{value}\": no map is being compiled.", 3);
                     break;
             }
         }
@@ -126,15 +130,29 @@ namespace CompilePalX
         /// <summary>The context of the map being compiled right now, or null between maps.</summary>
         public static CompileContext? ActiveContext { get; private set; }
 
+        /// <summary>
+        /// Starts a map's compile on a copy of the game configuration, so what a step changes with
+        /// COMPILE_PAL_SET (vbsp_exe, bspdir, ...) lasts for that map only. Kept by reference, as it
+        /// was, those changes were made to the configuration itself and outlived the map: every
+        /// later map and run, and gameConfigs.json, kept them.
+        /// </summary>
         public static void BackupCurrentContext()
         {
             GameConfigurationBackup = GameConfiguration;
+            if (GameConfiguration != null)
+                GameConfiguration = (GameConfiguration)GameConfiguration.Clone();
         }
 
+        /// <summary>
+        /// Ends the map's compile, however it ended: puts back the configuration the user chose and
+        /// drops the map's context. Runs from a finally in the compile loop, so a cancelled or failed
+        /// map is cleaned up as well as a finished one.
+        /// </summary>
         public static void RestoreCurrentContext()
         {
-            GameConfiguration = GameConfigurationBackup;
-            mapFile = null;
+            if (GameConfigurationBackup != null)
+                GameConfiguration = GameConfigurationBackup;
+            GameConfigurationBackup = null;
             ActiveContext = null;
         }
 
@@ -143,11 +161,11 @@ namespace CompilePalX
             var context = new CompileContext
             {
                 Configuration = GameConfiguration,
-                MapFile = GameConfigurationManager.mapFile ?? map.File,
+                MapFile = map.File,
                 SourceMapFile = map.File,
                 Map = map,
-                BSPFile = Path.ChangeExtension(GameConfigurationManager.mapFile ?? map.File, "bsp"),
-                CopyLocation = map.IsBSP ? map.File : Path.Combine(GameConfiguration.MapFolder, Path.ChangeExtension(Path.GetFileName(GameConfigurationManager.mapFile ?? map.File), "bsp"))
+                BSPFile = Path.ChangeExtension(map.File, "bsp"),
+                CopyLocation = map.IsBSP ? map.File : Path.Combine(GameConfiguration.MapFolder, Path.ChangeExtension(Path.GetFileName(map.File), "bsp"))
             };
             ActiveContext = context;
             return context;
@@ -232,22 +250,41 @@ namespace CompilePalX
             //try loading json
             if (File.Exists(GameConfigurationsPath))
             {
-                string jsonLoadText = File.ReadAllText(GameConfigurationsPath);
-                configs.AddRange(JsonConvert.DeserializeObject<List<GameConfiguration>>(jsonLoadText) ?? []);
+                /*
+                 * Guarded, as settings.json and mapfiles.json are. This file is rewritten on every
+                 * start, so a power cut during that write leaves truncated JSON, and reading it
+                 * unguarded crashed Compile Pal on every launch until the file was found and deleted
+                 * by hand. The games it listed are mostly found again below from Hammer and Steam.
+                 */
+                try
+                {
+                    string jsonLoadText = File.ReadAllText(GameConfigurationsPath);
+                    configs.AddRange(JsonConvert.DeserializeObject<List<GameConfiguration>>(jsonLoadText) ?? []);
+                }
+                catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+                {
+                    string backup = GameConfigurationsPath + ".corrupt";
+                    try { File.Copy(GameConfigurationsPath, backup, overwrite: true); }
+                    catch (Exception copyFailure) { CompilePalLogger.LogLineDebug($"Could not keep a copy of the unreadable game list: {copyFailure.Message}"); }
+
+                    CompilePalLogger.LogLineColor($"The saved game list could not be read ({e.Message}). A copy was kept as {Path.GetFileName(backup)}; games are found again from Hammer and Steam.", 3);
+                }
             }
 
             //try loading from registry
-            if (rk != null)
+            if (rk?.GetValue("Directory") is string hammerBinFolder && !string.IsNullOrWhiteSpace(hammerBinFolder))
             {
-                string binFolder = (string)rk.GetValue("Directory")!;
-
                 try
                 {
-                    configs.AddRange(GameConfigurationParser.Parse(binFolder));
+                    configs.AddRange(GameConfigurationParser.Parse(hammerBinFolder));
                 }
                 catch (Exception e)
                 {
-                    ExceptionHandler.LogException(e);
+                    // Hammer remembers the last bin folder it ran from, and that game may since have
+                    // been moved or uninstalled. This was reported as a crash, which exited the
+                    // application on every start; it is no more serious than an unreadable game
+                    // found through Steam below, and handled the same way.
+                    CompilePalLogger.LogLineDebug($"Could not parse the game configuration in Hammer's last folder {hammerBinFolder}: {e.Message}");
                 }
             }
 
@@ -271,14 +308,24 @@ namespace CompilePalX
 
             // remove duplicates
             GameConfigurations = configs.GroupBy(g => (g.Name, g.GameFolder)).Select(grp => grp.First()).ToList();
-            
-            SaveGameConfigurations();
+
+            // Saving the merged list is a convenience; failing to (a read-only install folder, a
+            // file another program holds) is no reason not to start.
+            try
+            {
+                SaveGameConfigurations();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                CompilePalLogger.LogLineDebug($"Could not save the game list: {e.Message}");
+            }
         }
 
         public static void SaveGameConfigurations()
         {
             string jsonSaveText = JsonConvert.SerializeObject(GameConfigurations, Formatting.Indented);
-            File.WriteAllText(GameConfigurationsPath, jsonSaveText);
+            // Atomic: a write cut short must leave the old list, not a truncated one.
+            ConfigurationManager.WriteFileAtomic(GameConfigurationsPath, jsonSaveText);
         }
     }
 }

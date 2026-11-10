@@ -20,6 +20,7 @@ namespace CompilePalX.Compiling
     {
         private readonly List<string> lines;
         private readonly string newline;
+        private readonly bool byteOrderMark;
 
         /// <summary>Lines suppressed by <see cref="RemoveEntity"/> / <see cref="RemoveBlock"/>.</summary>
         private readonly HashSet<int> removedLines = [];
@@ -43,22 +44,34 @@ namespace CompilePalX.Compiling
         /// <summary>True once anything has actually been changed.</summary>
         public bool Modified { get; private set; }
 
-        private VmfDocument(List<string> lines, string newline, List<VmfEntity> entities)
+        private VmfDocument(List<string> lines, string newline, bool byteOrderMark, List<VmfEntity> entities)
         {
             this.lines = lines;
             this.newline = newline;
+            this.byteOrderMark = byteOrderMark;
             Entities = entities;
             World = entities.FirstOrDefault(e => e.IsWorld);
         }
 
         public static VmfDocument Load(string path)
         {
-            string raw = File.ReadAllText(path);
+            /*
+             * Latin-1, one character per byte, both ways, as SourceKit's Vmf does. Hammer writes VMFs
+             * in the system's ANSI code page, not UTF-8. Read as UTF-8, every accented or Cyrillic
+             * byte (game_text, env_message, targetnames, asset paths) became U+FFFD and was written
+             * back as EF BF BD, so the compiled map showed garbled text whenever VMFFIX changed
+             * anything. Latin-1 maps every byte to a character and back unchanged, whatever the file's
+             * real encoding was. A UTF-8 byte order mark is kept aside and put back on save.
+             */
+            byte[] bytes = File.ReadAllBytes(path);
+            bool bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+            string raw = Encoding.Latin1.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0));
+
             // Hammer writes CRLF; preserve whatever this file actually uses.
             string nl = raw.Contains("\r\n") ? "\r\n" : "\n";
             var lines = raw.Split(new[] { nl }, StringSplitOptions.None).ToList();
 
-            return new VmfDocument(lines, nl, IndexBlocks(lines));
+            return new VmfDocument(lines, nl, bom, IndexBlocks(lines));
         }
 
         /// <summary>All lines in the file, for a fixer that needs to copy a block verbatim.</summary>
@@ -341,7 +354,12 @@ namespace CompilePalX.Compiling
             if (insertions.TryGetValue(lines.Count, out var trailing))
                 output.AddRange(trailing);
 
-            File.WriteAllText(path, string.Join(newline, output), new UTF8Encoding(false));
+            // See Load: Latin-1 writes back exactly the bytes that were read.
+            byte[] text = Encoding.Latin1.GetBytes(string.Join(newline, output));
+            using var file = File.Create(path);
+            if (byteOrderMark)
+                file.Write([0xEF, 0xBB, 0xBF]);
+            file.Write(text);
         }
 
         /// <summary>

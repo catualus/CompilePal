@@ -22,7 +22,9 @@ namespace CompilePalX.Compilers.BSPPack
 
             if (File.Exists(path))
             {
-                using FileStream mdl = new FileStream(path, FileMode.Open);
+                // Read-only and shared: this only reads, and asking for write access (FileMode.Open
+                // alone does) fails on read-only files and on models another program is writing.
+                using FileStream mdl = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
                 BinaryReader reader = new BinaryReader(mdl);
 
                 mdl.Seek(4, SeekOrigin.Begin);
@@ -211,38 +213,7 @@ namespace CompilePalX.Compilers.BSPPack
                     mdl.Seek(keyvalueIndex, SeekOrigin.Begin);
                     string kvString = new string(reader.ReadChars(keyvalueCount - 1));
 
-                    // "mdlkeyvalue" and "{" are on separate lines, merge them or it doesnt parse kv name
-                    int firstNewlineIndex = kvString.IndexOf("\n", StringComparison.Ordinal);
-                    if (firstNewlineIndex > 0)
-                        kvString = kvString.Remove(firstNewlineIndex, 1);
-
-                    kvString = KV.StringUtil.GetFormattedKVString(kvString);
-
-                    using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(kvString)))
-                    {
-                        KVObject kv = KVSerializer.Deserialize(stream);
-
-                        // pack door damage models
-                        var doorBlock = kv["door_options"];
-                        if (doorBlock is not null)
-                        {
-                            var defaultsBlock = doorBlock["defaults"];
-                            if (defaultsBlock is not null)
-                            {
-                                var damageModel1 = defaultsBlock["damage1"];
-                                if (damageModel1 is not null)
-                                    models.Add($"models\\{damageModel1}.mdl");
-
-                                var damageModel2 = defaultsBlock["damage2"];
-                                if (damageModel2 is not null)
-                                    models.Add($"models\\{damageModel2}.mdl");
-
-                                var damageModel3 = defaultsBlock["damage3"];
-                                if (damageModel3 is not null)
-                                    models.Add($"models\\{damageModel3}.mdl");
-                            }
-                        }
-                    }
+                    models.AddRange(ModelsFromKeyValues(kvString, path));
                 }
             }
 
@@ -252,6 +223,92 @@ namespace CompilePalX.Compilers.BSPPack
             }
 
             return new Tuple<List<string>, List<string>>(materials, models);
+        }
+
+        /// <summary>
+        /// The models a model's embedded keyvalues name: door_options' damage models.
+        ///
+        /// The text can hold several top-level blocks. Sittable chairs and vehicle seats carry
+        /// prop_data and vehicle_entry/exit as separate "mdlkeyvalue" blocks, which is not one
+        /// KeyValues document, so the strict parser threw - and threw out of the whole model
+        /// reader after its materials were found, so the model was packed with none of them
+        /// (8 of 1,957 stock GMod models, the chairs and seats among them). Each block is now read
+        /// on its own, and one that still cannot be read costs only the damage models it names,
+        /// never the model's materials.
+        /// </summary>
+        internal static List<string> ModelsFromKeyValues(string kvString, string modelPath)
+        {
+            List<string> models = [];
+            foreach (string blockText in TopLevelBlocks(kvString))
+            {
+                try
+                {
+                    string text = blockText;
+
+                    // "mdlkeyvalue" and "{" are on separate lines, merge them or it doesnt parse kv name
+                    int firstNewlineIndex = text.IndexOf("\n", StringComparison.Ordinal);
+                    if (firstNewlineIndex > 0)
+                        text = text.Remove(firstNewlineIndex, 1);
+
+                    text = KV.StringUtil.GetFormattedKVString(text);
+
+                    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+                    KVObject block = KVSerializer.Deserialize(stream);
+
+                    // pack door damage models
+                    var defaultsBlock = block["door_options"]?["defaults"];
+                    if (defaultsBlock is null)
+                        continue;
+
+                    foreach (var key in new[] { "damage1", "damage2", "damage3" })
+                    {
+                        var damageModel = defaultsBlock[key];
+                        if (damageModel is not null)
+                            models.Add($"models\\{damageModel}.mdl");
+                    }
+                }
+                catch (Exception e)
+                {
+                    CompilePalLogger.LogDebug($"Could not read a keyvalues block in {modelPath}, so any door damage models it names are not packed: {e.Message}");
+                }
+            }
+
+            return models;
+        }
+
+        /// <summary>
+        /// Splits keyvalues text into its top-level "name { ... }" blocks, so each can be read on its
+        /// own. Braces inside quotes do not count. Read one block at a time rather than under a
+        /// made-up root because GetFormattedKVString drops the name between one block's closing
+        /// brace and the next one's opening brace.
+        /// </summary>
+        internal static List<string> TopLevelBlocks(string text)
+        {
+            List<string> blocks = [];
+            int depth = 0, start = 0;
+            bool quoted = false;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (c == '"')
+                    quoted = !quoted;
+                else if (quoted)
+                    continue;
+                else if (c == '{')
+                    depth++;
+                else if (c == '}' && depth > 0 && --depth == 0)
+                {
+                    blocks.Add(text.Substring(start, i + 1 - start).TrimStart());
+                    start = i + 1;
+                }
+            }
+
+            // An unclosed last block is still handed over: the parser decides whether it can be read.
+            if (depth > 0)
+                blocks.Add(text.Substring(start).TrimStart());
+
+            return blocks;
         }
 
         public static List<string> FindVtxMaterials(string path)
@@ -408,7 +465,20 @@ namespace CompilePalX.Compilers.BSPPack
             var vmtList = new List<string>();
             using (var w = File.OpenRead(fullpath))
             {
-                KVObject kv = KVSerializer.Deserialize(w);
+                KVObject kv;
+                try
+                {
+                    kv = KVSerializer.Deserialize(w);
+                }
+                catch (Exception e)
+                {
+                    // Unguarded, this went up through the PakFile constructor and cancelled the
+                    // whole compile over one VMT the engine itself loads fine (a missing final
+                    // brace, an unterminated quote), skipping every step after PACK. FindVmtTextures
+                    // has already reported the file by name.
+                    CompilePalLogger.LogDebug($"Could not read {fullpath} for the materials it names: {e.Message}");
+                    return vmtList;
+                }
 
                 foreach (var property in FindKVKeys(kv, Keys.vmtMaterialKeyWords))
                     vmtList.Add($"materials/{VmtPathParser(property.Value)}.vmt");

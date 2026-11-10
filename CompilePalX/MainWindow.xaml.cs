@@ -615,7 +615,10 @@ namespace CompilePalX
         {
 	        Instance = this;
 
-			Application.Current.DispatcherUnhandledException += Current_DispatcherUnhandledException;
+            // No DispatcherUnhandledException handler of its own here. App.OnStartup's classifies
+            // the exception and keeps the app running once it has started; this one also ran, with
+            // crash:true, so every stray UI exception still ended in a fatal exit (and orphaned a
+            // running compile).
 
             InitializeComponent();
             // After InitializeComponent so the XAML-declared FlowDocument exists.
@@ -1043,11 +1046,6 @@ namespace CompilePalX
             UpdateLabel.Visibility = Visibility.Visible;
         }
 
-
-        void Current_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
-        {
-            ExceptionHandler.LogException(e.Exception);
-        }
 
         private void MapFiles_OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
             RefreshPluginStatuses();
@@ -1836,6 +1834,19 @@ namespace CompilePalX
                     e.Cancel = true;
                     return;
                 }
+
+                /*
+                 * Cancel first, then close. This went straight to Environment.Exit and never
+                 * cancelled anything: VVIS and VRAD ran on orphaned (VRAD later rewrote the BSP),
+                 * and closing during NAV left the user's listenserver.cfg replaced and an autorun
+                 * script running nav_generate in every map they loaded afterwards.
+                 *
+                 * The close is held back while the run unwinds, then asked for again; by then
+                 * IsCompiling is false and it goes through the ordinary path below.
+                 */
+                e.Cancel = true;
+                _ = CloseAfterCancellingAsync();
+                return;
             }
 
             ConfigurationManager.SavePresets();
@@ -1845,6 +1856,20 @@ namespace CompilePalX
             if (LaunchWindow.Instance == null)
                 Environment.Exit(0);//hack because wpf is weird
             Instance = null;
+        }
+
+        private async Task CloseAfterCancellingAsync()
+        {
+            try
+            {
+                await CompilingManager.CancelAndWaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception ex)
+            {
+                CompilePalLogger.LogLineDebug($"Cancelling the compile on close failed: {ex}");
+            }
+
+            Close();
         }
 
         private void PresetConfigListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2546,7 +2571,16 @@ namespace CompilePalX
         {
             // Everything below reads the document rather than the buffer, so land the buffer first.
             FlushOutput();
-            Clipboard.SetText(new TextRange(CompileOutputTextbox.Document.ContentStart, CompileOutputTextbox.Document.ContentEnd).Text);
+            try
+            {
+                Clipboard.SetText(new TextRange(CompileOutputTextbox.Document.ContentStart, CompileOutputTextbox.Document.ContentEnd).Text);
+            }
+            catch (Exception ex)
+            {
+                // Another program (a clipboard manager, a remote desktop session) can hold the
+                // clipboard open, which makes SetText throw.
+                CompilePalLogger.LogLineColor($"Could not copy the log to the clipboard: {ex.Message}", 3);
+            }
         }
 
         private void SaveLogButton_OnClick(object sender, RoutedEventArgs e)
@@ -2562,7 +2596,14 @@ namespace CompilePalX
             if (dialog.ShowDialog() == true)
             {
                 string text = new TextRange(CompileOutputTextbox.Document.ContentStart, CompileOutputTextbox.Document.ContentEnd).Text;
-                File.WriteAllText(dialog.FileName, text);
+                try
+                {
+                    File.WriteAllText(dialog.FileName, text);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    CompilePalLogger.LogLineColor($"Could not save the log to {dialog.FileName}: {ex.Message}", 3);
+                }
             }
         }
 

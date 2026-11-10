@@ -158,7 +158,10 @@ namespace CompilePalX
             if (Process is null || Process.Id == 0 || Process.HasExited)
                 return;
 
-            Process.Kill();
+            // The whole tree: a plugin's own children (Viswright's vbsp/vvis, Shipwright's
+            // gmpublish) only stop on the plugin's Ctrl+C handler, which killing the plugin
+            // never runs, so they kept running and holding files after a cancel.
+            Process.Kill(entireProcessTree: true);
             CompilePalLogger.LogLineColor("\nKilled {0}.", 4, this.Metadata.Name);
         }
 

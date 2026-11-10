@@ -66,6 +66,9 @@ namespace CompilePalX.Compilers
                     return;
                 }
                 Process.Start();
+
+                if (ChildProcessJob.ShouldAdopt(Metadata.Path, Process.StartInfo.FileName))
+                    ChildProcessJob.Adopt(Process);
             }
             catch (Exception e)
             {
